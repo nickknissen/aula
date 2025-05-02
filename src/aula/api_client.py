@@ -1,0 +1,327 @@
+import json
+import logging
+from typing import Dict, List, Optional
+
+import httpx
+from bs4 import BeautifulSoup
+
+from .const import (
+    API_URL,
+    API_VERSION,
+    EASYIQ_API,
+    MIN_UDDANNELSE_API,
+    SYSTEMATIC_API,
+    USER_AGENT,
+)
+
+from .models import (
+    Appointment,
+    CalendarEvent,
+    Child,
+    DailyOverview,
+    Message,
+    MessageThread,
+    Profile,
+    ProfileContext,
+)
+
+# Logger
+_LOGGER = logging.getLogger(__name__)
+
+
+class AulaApiClient:
+    """
+    Async client for Aula API endpoints and parsing.
+    Based on work of https://github.com/scaarup/aula
+    """
+
+    def __init__(self, username: str, password: str):
+        self.username = username
+        self.password = password
+        self.api_url = f"{API_URL}{API_VERSION}"
+        self._client: Optional[httpx.AsyncClient] = None
+
+    async def login(self) -> None:
+        """Authenticate and discover latest API URL."""
+        self._client = httpx.AsyncClient(follow_redirects=True)
+        # 1. Initial login page
+        resp = await self._client.get(
+            "https://login.aula.dk/auth/login.php",
+            params={"type": "unilogin"},
+            headers={"User-Agent": USER_AGENT},
+        )
+        soup = BeautifulSoup(resp.text, "lxml")
+        # Ensure login form is present
+        form = soup.find("form")
+        if not form or not form.has_attr("action"):
+            _LOGGER.error(
+                "Login form not found (status %s). Response body: %s",
+                resp.status_code,
+                resp.text[:200],
+            )
+            raise RuntimeError("Unable to locate login form in Aula login page")
+
+        # 2. Select uni_idp
+        resp = await self._client.post(
+            form["action"],
+            data={"selectedIdp": "uni_idp"},
+            headers={
+                "User-Agent": USER_AGENT,
+                "Content-Type": "application/x-www-form-urlencoded",
+            },
+        )
+        # 3. Credentials
+        # follow redirects and 2FA forms
+        user_data = {
+            "username": self.username,
+            "password": self.password,
+            "selected-aktoer": "KONTAKT",
+        }
+        for i in range(10):
+            _LOGGER.debug(f"Login redirect loop {i}")
+
+            soup = BeautifulSoup(resp.text, "lxml")
+            data = {
+                inp["name"]: inp.get("value")
+                for inp in soup.find_all("input")
+                if inp.has_attr("name")
+            }
+            data.update(user_data)
+            resp = await self._client.post(soup.form["action"], data=data)
+            # httpx.Response.url is a URL object; convert to string before checking prefix
+            if resp.url == "https://www.aula.dk:443/portal/":
+                break
+
+        await self.set_correct_api_version()
+
+    async def set_correct_api_version(self) -> None:
+        api_version = int(API_VERSION)
+        while True:
+            version_check = await self._client.get(
+                f"{self.api_url}?method=profiles.getProfilesByLogin"
+            )
+            if version_check.status_code == 410:
+                api_version += 1
+                continue
+            if version_check.status_code == 200:
+                self.api_url = f"{API_URL}{api_version}"
+                break
+            version_check.raise_for_status()
+
+    async def get_profile(self) -> Profile:
+        resp = await self._client.get(
+            f"{self.api_url}?method=profiles.getProfilesByLogin"
+        )
+        resp.raise_for_status()  # Ensure request was successful
+        raw_data_list = resp.json().get("data", {}).get("profiles", [])
+
+        if not raw_data_list:
+            raise ValueError("No profile data found in API response")
+
+        # Assume the first profile in the list is the target
+        profile_dict = raw_data_list[0]
+
+        # Parse children
+        children = []
+        raw_children = profile_dict.get("children", [])
+        if isinstance(raw_children, list):
+            for child_dict in raw_children:
+                if not isinstance(child_dict, dict):
+                    continue
+                try:
+                    children.append(
+                        Child(
+                            _raw=child_dict,
+                            id=int(child_dict.get("id")),
+                            profile_id=int(child_dict.get("profileId")),
+                            name=str(child_dict.get("name", "N/A")),
+                            institution_code=str(
+                                child_dict.get("institutionCode", None)
+                            ),
+                            profile_picture=str(
+                                child_dict.get("profilePicture", {}).get("url", None)
+                            ),
+                        )
+                    )
+                except (TypeError, ValueError) as e:
+                    _LOGGER.warning(
+                        f"Skipping child due to parsing error: {e} - Data: {child_dict}"
+                    )
+
+        # Parse main profile
+        try:
+            profile = Profile(
+                _raw=profile_dict,
+                profile_id=int(profile_dict.get("profileId")),
+                display_name=str(profile_dict.get("displayName", "N/A")),
+                children=children,
+            )
+        except (TypeError, ValueError) as e:
+            _LOGGER.error(f"Failed to parse main profile: {e} - Data: {profile_dict}")
+            raise ValueError("Failed to parse main profile data") from e
+
+        return profile
+
+    async def is_logged_in(self) -> bool:
+        """Check if session is still authenticated."""
+        if not self._client:
+            return False
+
+        try:
+            await self.get_profile()
+        except Exception as e:
+            _LOGGER.debug(f"is_logged_in check failed: {e}")
+            return False
+        return True
+
+    async def get_profile_context(self) -> ProfileContext:
+        resp = await self._client.get(
+            f"{self.api_url}?method=profiles.getProfileContext"
+        )
+        resp.raise_for_status()
+        return ProfileContext(_raw=resp.json())
+
+    async def get_daily_overview(self, child_id: int) -> DailyOverview:
+        """Fetches the daily overview for a specific child."""
+        resp = await self._client.get(
+            f"{self.api_url}?method=presence.getDailyOverview&childIds[]={child_id}"
+        )
+        return DailyOverview.from_dict(resp.json())
+
+    async def get_message_threads(self) -> List[MessageThread]:
+        resp = await self._client.get(
+            f"{self.api_url}?method=messaging.getThreads&sortOn=date&orderDirection=desc&page=0"
+        )
+        return [MessageThread(_raw=t) for t in resp.json()["data"]["threads"]]
+
+    async def get_messages_for_thread(self, thread_id: int) -> Message:
+        resp = await self._client.get(
+            f"{self.api_url}?method=messaging.getMessagesForThread&threadId={thread_id}&page=0"
+        )
+        data = resp.json()
+        for msg in data.get("data", {}).get("messages", []):
+            if msg.get("messageType") == "Message":
+                text = msg.get("text", {}).get("html") or msg.get("text", "")
+                return Message(_raw=msg, id=msg.get("id"), content_html=text)
+        return Message(_raw={}, id="", content_html="")
+
+    async def get_calendar_events(
+        self, inst_profile_ids: List[str], start: str, end: str
+    ) -> CalendarEvent:
+        payload = json.dumps(
+            {
+                "instProfileIds": inst_profile_ids,
+                "resourceIds": [],
+                "start": start,
+                "end": end,
+            }
+        )
+        resp = await self._client.post(
+            f"{self.api_url}?method=calendar.getEventsByProfileIdsAndResourceIds",
+            content=payload,
+            headers={"content-type": "application/json"},
+        )
+        data = resp.json()
+        event = data.get("data", {}).get("events", [{}])[0]
+        return CalendarEvent(
+            _raw=event, event_id=event.get("eventId"), title=event.get("title")
+        )
+
+    async def get_mu_tasks(
+        self, widget_id: str, child_filter: List[str], week: str
+    ) -> Appointment:
+        token = await self._get_bearer_token(widget_id)
+        url = f"{MIN_UDDANNELSE_API}/opgaveliste?assuranceLevel=2&childFilter={','.join(child_filter)}&currentWeekNumber={week}&isMobileApp=false&placement=narrow"
+        resp = await self._client.get(url, headers={"Authorization": token})
+        data = resp.json()
+        appointment = data.get("data", {}).get("appointments", [{}])[0]
+        return Appointment(
+            _raw=appointment,
+            appointment_id=appointment.get("appointmentId"),
+            title=appointment.get("title"),
+        )
+
+    async def get_ugeplan(
+        self, widget_id: str, child_filter: List[str], week: str
+    ) -> Appointment:
+        token = await self._get_bearer_token(widget_id)
+        url = f"{MIN_UDDANNELSE_API}/ugebrev?assuranceLevel=2&childFilter={','.join(child_filter)}&currentWeekNumber={week}&isMobileApp=false&placement=narrow"
+        resp = await self._client.get(url, headers={"Authorization": token})
+        data = resp.json()
+        appointment = data.get("data", {}).get("appointments", [{}])[0]
+        return Appointment(
+            _raw=appointment,
+            appointment_id=appointment.get("appointmentId"),
+            title=appointment.get("title"),
+        )
+
+    async def get_easyiq_weekplan(
+        self, week: str, session_uuid: str, institution_filter: List[str], child_id: str
+    ) -> Appointment:
+        token = await self._get_bearer_token("0001")
+        headers = {
+            "Authorization": token,
+            "x-aula-institutionfilter": ",".join(institution_filter),
+        }
+        payload = {
+            "sessionId": session_uuid,
+            "currentWeekNr": week,
+            "userProfile": "guardian",
+            "institutionFilter": institution_filter,
+            "childFilter": [child_id],
+        }
+        resp = await self._client.post(
+            f"{EASYIQ_API}/weekplaninfo", json=payload, headers=headers
+        )
+        data = resp.json()
+        appointment = data.get("data", {}).get("appointments", [{}])[0]
+        return Appointment(
+            _raw=appointment,
+            appointment_id=appointment.get("appointmentId"),
+            title=appointment.get("title"),
+        )
+
+    async def get_huskeliste(
+        self, children: List[str], institutions: List[str]
+    ) -> Appointment:
+        token = await self._get_bearer_token("0062")
+        params = {
+            "children": ",".join(children),
+            "institutions": ",".join(institutions),
+        }
+        resp = await self._client.get(
+            f"{SYSTEMATIC_API}/reminders/v1",
+            params=params,
+            headers={"Aula-Authorization": token},
+        )
+        data = resp.json()
+        appointment = data.get("data", {}).get("appointments", [{}])[0]
+        return Appointment(
+            _raw=appointment,
+            appointment_id=appointment.get("appointmentId"),
+            title=appointment.get("title"),
+        )
+
+    async def _get_bearer_token(self, widget_id: str) -> str:
+        # reuse or fetch new
+        # simplistic: always fetch
+        resp = await self._client.get(
+            f"{self.api_url}?method=aulaToken.getAulaToken&widgetId={widget_id}"
+        )
+        token = "Bearer " + str(resp.json()["data"])
+        return token
+
+    async def update_data(self) -> Dict:
+        """Orchestrate all endpoints and return consolidated data."""
+        if not await self.is_logged_in():
+            await self.login()
+        # profiles
+        profile = await self.get_profile()
+        # context
+        ctx = await self.get_profile_context()
+        # build children lists
+        # ... implement grouping as needed
+        return {
+            "profile": profile,
+            "context": ctx,
+        }
