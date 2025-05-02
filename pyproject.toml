@@ -1,0 +1,25 @@
+[project]
+name = "aula"
+version = "0.1.0"
+description = "Python API wrapper for Aula."
+readme = "README.md"
+authors = [
+    { name = "Nick Nissen", email = "nickknissen@gmail.com" }
+]
+requires-python = ">=3.9"
+dependencies = [
+    "beautifulsoup4>=4.12.3",
+    "lxml>=5.3.0",
+    "httpx>=0.28.1",
+    "click",
+]
+packages = [ { include = "py_aula", from = "src" } ]
+
+[project.scripts]
+aula = "aula.__main__:main"
+
+
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
