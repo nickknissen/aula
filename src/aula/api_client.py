@@ -129,20 +129,7 @@ class AulaApiClient:
                 if not isinstance(child_dict, dict):
                     continue
                 try:
-                    children.append(
-                        Child(
-                            _raw=child_dict,
-                            id=int(child_dict.get("id")),
-                            profile_id=int(child_dict.get("profileId")),
-                            name=str(child_dict.get("name", "N/A")),
-                            institution_code=str(
-                                child_dict.get("institutionCode", None)
-                            ),
-                            profile_picture=str(
-                                child_dict.get("profilePicture", {}).get("url", None)
-                            ),
-                        )
-                    )
+                    children.append(Child.from_dict(child_dict))
                 except (TypeError, ValueError) as e:
                     _LOGGER.warning(
                         f"Skipping child due to parsing error: {e} - Data: {child_dict}"

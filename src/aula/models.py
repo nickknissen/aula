@@ -31,6 +31,26 @@ class Child(AulaDataClass):
     profile_picture: str
     _raw: Optional[dict] = field(default=None, repr=False)
 
+    @classmethod
+    def from_dict(cls, data: dict) -> "Child":
+        """Parses the raw dictionary data into a Child object."""
+        # Basic parsing, assumes 'data' is the child dictionary
+        try:
+            return cls(
+                _raw=data,
+                id=int(data.get("id")),
+                profile_id=int(data.get("profileId")),
+                name=str(data.get("name", "N/A")),
+                institution_code=str(data.get("institutionCode", None)),
+                profile_picture=str(data.get("profilePicture", {}).get("url", None)),
+            )
+        except (TypeError, ValueError) as e:
+            _LOGGER.warning(f"Error parsing Child data: {e} - Data: {data}")
+            # Decide on error handling: raise, return None, or return partial object
+            # Returning a partially filled object or raising might be options
+            # For now, re-raising to signal failure clearly
+            raise ValueError(f"Could not parse Child from data: {data}") from e
+
 
 @dataclass
 class Profile(AulaDataClass):
