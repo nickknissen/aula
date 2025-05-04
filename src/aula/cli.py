@@ -1,9 +1,7 @@
 #!/usr/bin/env python3
 import asyncio
 import functools
-import json
 import sys
-from dataclasses import asdict
 from typing import List
 
 import click
@@ -108,8 +106,10 @@ async def profile(ctx):
 @async_cmd
 async def overview(ctx, child_id):
     """Fetch the daily overview for a child or all children."""
+    click.echo("Fetching overview...")
     client: AulaApiClient = await _get_client(ctx)
     child_ids = []
+    click.echo("Client ready...")
 
     if child_id:
         child_ids.append(child_id)

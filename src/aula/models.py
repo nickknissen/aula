@@ -1,14 +1,35 @@
 import dataclasses
 import logging
 from dataclasses import dataclass, field
+from enum import Enum
 from typing import Any, List, Optional
 
 import html2text
 
-from .const import DAILY_OVERVIEW_STATUS_TEXT
-
 # Logger
 _LOGGER = logging.getLogger(__name__)
+
+
+class PresenceState(Enum):
+    NOT_PRESENT = 0  # Ikke kommet
+    SICK = 1  # Syg
+    REPORTED_ABSENT = 2  # Ferie/fri
+    PRESENT = 3  # Til stede
+    FIELDTRIP = 4  # På tur
+    SLEEPING = 5  # Sover
+    SPARE_TIME_ACTIVITY = 6  # Til aktivitet
+    PHYSICAL_PLACEMENT = 7  # Fysisk placering
+    CHECKED_OUT = 8  # Gået
+
+    @classmethod
+    def get_display_name(cls, value: int) -> str:
+        """Return a user-friendly display name for the status value."""
+        try:
+            member = cls(value)
+            # Replace underscores with spaces and capitalize words for display
+            return member.name.replace("_", " ").title()
+        except ValueError:
+            return "Unknown Status"
 
 
 # Base Data model
@@ -127,8 +148,7 @@ class DailyOverview(AulaDataClass):
     id: Optional[int] = None
     institution_profile: Optional[InstitutionProfile] = None
     main_group: Optional[MainGroup] = None
-    status: Optional[int] = None
-    status_text: Optional[str] = None
+    status: Optional[PresenceState] = None
     location: Optional[str] = None
     sleep_intervals: List[Any] = dataclasses.field(default_factory=list)
     check_in_time: Optional[str] = None
@@ -141,10 +161,19 @@ class DailyOverview(AulaDataClass):
 
     @classmethod
     def from_dict(cls, raw_data: dict) -> "DailyOverview":
+        status_value = raw_data.get("status")
+        presence_status = None
+        if status_value is not None:
+            try:
+                presence_status = PresenceState(status_value)
+            except ValueError:
+                _LOGGER.warning(
+                    f"Unknown presence status value received: {status_value}"
+                )
+
         return cls(
             id=raw_data.get("id"),
-            status=raw_data.get("status"),
-            status_text=DAILY_OVERVIEW_STATUS_TEXT[raw_data.get("status")],
+            status=presence_status,
             location=raw_data.get("location"),
             sleep_intervals=raw_data.get("sleepIntervals", []),
             check_in_time=raw_data.get("checkInTime"),
