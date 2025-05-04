@@ -4,6 +4,7 @@ import functools
 import json
 import sys
 from dataclasses import asdict
+from typing import List
 
 import click
 
@@ -11,7 +12,8 @@ import click
 if sys.platform.startswith("win"):
     asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
 
-from .api_client import AulaApiClient, Profile, DailyOverview
+from .api_client import AulaApiClient, DailyOverview, Profile
+from .models import Message, MessageThread
 
 
 # Decorator to run async functions within Click commands
@@ -134,3 +136,59 @@ async def overview(ctx, child_id):
 
         except Exception as e:
             click.echo(f"Error fetching overview for child ID {c_id}: {e}")
+
+
+@cli.command()
+@click.option("--limit", type=int, default=5, help="Number of threads to fetch.")
+@click.pass_context
+@async_cmd
+async def messages(ctx, limit):
+    """Fetch the latest message threads and their messages."""
+    client: AulaApiClient = await _get_client(ctx)
+    click.echo(f"Fetching the latest {limit} message threads...")
+
+    try:
+        threads: List[MessageThread] = await client.get_message_threads()
+        threads = threads[:limit]  # Apply limit if necessary
+    except Exception as e:
+        click.echo(f"Error fetching message threads: {e}")
+        return
+
+    if not threads:
+        click.echo("No message threads found.")
+        return
+
+    for i, thread in enumerate(threads):
+        click.echo(f"\n--- Thread {i + 1}/{len(threads)} (ID: {thread.thread_id}) ---")
+        # Print thread details (you might want to add more from MessageThread model)
+        click.echo(f"Subject: {thread.subject}")
+        # Access data from the _raw dictionary
+        last_updated_str = (
+            thread._raw.get("lastUpdatedDate", "N/A") if thread._raw else "N/A"
+        )
+        participants_list = thread._raw.get("participants", []) if thread._raw else []
+        click.echo(f"Last Updated: {last_updated_str}")
+        click.echo(
+            f"Participants: {', '.join(p.get('name', 'N/A') for p in participants_list)}"
+        )
+
+        click.echo("  Fetching latest messages...")
+        try:
+            messages_list: List[Message] = await client.get_messages_for_thread(
+                thread.thread_id
+            )
+            if not messages_list:
+                click.echo("  No messages found in this thread.")
+            else:
+                click.echo(f"  Latest {len(messages_list)} Messages:")
+                for j, msg in enumerate(messages_list):
+                    click.echo(
+                        f"    {j + 1}. ID: {msg.id}\n       Content: {msg.content}"
+                    )
+
+        except Exception as e:
+            click.echo(f"  Error fetching messages for thread {thread.thread_id}: {e}")
+
+
+if __name__ == "__main__":
+    cli()

@@ -1,10 +1,15 @@
 import dataclasses
 import logging
 from dataclasses import dataclass, field
-from typing import List, Optional, Any
+from typing import Any, List, Optional
+
+import html2text
+
+from .const import DAILY_OVERVIEW_STATUS_TEXT
 
 # Logger
 _LOGGER = logging.getLogger(__name__)
+
 
 # Base Data model
 @dataclass
@@ -33,23 +38,14 @@ class Child(AulaDataClass):
 
     @classmethod
     def from_dict(cls, data: dict) -> "Child":
-        """Parses the raw dictionary data into a Child object."""
-        # Basic parsing, assumes 'data' is the child dictionary
-        try:
-            return cls(
-                _raw=data,
-                id=int(data.get("id")),
-                profile_id=int(data.get("profileId")),
-                name=str(data.get("name", "N/A")),
-                institution_code=str(data.get("institutionCode", None)),
-                profile_picture=str(data.get("profilePicture", {}).get("url", None)),
-            )
-        except (TypeError, ValueError) as e:
-            _LOGGER.warning(f"Error parsing Child data: {e} - Data: {data}")
-            # Decide on error handling: raise, return None, or return partial object
-            # Returning a partially filled object or raising might be options
-            # For now, re-raising to signal failure clearly
-            raise ValueError(f"Could not parse Child from data: {data}") from e
+        return cls(
+            _raw=data,
+            id=data.get("id"),
+            profile_id=data.get("profileId"),
+            name=data.get("name"),
+            institution_code=data.get("institutionCode"),
+            profile_picture=data.get("profilePicture", {}).get("url"),
+        )
 
 
 @dataclass
@@ -128,11 +124,11 @@ class MainGroup(AulaDataClass):
 
 @dataclass
 class DailyOverview(AulaDataClass):
-    overview_id: Optional[int] = None
+    id: Optional[int] = None
     institution_profile: Optional[InstitutionProfile] = None
     main_group: Optional[MainGroup] = None
-    status_code: Optional[int] = field(init=False) 
     status: Optional[int] = None
+    status_text: Optional[str] = None
     location: Optional[str] = None
     sleep_intervals: List[Any] = dataclasses.field(default_factory=list)
     check_in_time: Optional[str] = None
@@ -143,51 +139,25 @@ class DailyOverview(AulaDataClass):
     comment: Optional[str] = None
     _raw: Optional[dict] = field(default=None, repr=False)
 
-    @property
-    def status_text(self) -> str:
-        """Returns the human-readable status string based on the status code."""
-        from .const import DAILY_OVERVIEW_STATUS_TEXT 
-        if self.status_code is not None and 0 <= self.status_code < len(DAILY_OVERVIEW_STATUS_TEXT):
-            return DAILY_OVERVIEW_STATUS_TEXT[self.status_code]
-        elif self.status_code is not None:
-            return f"Unknown Status ({self.status_code})"
-        else:
-            return "Status N/A"
-
     @classmethod
     def from_dict(cls, raw_data: dict) -> "DailyOverview":
-        """Parses the raw dictionary data (expected list item) into a DailyOverview object."""
-        instance = cls(_raw=raw_data) 
-
-        data = raw_data 
-
-        if isinstance(raw_data.get("data"), list) and raw_data["data"]:
-            data = raw_data["data"][0] # If it's wrapped in {'data': [overview_dict]}
-        else:
-            _LOGGER.warning(f"Could not parse DailyOverview from raw data: {raw_data}")
-            return instance # Return partially initialized instance
-
-        instance.overview_id = data.get("id")
-
-        inst_profile_data = data.get("institutionProfile")
-        if inst_profile_data:
-            instance.institution_profile = InstitutionProfile.from_dict(inst_profile_data)
-
-        main_group_data = data.get("mainGroup")
-        if main_group_data:
-            instance.main_group = MainGroup.from_dict(main_group_data)
-
-        instance.status_code = data.get("status") 
-        instance.location = data.get("location")
-        instance.sleep_intervals = data.get("sleepIntervals", [])
-        instance.check_in_time = data.get("checkInTime")
-        instance.check_out_time = data.get("checkOutTime")
-        instance.entry_time = data.get("entryTime")
-        instance.exit_time = data.get("exitTime")
-        instance.exit_with = data.get("exitWith")
-        instance.comment = data.get("comment")
-
-        return instance
+        return cls(
+            id=raw_data.get("id"),
+            status=raw_data.get("status"),
+            status_text=DAILY_OVERVIEW_STATUS_TEXT[raw_data.get("status")],
+            location=raw_data.get("location"),
+            sleep_intervals=raw_data.get("sleepIntervals", []),
+            check_in_time=raw_data.get("checkInTime"),
+            check_out_time=raw_data.get("checkOutTime"),
+            entry_time=raw_data.get("entryTime"),
+            exit_time=raw_data.get("exitTime"),
+            exit_with=raw_data.get("exitWith"),
+            comment=raw_data.get("comment"),
+            institution_profile=InstitutionProfile.from_dict(
+                raw_data.get("institutionProfile")
+            ),
+            main_group=MainGroup.from_dict(raw_data.get("mainGroup")),
+        )
 
 
 @dataclass
@@ -209,6 +179,42 @@ class Message(AulaDataClass):
     id: str
     content_html: str
     _raw: Optional[dict] = field(default=None, repr=False)
+
+    @property
+    def content(self) -> str:
+        """Return the plain text content stripped from HTML."""
+        if not self.content_html:
+            return ""
+        try:
+            h = html2text.HTML2Text()
+            h.images_to_alt = True
+            h.single_line_break = True
+            h.ignore_emphasis = True
+            h.ignore_links = True
+            h.ignore_tables = True
+            markdown = h.handle(self.content_html)
+            return markdown.strip()
+        except Exception as e:
+            _LOGGER.warning(f"Error parsing HTML content for message {self.id}: {e}")
+            return self.content_html  # Fallback to raw HTML if parsing fails
+
+    @property
+    def content_markdown(self) -> str:
+        """Return the content converted to Markdown format."""
+        if not self.content_html:
+            return ""
+        try:
+            h = html2text.HTML2Text()
+            # Configure html2text options if needed, e.g.:
+            # h.ignore_links = True
+            # h.ignore_images = True
+            markdown = h.handle(self.content_html)
+            return markdown.strip()
+        except Exception as e:
+            _LOGGER.warning(
+                f"Error converting HTML to Markdown for message {self.id}: {e}"
+            )
+            return self.content_html  # Fallback to raw HTML if conversion fails
 
 
 @dataclass
