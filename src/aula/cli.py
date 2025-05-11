@@ -3,6 +3,7 @@ import asyncio
 import functools
 import sys
 from typing import List
+import datetime
 
 import click
 
@@ -188,6 +189,71 @@ async def messages(ctx, limit):
 
         except Exception as e:
             click.echo(f"  Error fetching messages for thread {thread.thread_id}: {e}")
+
+
+@cli.command()
+@click.option(
+    "--child-id", multiple=True, type=int, help="Filter events by specific child ID(s)."
+)
+@click.option(
+    "--start-date",
+    type=click.DateTime(formats=["%Y-%m-%d"]),
+    default=datetime.datetime.now(datetime.timezone.utc),
+    help="Start date for events (YYYY-MM-DD). Defaults to today.",
+)
+@click.option(
+    "--end-date",
+    type=click.DateTime(formats=["%Y-%m-%d"]),
+    default=(datetime.datetime.now(datetime.timezone.utc) + datetime.timedelta(days=7)),
+    help="End date for events (YYYY-MM-DD). Defaults to 7 days from today.",
+)
+@click.pass_context
+@async_cmd
+async def calendar(ctx, child_id, start_date, end_date):
+    """Fetch calendar events for children."""
+    client: AulaApiClient = await _get_client(ctx)
+    click.echo("Fetching calendar events...")
+
+    target_child_ids = list(child_id)
+
+    # If no specific child IDs provided, get all associated children
+    if not target_child_ids:
+        try:
+            profile = await client.get_profile()
+            target_child_ids = [c.id for c in profile.children]
+            if not target_child_ids:
+                click.echo("No children found associated with this profile.")
+                return
+            click.echo(
+                f"Fetching for all children: {', '.join(map(str, target_child_ids))}"
+            )
+        except Exception as e:
+            click.echo(f"Error fetching profile to get child IDs: {e}")
+            return
+    else:
+        click.echo(f"Fetching for children: {', '.join(map(str, target_child_ids))}")
+
+    # Convert dates to datetime objects required by API client
+    start_dt = datetime.datetime.combine(start_date, datetime.time.min)
+    end_dt = datetime.datetime.combine(end_date, datetime.time.max)
+
+    try:
+        events = await client.get_calendar_events(target_child_ids, start_dt, end_dt)
+
+        if not events:
+            click.echo("No calendar events found for the specified criteria.")
+            return
+
+        click.echo("\n--- Calendar Events ---")
+        for event in events:
+            click.echo(f"ID: {event.event_id}")
+            click.echo(f"Title: {event.title}")
+            # Optionally display more details from event._raw if needed
+            # click.echo(f"Raw: {event._raw}")
+            click.echo("--")
+
+    except Exception as e:
+        click.echo(f"Error fetching calendar events: {e}")
 
 
 if __name__ == "__main__":

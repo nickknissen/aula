@@ -1,4 +1,5 @@
 import dataclasses
+import datetime
 import logging
 from dataclasses import dataclass, field
 from enum import Enum
@@ -255,6 +256,7 @@ class Appointment(AulaDataClass):
 
 @dataclass
 class CalendarEvent(AulaDataClass):
-    event_id: str
+    id: int
     title: str
+    start_datetime = datetime.datetime
     _raw: Optional[dict] = field(default=None, repr=False)

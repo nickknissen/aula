@@ -1,6 +1,6 @@
 # Aula: Python Aula API Client Library
 
-Python library for interacting with the Aula platform API.
+Python library for interacting with the Aula platform.
 
 This library provides an asynchronous client (`AulaApiClient`) to fetch data such as profiles, daily overviews, messages, and calendar events from Aula.
 

@@ -1,5 +1,7 @@
+from datetime import datetime, timezone, timedelta
 import json
 import logging
+import pprint
 from typing import Dict, List, Optional
 
 import httpx
@@ -22,6 +24,7 @@ from .models import (
     MessageThread,
     Profile,
     ProfileContext,
+    # PresenceState # Removed unused import
 )
 
 # Logger
@@ -180,23 +183,25 @@ class AulaApiClient:
         )
         resp.raise_for_status()
         threads_data = resp.json().get("data", {}).get("threads", [])
-        
+
         threads = []
         for t_dict in threads_data:
             try:
                 thread = MessageThread(
-                    thread_id=t_dict.get('id'), 
-                    subject=t_dict.get('subject'),
-                    _raw=t_dict # Keep passing raw data as well
+                    thread_id=t_dict.get("id"),
+                    subject=t_dict.get("subject"),
+                    _raw=t_dict,  # Keep passing raw data as well
                 )
                 threads.append(thread)
             except (TypeError, ValueError, KeyError) as e:
-                 _LOGGER.warning(
+                _LOGGER.warning(
                     f"Skipping message thread due to initialization error: {e} - Data: {t_dict}"
                 )
         return threads
 
-    async def get_messages_for_thread(self, thread_id: int, limit: int = 5) -> List[Message]:
+    async def get_messages_for_thread(
+        self, thread_id: int, limit: int = 5
+    ) -> List[Message]:
         """Fetches the latest messages for a specific thread."""
         resp = await self._client.get(
             f"{self.api_url}?method=messaging.getMessagesForThread&threadId={thread_id}&page=0&limit={limit}"
@@ -205,43 +210,77 @@ class AulaApiClient:
         data = resp.json()
         messages = []
         raw_messages = data.get("data", {}).get("messages", [])
-        
+
         for msg_dict in raw_messages:
             if msg_dict.get("messageType") == "Message":
                 try:
-                    text = msg_dict.get("text", {}).get("html") or msg_dict.get("text", "")
-                    messages.append(Message(_raw=msg_dict, id=msg_dict.get("id"), content_html=text))
+                    text = msg_dict.get("text", {}).get("html") or msg_dict.get(
+                        "text", ""
+                    )
+                    messages.append(
+                        Message(_raw=msg_dict, id=msg_dict.get("id"), content_html=text)
+                    )
                 except (TypeError, ValueError) as e:
-                     _LOGGER.warning(
+                    _LOGGER.warning(
                         f"Skipping message due to parsing error: {e} - Data: {msg_dict}"
                     )
             # Stop if we have reached the limit
             if len(messages) >= limit:
                 break
-                
+
         return messages
 
     async def get_calendar_events(
-        self, inst_profile_ids: List[str], start: str, end: str
-    ) -> CalendarEvent:
-        payload = json.dumps(
-            {
-                "instProfileIds": inst_profile_ids,
-                "resourceIds": [],
-                "start": start,
-                "end": end,
-            }
+        self, child_ids: List[int], start: datetime, end: datetime
+    ) -> List[CalendarEvent]:
+        start = datetime.now(timezone.utc).strftime("%Y-%m-%d 00:00:00.0000%z")
+        end = (datetime.now(timezone.utc) + timedelta(days=1)).strftime(
+            "%Y-%m-%d 00:00:00.0000%z"
         )
+        data = {
+            "instProfileIds": child_ids,
+            "resourceIds": [],
+            "start": start,
+            "end": end,
+        }
+
+        csrf_token = None
+        if self._client and self._client.cookies:
+            csrf_token = self._client.cookies.get("Csrfp-Token")
+
         resp = await self._client.post(
             f"{self.api_url}?method=calendar.getEventsByProfileIdsAndResourceIds",
-            content=payload,
-            headers={"content-type": "application/json"},
+            headers={"content-type": "application/json", "csrfp-token": csrf_token},
+            json=data,
         )
+
+        resp.raise_for_status()
         data = resp.json()
-        event = data.get("data", {}).get("events", [{}])[0]
-        return CalendarEvent(
-            _raw=event, event_id=event.get("eventId"), title=event.get("title")
-        )
+
+        events = []
+        raw_events = data.get("data", [])
+        if not isinstance(raw_events, list):
+            _LOGGER.warning(f"Unexpected data format for calendar events: {raw_events}")
+            return []
+
+        for event in raw_events:
+            try:
+                events.append(
+                    CalendarEvent(
+                        id=event.get("id"),
+                        title=event.get("title"),
+                        start_datetime=datetime.fromisoformat(
+                            event.get("startDateTime")
+                        ),
+                        _raw=event,
+                    )
+                )
+            except (TypeError, ValueError, KeyError) as e:
+                _LOGGER.warning(
+                    f"Skipping calendar event due to initialization error: {e} - Data: {event}"
+                )
+
+        return events
 
     async def get_mu_tasks(
         self, widget_id: str, child_filter: List[str], week: str
