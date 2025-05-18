@@ -3,6 +3,7 @@ import json
 import logging
 import pprint
 from typing import Dict, List, Optional
+import pytz
 
 import httpx
 from bs4 import BeautifulSoup
@@ -137,6 +138,8 @@ class AulaApiClient:
                         f"Skipping child due to parsing error: {e} - Data: {child_dict}"
                     )
 
+        institution_profile_ids = [ip.get("id") for ip in profile_dict.get("institutionProfiles", [])]
+        
         # Parse main profile
         try:
             profile = Profile(
@@ -144,6 +147,7 @@ class AulaApiClient:
                 profile_id=int(profile_dict.get("profileId")),
                 display_name=str(profile_dict.get("displayName", "N/A")),
                 children=children,
+                institution_profile_ids=institution_profile_ids,
             )
         except (TypeError, ValueError) as e:
             _LOGGER.error(f"Failed to parse main profile: {e} - Data: {profile_dict}")
@@ -231,14 +235,15 @@ class AulaApiClient:
         return messages
 
     async def get_calendar_events(
-        self, child_ids: List[int], start: datetime, end: datetime
+        self, institution_profile_ids: List[int], start: datetime, end: datetime
     ) -> List[CalendarEvent]:
-        start = datetime.now(timezone.utc).strftime("%Y-%m-%d 00:00:00.0000%z")
-        end = (datetime.now(timezone.utc) + timedelta(days=1)).strftime(
-            "%Y-%m-%d 00:00:00.0000%z"
+        start = datetime.now(pytz.timezone("CET")).strftime("%Y-%m-%d 00:00:00.0000%z")
+        end = (datetime.now(pytz.timezone("CET")) + timedelta(days=1)).strftime(
+            "%Y-%m-%d 23:59:59.0000%z"
         )
+
         data = {
-            "instProfileIds": child_ids,
+            "instProfileIds": institution_profile_ids,
             "resourceIds": [],
             "start": start,
             "end": end,
@@ -257,21 +262,31 @@ class AulaApiClient:
         resp.raise_for_status()
         data = resp.json()
 
+
         events = []
         raw_events = data.get("data", [])
         if not isinstance(raw_events, list):
             _LOGGER.warning(f"Unexpected data format for calendar events: {raw_events}")
             return []
 
+
         for event in raw_events:
+            pprint.pprint(event)
             try:
+                teacher = next((x for x in event.get("lesson", {}).get("participants", []) if x.get("participantRole") == "primaryTeacher"), {})
+                substitute = next((x for x in event.get("lesson", {}).get("participants", []) if x.get("participantRole") == "substituteTeacher"), {})
+                pprint.pprint(event)
                 events.append(
                     CalendarEvent(
                         id=event.get("id"),
                         title=event.get("title"),
-                        start_datetime=datetime.fromisoformat(
-                            event.get("startDateTime")
-                        ),
+                        start_datetime=datetime.fromisoformat(event.get("startDateTime")).astimezone(pytz.timezone("CET")),
+                        end_datetime=datetime.fromisoformat(event.get("endDateTime")).astimezone(pytz.timezone("CET")),
+                        teacher_name=teacher.get("teacherName"),
+                        has_substitute=event.get("lesson", {}).get("lessonStatus", "").lower() == "substitute",
+                        substitute_name=substitute.get("teacherName"),
+                        location=event.get("lesson", {}).get("primaryResource", {}).get("name"),
+                        belongs_to=event.get("belongsToProfiles")[0],
                         _raw=event,
                     )
                 )
