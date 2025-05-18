@@ -13,6 +13,7 @@ dependencies = [
     "httpx>=0.28.1",
     "click",
     "html2text>=2025.4.15",
+    "pytz>=2025.2",
 ]
 packages = [ { include = "py_aula", from = "src" } ]
 

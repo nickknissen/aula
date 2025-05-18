@@ -54,7 +54,7 @@ class Child(AulaDataClass):
     id: int
     profile_id: int
     name: str
-    institution_code: str
+    institution_name: str
     profile_picture: str
     _raw: Optional[dict] = field(default=None, repr=False)
 
@@ -65,7 +65,7 @@ class Child(AulaDataClass):
             id=data.get("id"),
             profile_id=data.get("profileId"),
             name=data.get("name"),
-            institution_code=data.get("institutionCode"),
+            institution_name=data.get("institutionProfile").get("institutionName"),
             profile_picture=data.get("profilePicture", {}).get("url"),
         )
 
@@ -75,6 +75,7 @@ class Profile(AulaDataClass):
     profile_id: int
     display_name: str
     children: List[Child] = field(default_factory=list)
+    institution_profile_ids: List[int] = field(default_factory=list)
     _raw: Optional[dict] = field(default=None, repr=False)
 
 
@@ -258,5 +259,11 @@ class Appointment(AulaDataClass):
 class CalendarEvent(AulaDataClass):
     id: int
     title: str
-    start_datetime = datetime.datetime
+    start_datetime: datetime.datetime 
+    end_datetime: datetime.datetime 
+    teacher_name: str
+    has_substitute: bool
+    substitute_name: Optional[str] 
+    location: Optional[str]
+    belongs_to: int
     _raw: Optional[dict] = field(default=None, repr=False)
