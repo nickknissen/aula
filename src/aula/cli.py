@@ -75,6 +75,7 @@ async def profile(ctx):
         return
 
     click.echo(f"User: {profile.display_name} (ID: {profile.profile_id})")
+    click.echo(f"├── Institution Profile IDs: {profile.institution_profile_ids}")
 
     # Print main profile attributes
     for k, v in profile:
@@ -86,7 +87,7 @@ async def profile(ctx):
         for i, child in enumerate(profile.children):
             child_prefix = "    └──" if i == len(profile.children) - 1 else "    ├──"
             click.echo(
-                f"{child_prefix} Child {i + 1}: {child.name} (ID: {child.profile_id})"
+                f"{child_prefix} Child {i + 1}: {child.name} (profile ID: {child.profile_id})"
             )
 
             # Print child attributes
@@ -193,7 +194,7 @@ async def messages(ctx, limit):
 
 @cli.command()
 @click.option(
-    "--child-id", multiple=True, type=int, help="Filter events by specific child ID(s)."
+    "--institution-profile-id", multiple=True, type=int, help="Filter events by specific child ID(s)."
 )
 @click.option(
     "--start-date",
@@ -209,36 +210,40 @@ async def messages(ctx, limit):
 )
 @click.pass_context
 @async_cmd
-async def calendar(ctx, child_id, start_date, end_date):
+async def calendar(ctx, institution_profile_id, start_date, end_date):
     """Fetch calendar events for children."""
     client: AulaApiClient = await _get_client(ctx)
     click.echo("Fetching calendar events...")
 
-    target_child_ids = list(child_id)
+    institution_profile_ids = list(institution_profile_id)
 
     # If no specific child IDs provided, get all associated children
-    if not target_child_ids:
+    if not institution_profile_ids:
         try:
             profile = await client.get_profile()
-            target_child_ids = [c.id for c in profile.children]
-            if not target_child_ids:
-                click.echo("No children found associated with this profile.")
+            child_ids = [c.id for c in profile.children]
+
+            institution_profile_ids = child_ids
+
+            if not institution_profile_ids:
+                click.echo("No children or institution IDs found associated with this profile.")
                 return
+
             click.echo(
-                f"Fetching for all children: {', '.join(map(str, target_child_ids))}"
+                f"Fetching for institution IDs: {', '.join(map(str, institution_profile_ids))}"
             )
         except Exception as e:
             click.echo(f"Error fetching profile to get child IDs: {e}")
             return
     else:
-        click.echo(f"Fetching for children: {', '.join(map(str, target_child_ids))}")
+        click.echo(f"Fetching for children: {', '.join(map(str, institution_profile_ids))}")
 
     # Convert dates to datetime objects required by API client
     start_dt = datetime.datetime.combine(start_date, datetime.time.min)
     end_dt = datetime.datetime.combine(end_date, datetime.time.max)
 
     try:
-        events = await client.get_calendar_events(target_child_ids, start_dt, end_dt)
+        events = await client.get_calendar_events(institution_profile_ids, start_dt, end_dt)
 
         if not events:
             click.echo("No calendar events found for the specified criteria.")
@@ -246,8 +251,20 @@ async def calendar(ctx, child_id, start_date, end_date):
 
         click.echo("\n--- Calendar Events ---")
         for event in events:
-            click.echo(f"ID: {event.event_id}")
+            click.echo(f"ID: {event.id}")
             click.echo(f"Title: {event.title}")
+            click.echo(f"Location: {event.location}")
+            click.echo(f"Belongs to: {event.belongs_to}")
+            #If start date and end date is the same show it on the same line
+            if event.start_datetime.date() == event.end_datetime.date():
+                click.echo(f"Date: {event.start_datetime.date()} {event.start_datetime.time()} - {event.end_datetime.time()}")
+            else:
+                click.echo(f"Start: {event.start_datetime}")
+                click.echo(f"End: {event.end_datetime}")
+            if (event.has_substitute):
+                click.echo(f"Substitute: {event.substitute_name}")
+            else:
+                click.echo(f"Teacher: {event.teacher_name}")
             # Optionally display more details from event._raw if needed
             # click.echo(f"Raw: {event._raw}")
             click.echo("--")
