@@ -95,9 +95,9 @@ class AulaApiClient:
             if resp.url == "https://www.aula.dk:443/portal/":
                 break
 
-        await self.set_correct_api_version()
+        await self._set_correct_api_version()
 
-    async def set_correct_api_version(self) -> None:
+    async def _set_correct_api_version(self) -> None:
         api_version = int(API_VERSION)
         while True:
             version_check = await self._client.get(
@@ -138,8 +138,10 @@ class AulaApiClient:
                         f"Skipping child due to parsing error: {e} - Data: {child_dict}"
                     )
 
-        institution_profile_ids = [ip.get("id") for ip in profile_dict.get("institutionProfiles", [])]
-        
+        institution_profile_ids = [
+            ip.get("id") for ip in profile_dict.get("institutionProfiles", [])
+        ]
+
         # Parse main profile
         try:
             profile = Profile(
@@ -237,16 +239,12 @@ class AulaApiClient:
     async def get_calendar_events(
         self, institution_profile_ids: List[int], start: datetime, end: datetime
     ) -> List[CalendarEvent]:
-        start = datetime.now(pytz.timezone("CET")).strftime("%Y-%m-%d 00:00:00.0000%z")
-        end = (datetime.now(pytz.timezone("CET")) + timedelta(days=1)).strftime(
-            "%Y-%m-%d 23:59:59.0000%z"
-        )
 
         data = {
             "instProfileIds": institution_profile_ids,
             "resourceIds": [],
-            "start": start,
-            "end": end,
+            "start": start.strftime("%Y-%m-%d 00:00:00.0000%z"),
+            "end": end.strftime("%Y-%m-%d 23:59:59.0000%z"),
         }
 
         csrf_token = None
@@ -262,30 +260,31 @@ class AulaApiClient:
         resp.raise_for_status()
         data = resp.json()
 
-
         events = []
         raw_events = data.get("data", [])
         if not isinstance(raw_events, list):
             _LOGGER.warning(f"Unexpected data format for calendar events: {raw_events}")
             return []
 
-
         for event in raw_events:
-            pprint.pprint(event)
             try:
-                teacher = next((x for x in event.get("lesson", {}).get("participants", []) if x.get("participantRole") == "primaryTeacher"), {})
-                substitute = next((x for x in event.get("lesson", {}).get("participants", []) if x.get("participantRole") == "substituteTeacher"), {})
-                pprint.pprint(event)
+
+                teacher = self._find_participant_by_role(event, "primaryTeacher")
+                substitute = self._find_participant_by_role(event, "substituteTeacher")
+
+                has_substitute = event.get("lesson", {}).get("lessonStatus", "").lower() == "substitute"
+                location = event.get("lesson", {}).get("primaryResource", {}).get("name")
+
                 events.append(
                     CalendarEvent(
                         id=event.get("id"),
                         title=event.get("title"),
-                        start_datetime=datetime.fromisoformat(event.get("startDateTime")).astimezone(pytz.timezone("CET")),
-                        end_datetime=datetime.fromisoformat(event.get("endDateTime")).astimezone(pytz.timezone("CET")),
+                        start_datetime=self._parse_date(event.get("startDateTime")),
+                        end_datetime=self._parse_date(event.get("endDateTime")),
                         teacher_name=teacher.get("teacherName"),
-                        has_substitute=event.get("lesson", {}).get("lessonStatus", "").lower() == "substitute",
+                        has_substitute=has_substitute,
                         substitute_name=substitute.get("teacherName"),
-                        location=event.get("lesson", {}).get("primaryResource", {}).get("name"),
+                        location=location,
                         belongs_to=event.get("belongsToProfiles")[0],
                         _raw=event,
                     )
@@ -381,17 +380,13 @@ class AulaApiClient:
         token = "Bearer " + str(resp.json()["data"])
         return token
 
-    async def update_data(self) -> Dict:
-        """Orchestrate all endpoints and return consolidated data."""
-        if not await self.is_logged_in():
-            await self.login()
-        # profiles
-        profile = await self.get_profile()
-        # context
-        ctx = await self.get_profile_context()
-        # build children lists
-        # ... implement grouping as needed
-        return {
-            "profile": profile,
-            "context": ctx,
-        }
+    def _parse_date(self, date_str: str) -> datetime:
+        return datetime.fromisoformat(date_str).astimezone(pytz.timezone("CET"))
+
+    def _find_participant_by_role(self, event: Dict, role: str):
+        participants = event.get("lesson", {}).get("participants", [])
+
+        return next(
+            (x for x in participants if x.get("participantRole") == role),
+            {},
+        )
