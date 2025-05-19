@@ -6,6 +6,7 @@ from typing import List
 import datetime
 
 import click
+import pytz
 
 # On Windows, use SelectorEventLoopPolicy to avoid 'Event loop closed' issues
 if sys.platform.startswith("win"):
@@ -199,13 +200,13 @@ async def messages(ctx, limit):
 @click.option(
     "--start-date",
     type=click.DateTime(formats=["%Y-%m-%d"]),
-    default=datetime.datetime.now(datetime.timezone.utc),
+    default=datetime.datetime.now(pytz.timezone("CET")),
     help="Start date for events (YYYY-MM-DD). Defaults to today.",
 )
 @click.option(
     "--end-date",
     type=click.DateTime(formats=["%Y-%m-%d"]),
-    default=(datetime.datetime.now(datetime.timezone.utc) + datetime.timedelta(days=7)),
+    default=(datetime.datetime.now(pytz.timezone("CET")) + datetime.timedelta(days=7)),
     help="End date for events (YYYY-MM-DD). Defaults to 7 days from today.",
 )
 @click.pass_context
@@ -238,12 +239,8 @@ async def calendar(ctx, institution_profile_id, start_date, end_date):
     else:
         click.echo(f"Fetching for children: {', '.join(map(str, institution_profile_ids))}")
 
-    # Convert dates to datetime objects required by API client
-    start_dt = datetime.datetime.combine(start_date, datetime.time.min)
-    end_dt = datetime.datetime.combine(end_date, datetime.time.max)
-
     try:
-        events = await client.get_calendar_events(institution_profile_ids, start_dt, end_dt)
+        events = await client.get_calendar_events(institution_profile_ids, start_date, end_date)
 
         if not events:
             click.echo("No calendar events found for the specified criteria.")
@@ -271,6 +268,7 @@ async def calendar(ctx, institution_profile_id, start_date, end_date):
 
     except Exception as e:
         click.echo(f"Error fetching calendar events: {e}")
+        raise
 
 
 if __name__ == "__main__":
