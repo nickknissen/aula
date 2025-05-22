@@ -14,6 +14,7 @@ dependencies = [
     "click",
     "html2text>=2025.4.15",
     "pytz>=2025.2",
+    "python-dotenv>=1.0.0",
 ]
 packages = [ { include = "py_aula", from = "src" } ]
 
