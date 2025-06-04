@@ -7,6 +7,7 @@ import json
 from pathlib import Path
 from typing import List, Optional, Dict, Any
 import datetime
+import logging
 
 import click
 import pytz
@@ -117,9 +118,36 @@ def get_credentials(ctx: click.Context) -> tuple[str, str]:
     "--password",
     help="Aula password (can also be set via AULA_PASSWORD env var or config file)",
 )
+@click.option(
+    "-v",
+    "--verbose",
+    count=True,
+    help="Increase verbosity: -v for INFO, -vv for DEBUG.",
+)
 @click.pass_context
-def cli(ctx, username: Optional[str], password: Optional[str]):
+def cli(ctx, username: Optional[str], password: Optional[str], verbose: int):
     """CLI for interacting with Aula API"""
+    # Configure logging based on verbosity
+    log_level = logging.WARNING  # Default: Show warnings and above
+    if verbose == 1:
+        log_level = logging.INFO  # -v: Show info and above
+    elif verbose >= 2:
+        log_level = logging.DEBUG  # -vv, -vvv, etc.: Show debug and above
+
+    logging.basicConfig(
+        level=log_level,
+        format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
+        stream=sys.stdout,
+        force=True,  # Ensures reconfiguration even if root handlers exist
+    )
+
+    # Set library loggers to a less verbose level to reduce noise
+    if log_level < logging.WARNING:  # Only apply if app logs are INFO or DEBUG
+        libraries_to_quiet = ["httpx", "httpcore", "asyncio"]
+        for lib_name in libraries_to_quiet:
+            lib_logger = logging.getLogger(lib_name)
+            lib_logger.setLevel(logging.WARNING)
+
     # Initialize context
     ctx.ensure_object(dict)
 
