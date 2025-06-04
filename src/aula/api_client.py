@@ -269,12 +269,13 @@ class AulaApiClient:
 
         for event in raw_events:
             try:
+                lesson = (event.get("lesson", {}) or {})
 
-                teacher = self._find_participant_by_role(event, "primaryTeacher")
-                substitute = self._find_participant_by_role(event, "substituteTeacher")
+                teacher = self._find_participant_by_role(lesson, "primaryTeacher")
+                substitute = self._find_participant_by_role(lesson, "substituteTeacher")
 
-                has_substitute = event.get("lesson", {}).get("lessonStatus", "").lower() == "substitute"
-                location = event.get("lesson", {}).get("primaryResource", {}).get("name")
+                has_substitute = lesson.get("lessonStatus", "").lower() == "substitute"
+                location = lesson.get("primaryResource", {}).get("name")
 
                 events.append(
                     CalendarEvent(
@@ -286,7 +287,7 @@ class AulaApiClient:
                         has_substitute=has_substitute,
                         substitute_name=substitute.get("teacherName"),
                         location=location,
-                        belongs_to=event.get("belongsToProfiles")[0],
+                        belongs_to= next(iter(event.get("belongsToProfiles")), None),
                         _raw=event,
                     )
                 )
@@ -294,6 +295,7 @@ class AulaApiClient:
                 _LOGGER.warning(
                     f"Skipping calendar event due to initialization error: {e} - Data: {event}"
                 )
+                raise 
 
         return events
 
@@ -445,8 +447,8 @@ class AulaApiClient:
     def _parse_date(self, date_str: str) -> datetime:
         return datetime.fromisoformat(date_str).astimezone(pytz.timezone("CET"))
 
-    def _find_participant_by_role(self, event: Dict, role: str):
-        participants = event.get("lesson", {}).get("participants", [])
+    def _find_participant_by_role(self, lesson: Dict, role: str):
+        participants = lesson.get("participants", [])
 
         return next(
             (x for x in participants if x.get("participantRole") == role),
