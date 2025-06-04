@@ -209,7 +209,6 @@ async def profile(ctx):
         return
 
     click.echo(f"User: {profile.display_name} (ID: {profile.profile_id})")
-    click.echo(f"├── Institution Profile IDs: {profile.institution_profile_ids}")
 
     # Print main profile attributes
     for k, v in profile:
@@ -358,26 +357,16 @@ async def calendar(ctx, institution_profile_id, start_date, end_date):
     if not institution_profile_ids:
         try:
             profile = await client.get_profile()
-            child_ids = [c.id for c in profile.children]
 
-            institution_profile_ids = child_ids
+            institution_profile_ids = profile.institution_profile_ids
 
-            if not institution_profile_ids:
-                click.echo(
-                    "No children or institution IDs found associated with this profile."
-                )
-                return
-
-            click.echo(
-                f"Fetching for institution IDs: {', '.join(map(str, institution_profile_ids))}"
-            )
         except Exception as e:
             click.echo(f"Error fetching profile to get child IDs: {e}")
             return
-    else:
-        click.echo(
-            f"Fetching for children: {', '.join(map(str, institution_profile_ids))}"
-        )
+
+    click.echo(
+        f"Fetching for institution IDs: {', '.join(map(str, institution_profile_ids))}"
+    )
 
     try:
         events = await client.get_calendar_events(
