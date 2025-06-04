@@ -1,7 +1,5 @@
-from datetime import datetime, timezone, timedelta
-import json
+from datetime import datetime
 import logging
-import pprint
 from typing import Dict, List, Optional
 import pytz
 
@@ -23,9 +21,9 @@ from .models import (
     DailyOverview,
     Message,
     MessageThread,
+    Post,
     Profile,
     ProfileContext,
-    # PresenceState # Removed unused import
 )
 
 # Logger
@@ -141,6 +139,9 @@ class AulaApiClient:
         institution_profile_ids = [
             ip.get("id") for ip in profile_dict.get("institutionProfiles", [])
         ]
+
+        institution_profile_ids.extend([x.id for x in children])
+
 
         # Parse main profile
         try:
@@ -295,6 +296,67 @@ class AulaApiClient:
                 )
 
         return events
+
+    async def get_posts(
+        self, 
+        institution_profile_ids: List[int],
+        page: int = 1, 
+        limit: int = 10, 
+    ) -> List[Post]:
+        """
+        Fetch posts from Aula.
+        
+        Args:
+            page: Page number to fetch (1-based)
+            limit: Number of posts per page
+            institution_profile_ids: List of institution profile IDs to filter by
+            
+        Returns:
+            List of Post objects
+        """
+        params = {
+            "method": "posts.getAllPosts",
+            "parent": "profile",
+            "index": page - 1,  # API uses 0-based index
+            "limit": limit,
+            "institutionProfileIds[]": institution_profile_ids
+        }
+
+        _LOGGER.debug("Fetching posts with params: %s", params)
+        
+        resp = await self._client.get(
+            self.api_url,
+            params=params
+        )
+
+        resp.raise_for_status()
+
+        posts_data = resp.json().get("data", {}).get("posts", [])
+        posts = []
+        
+        for post_data in posts_data:
+            try:
+                if not isinstance(post_data, dict):
+                    _LOGGER.warning("Skipping non-dict post data: %s", post_data)
+                    continue
+                    
+                _LOGGER.debug("Processing post data: %s", post_data)  # Debug log
+                
+                # Check if this is a post object with the expected structure
+                if "id" in post_data and "title" in post_data:
+                    posts.append(Post.from_dict(post_data))
+                else:
+                    _LOGGER.warning("Skipping invalid post data (missing required fields): %s", post_data)
+            except (TypeError, ValueError, KeyError) as e:
+                _LOGGER.warning(
+                    "Skipping post due to parsing error: %s - Data: %s",
+                    e,
+                    post_data,
+                    exc_info=_LOGGER.isEnabledFor(logging.DEBUG)
+                )
+                continue
+                
+        return posts
 
     async def get_mu_tasks(
         self, widget_id: str, child_filter: List[str], week: str

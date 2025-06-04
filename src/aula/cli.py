@@ -415,5 +415,75 @@ async def calendar(ctx, institution_profile_id, start_date, end_date):
         raise
 
 
+@cli.command()
+@click.option(
+    "--institution-profile-id",
+    multiple=True,
+    type=int,
+    help="Filter posts by specific institution profile ID(s).",
+)
+@click.option(
+    "--limit",
+    type=int,
+    default=10,
+    help="Maximum number of posts to fetch. Defaults to 10.",
+)
+@click.option(
+    "--page",
+    type=int,
+    default=1,
+    help="Page number to fetch. Defaults to 1.",
+)
+@click.pass_context
+@async_cmd
+async def posts(ctx, institution_profile_id, limit, page):
+    """Fetch posts from Aula."""
+    client: AulaApiClient = await _get_client(ctx)
+    click.echo("Fetching posts...")
+
+    institution_profile_ids = list(institution_profile_id)
+
+    # If no specific profile IDs provided, use all from the profile
+    if not institution_profile_ids:
+        try:
+            profile = await client.get_profile()
+            institution_profile_ids = profile.institution_profile_ids
+        except Exception as e:
+            click.echo(f"Error fetching profile: {e}")
+            return
+
+    click.echo(
+        f"Fetching posts for institution IDs: {', '.join(map(str, institution_profile_ids))}"
+    )
+
+    try:
+        posts_list = await client.get_posts(
+            page=page,
+            limit=limit,
+            institution_profile_ids=institution_profile_ids,
+        )
+
+        if not posts_list:
+            click.echo("No posts found.")
+            return
+
+        click.echo(
+            f"\n--- Posts (Page {page}, {len(posts_list)} of {limit} per page) ---"
+        )
+        for i, post in enumerate(posts_list):
+            click.echo(f"\n### Post {i} ###")
+            click.echo(f"Title: {post.title}")
+            click.echo(f"Date: {post.timestamp}")
+            click.echo(f"Author: {post.owner.full_name}")
+            click.echo(f"Content: {post.content}")
+
+            if post.attachments:
+                click.echo(f"Attachments: {len(post.attachments)}")
+
+    except Exception as e:
+        click.echo(f"Error fetching posts: {e}", err=True)
+        raise
+
+
 if __name__ == "__main__":
     cli()
