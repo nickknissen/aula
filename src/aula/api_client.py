@@ -9,13 +9,9 @@ from bs4 import BeautifulSoup
 from .const import (
     API_URL,
     API_VERSION,
-    EASYIQ_API,
-    MIN_UDDANNELSE_API,
-    SYSTEMATIC_API,
     USER_AGENT,
 )
 from .models import (
-    Appointment,
     CalendarEvent,
     Child,
     DailyOverview,
@@ -359,81 +355,6 @@ class AulaApiClient:
                 continue
                 
         return posts
-
-    async def get_mu_tasks(
-        self, widget_id: str, child_filter: List[str], week: str
-    ) -> Appointment:
-        token = await self._get_bearer_token(widget_id)
-        url = f"{MIN_UDDANNELSE_API}/opgaveliste?assuranceLevel=2&childFilter={','.join(child_filter)}&currentWeekNumber={week}&isMobileApp=false&placement=narrow"
-        resp = await self._client.get(url, headers={"Authorization": token})
-        data = resp.json()
-        appointment = data.get("data", {}).get("appointments", [{}])[0]
-        return Appointment(
-            _raw=appointment,
-            appointment_id=appointment.get("appointmentId"),
-            title=appointment.get("title"),
-        )
-
-    async def get_ugeplan(
-        self, widget_id: str, child_filter: List[str], week: str
-    ) -> Appointment:
-        token = await self._get_bearer_token(widget_id)
-        url = f"{MIN_UDDANNELSE_API}/ugebrev?assuranceLevel=2&childFilter={','.join(child_filter)}&currentWeekNumber={week}&isMobileApp=false&placement=narrow"
-        resp = await self._client.get(url, headers={"Authorization": token})
-        data = resp.json()
-        appointment = data.get("data", {}).get("appointments", [{}])[0]
-        return Appointment(
-            _raw=appointment,
-            appointment_id=appointment.get("appointmentId"),
-            title=appointment.get("title"),
-        )
-
-    async def get_easyiq_weekplan(
-        self, week: str, session_uuid: str, institution_filter: List[str], child_id: str
-    ) -> Appointment:
-        token = await self._get_bearer_token("0001")
-        headers = {
-            "Authorization": token,
-            "x-aula-institutionfilter": ",".join(institution_filter),
-        }
-        payload = {
-            "sessionId": session_uuid,
-            "currentWeekNr": week,
-            "userProfile": "guardian",
-            "institutionFilter": institution_filter,
-            "childFilter": [child_id],
-        }
-        resp = await self._client.post(
-            f"{EASYIQ_API}/weekplaninfo", json=payload, headers=headers
-        )
-        data = resp.json()
-        appointment = data.get("data", {}).get("appointments", [{}])[0]
-        return Appointment(
-            _raw=appointment,
-            appointment_id=appointment.get("appointmentId"),
-            title=appointment.get("title"),
-        )
-
-    async def get_huskeliste(
-        self, children: List[str], institutions: List[str]
-    ) -> Appointment:
-        token = await self._get_bearer_token("0062")
-        params = {
-            "children": ",".join(children),
-            "institutions": ",".join(institutions),
-        }
-        resp = await self._client.get(
-            f"{SYSTEMATIC_API}/reminders/v1",
-            params=params,
-            headers={"Aula-Authorization": token},
-        )
-        data = resp.json()
-        appointment = data.get("data", {}).get("appointments", [{}])[0]
-        return Appointment(
-            _raw=appointment,
-            appointment_id=appointment.get("appointmentId"),
-            title=appointment.get("title"),
-        )
 
     async def _get_bearer_token(self, widget_id: str) -> str:
         # reuse or fetch new

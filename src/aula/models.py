@@ -249,13 +249,6 @@ class Message(AulaDataClass):
 
 
 @dataclass
-class Appointment(AulaDataClass):
-    appointment_id: str
-    title: str
-    _raw: Optional[dict] = field(default=None, repr=False)
-
-
-@dataclass
 class ProfileReference(AulaDataClass):
     """Represents a reference to a profile in Aula."""
 
