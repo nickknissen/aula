@@ -377,27 +377,10 @@ async def calendar(ctx, institution_profile_id, start_date, end_date):
             click.echo("No calendar events found for the specified criteria.")
             return
 
-        click.echo("\n--- Calendar Events ---")
-        for event in events:
-            click.echo(f"ID: {event.id}")
-            click.echo(f"Title: {event.title}")
-            click.echo(f"Location: {event.location}")
-            click.echo(f"Belongs to: {event.belongs_to}")
-            # If start date and end date is the same show it on the same line
-            if event.start_datetime.date() == event.end_datetime.date():
-                click.echo(
-                    f"Date: {event.start_datetime.date()} {event.start_datetime.time()} - {event.end_datetime.time()}"
-                )
-            else:
-                click.echo(f"Start: {event.start_datetime}")
-                click.echo(f"End: {event.end_datetime}")
-            if event.has_substitute:
-                click.echo(f"Substitute: {event.substitute_name}")
-            else:
-                click.echo(f"Teacher: {event.teacher_name}")
-            # Optionally display more details from event._raw if needed
-            # click.echo(f"Raw: {event._raw}")
-            click.echo("--")
+        click.echo("\n--- Calendar Events Table ---")
+        from aula.utils.table import build_calendar_table, print_calendar_table
+        table_data = build_calendar_table(events)
+        print_calendar_table(table_data)
 
     except Exception as e:
         click.echo(f"Error fetching calendar events: {e}")
