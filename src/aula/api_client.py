@@ -1,9 +1,9 @@
-from datetime import datetime
 import logging
-from typing import Dict, List, Optional
-import pytz
+from datetime import datetime
+from typing import Optional
 
 import httpx
+import pytz
 from bs4 import BeautifulSoup
 
 from .const import (
@@ -180,7 +180,7 @@ class AulaApiClient:
         )
         return DailyOverview.from_dict(resp.json()["data"][0])
 
-    async def get_message_threads(self) -> List[MessageThread]:
+    async def get_message_threads(self) -> list[MessageThread]:
         resp = await self._client.get(
             f"{self.api_url}?method=messaging.getThreads&sortOn=date&orderDirection=desc&page=0"
         )
@@ -204,7 +204,7 @@ class AulaApiClient:
 
     async def get_messages_for_thread(
         self, thread_id: int, limit: int = 5
-    ) -> List[Message]:
+    ) -> list[Message]:
         """Fetches the latest messages for a specific thread."""
         resp = await self._client.get(
             f"{self.api_url}?method=messaging.getMessagesForThread&threadId={thread_id}&page=0&limit={limit}"
@@ -234,8 +234,8 @@ class AulaApiClient:
         return messages
 
     async def get_calendar_events(
-        self, institution_profile_ids: List[int], start: datetime, end: datetime
-    ) -> List[CalendarEvent]:
+        self, institution_profile_ids: list[int], start: datetime, end: datetime
+    ) -> list[CalendarEvent]:
 
         data = {
             "instProfileIds": institution_profile_ids,
@@ -291,24 +291,24 @@ class AulaApiClient:
                 _LOGGER.warning(
                     f"Skipping calendar event due to initialization error: {e} - Data: {event}"
                 )
-                raise 
+                raise
 
         return events
 
     async def get_posts(
-        self, 
-        institution_profile_ids: List[int],
-        page: int = 1, 
-        limit: int = 10, 
-    ) -> List[Post]:
+        self,
+        institution_profile_ids: list[int],
+        page: int = 1,
+        limit: int = 10,
+    ) -> list[Post]:
         """
         Fetch posts from Aula.
-        
+
         Args:
             page: Page number to fetch (1-based)
             limit: Number of posts per page
             institution_profile_ids: List of institution profile IDs to filter by
-            
+
         Returns:
             List of Post objects
         """
@@ -321,7 +321,7 @@ class AulaApiClient:
         }
 
         _LOGGER.debug("Fetching posts with params: %s", params)
-        
+
         resp = await self._client.get(
             self.api_url,
             params=params
@@ -331,15 +331,15 @@ class AulaApiClient:
 
         posts_data = resp.json().get("data", {}).get("posts", [])
         posts = []
-        
+
         for post_data in posts_data:
             try:
                 if not isinstance(post_data, dict):
                     _LOGGER.warning("Skipping non-dict post data: %s", post_data)
                     continue
-                    
+
                 _LOGGER.debug("Processing post data: %s", post_data)  # Debug log
-                
+
                 # Check if this is a post object with the expected structure
                 if "id" in post_data and "title" in post_data:
                     posts.append(Post.from_dict(post_data))
@@ -353,10 +353,10 @@ class AulaApiClient:
                     exc_info=_LOGGER.isEnabledFor(logging.DEBUG)
                 )
                 continue
-                
+
         return posts
 
-    async def _get_bearer_token(self, widget_id: str) -> str:
+    async def _get_widget_auth_token(self, widget_id: str) -> str:
         # reuse or fetch new
         # simplistic: always fetch
         resp = await self._client.get(
@@ -368,7 +368,7 @@ class AulaApiClient:
     def _parse_date(self, date_str: str) -> datetime:
         return datetime.fromisoformat(date_str).astimezone(pytz.timezone("CET"))
 
-    def _find_participant_by_role(self, lesson: Dict, role: str):
+    def _find_participant_by_role(self, lesson: dict, role: str):
         participants = lesson.get("participants", [])
 
         return next(

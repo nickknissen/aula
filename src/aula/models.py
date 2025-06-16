@@ -3,7 +3,7 @@ import datetime
 import logging
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import Any, List, Optional
+from typing import Any, Optional
 
 import html2text
 
@@ -74,8 +74,8 @@ class Child(AulaDataClass):
 class Profile(AulaDataClass):
     profile_id: int
     display_name: str
-    children: List[Child] = field(default_factory=list)
-    institution_profile_ids: List[int] = field(default_factory=list)
+    children: list[Child] = field(default_factory=list)
+    institution_profile_ids: list[int] = field(default_factory=list)
     _raw: Optional[dict] = field(default=None, repr=False)
 
 
@@ -152,7 +152,7 @@ class DailyOverview(AulaDataClass):
     main_group: Optional[MainGroup] = None
     status: Optional[PresenceState] = None
     location: Optional[str] = None
-    sleep_intervals: List[Any] = dataclasses.field(default_factory=list)
+    sleep_intervals: list[Any] = dataclasses.field(default_factory=list)
     check_in_time: Optional[str] = None
     check_out_time: Optional[str] = None
     entry_time: Optional[str] = None
@@ -289,7 +289,7 @@ class Post(AulaDataClass):
     timestamp: datetime.datetime
     owner: ProfileReference
     allow_comments: bool
-    shared_with_groups: List[dict]
+    shared_with_groups: list[dict]
     publish_at: Optional[datetime.datetime]
     is_published: bool
     expire_at: Optional[datetime.datetime]
@@ -297,7 +297,7 @@ class Post(AulaDataClass):
     is_important: bool
     important_from: Optional[datetime.datetime]
     important_to: Optional[datetime.datetime]
-    attachments: List[dict]
+    attachments: list[dict]
     comment_count: int
     can_current_user_delete: bool
     can_current_user_comment: bool

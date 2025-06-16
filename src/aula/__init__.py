@@ -15,11 +15,11 @@ from .models import (
 
 __all__ = [
     "AulaApiClient",
-    "Profile",
+    "CalendarEvent",
     "Child",
     "DailyOverview",
-    "MessageThread",
     "Message",
-    "CalendarEvent",
+    "MessageThread",
+    "Profile",
     "__version__",
 ]

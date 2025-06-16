@@ -2,24 +2,48 @@
 
 Python library for interacting with the Aula platform.
 
-This library provides an asynchronous client (`AulaApiClient`) to fetch data such as profiles, daily overviews, messages, and calendar events from Aula.
+This library provides an asynchronous client (`AulaApiClient`) to fetch data such as profiles, daily overviews, messages, and calendar events from Aula. It also includes a pluggable provider system for extending functionality with additional data sources.
 
-## TODO:
-### Core functionality
-✅ Calendar fetching  
-✅ Post fetching  
-✅ Messages fetching  
-✅ Daily Overview fetching  
-✅ Profile fetching  
-### Widgets:
-📋 0001 - EasyIQ - Ugeplan  
-📋 0004 - Meebook Ugeplan  
-📋 0019 - Biblioteket  
-📋 0029 - MinUddannelse Ugenoter  
-📋 0030 - MinUddannelse Opgaver  
-📋 0047 - Fravær - forældreindberetning  
-📋 0062 - Huskelisten  
-📋 0121 - INFOBA Modulordninger til forældre  
+## Features
+
+- **Core API Client**
+  - Asynchronous API using `aiohttp`
+  - Full type hints
+  - Automatic session management
+  - Token-based authentication
+
+- **Pluggable Provider System**
+  - Extensible architecture for adding new data sources
+  - Automatic discovery and registration of providers
+  - YAML-based configuration
+  - Built-in providers for common services
+
+## Installation
+
+```bash
+pip install -e .
+```
+
+## Core Functionality
+
+- ✅ Calendar fetching  
+- ✅ Post fetching  
+- ✅ Messages fetching  
+- ✅ Daily Overview fetching  
+- ✅ Profile fetching  
+
+## Available Widget Providers
+
+- ✅ 0019 - Biblioteket (Library)  
+- ✅ 0030 - MinUddannelse (Assignments)  
+- 📋 0001 - EasyIQ - Ugeplan  
+- 📋 0004 - Meebook Ugeplan  
+- 📋 0029 - MinUddannelse Ugenoter  
+- 📋 0047 - Fravær - forældreindberetning  
+- 📋 0062 - Huskelisten  
+- 📋 0121 - INFOBA Modulordninger til forældre  
+
+For more information about the provider system, see [PROVIDERS.md](PROVIDERS.md).
 
 
 ## Library Usage

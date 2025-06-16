@@ -1,24 +1,30 @@
 #!/usr/bin/env python3
+"""CLI for interacting with Aula API and data providers."""
+
 import asyncio
+import datetime
 import functools
+import json
+import logging
 import os
 import sys
-import json
 from pathlib import Path
-from typing import List, Optional, Dict, Any
-import datetime
-import logging
+from typing import Any, Optional, TypeVar
 
 import click
 import pytz
 from dotenv import load_dotenv
 
+from .api_client import AulaApiClient, DailyOverview, Profile
+from .cli_provider import register_provider_commands
+from .models import Message, MessageThread
+
+# Type variable for async functions
+T = TypeVar("T")
+
 # On Windows, use SelectorEventLoopPolicy to avoid 'Event loop closed' issues
 if sys.platform.startswith("win"):
     asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
-
-from .api_client import AulaApiClient, DailyOverview, Profile
-from .models import Message, MessageThread
 
 # Load environment variables from .env file
 load_dotenv()
@@ -33,25 +39,25 @@ def ensure_config_dir() -> None:
     CONFIG_DIR.mkdir(parents=True, exist_ok=True)
 
 
-def load_config() -> Dict[str, Any]:
+def load_config() -> dict[str, Any]:
     """Load configuration from file."""
     ensure_config_dir()
     if CONFIG_FILE.exists():
         try:
-            with open(CONFIG_FILE, "r") as f:
+            with open(CONFIG_FILE) as f:
                 return json.load(f)
-        except (json.JSONDecodeError, IOError):
+        except (OSError, json.JSONDecodeError):
             return {}
     return {}
 
 
-def save_config(config: Dict[str, Any]) -> None:
+def save_config(config: dict[str, Any]) -> None:
     """Save configuration to file."""
     ensure_config_dir()
     try:
         with open(CONFIG_FILE, "w") as f:
             json.dump(config, f, indent=2)
-    except IOError as e:
+    except OSError as e:
         click.echo(f"Error saving configuration: {e}", err=True)
 
 
@@ -73,80 +79,124 @@ def prompt_for_credentials() -> tuple[str, str]:
 
 
 def get_credentials(ctx: click.Context) -> tuple[str, str]:
-    """Get credentials from context, environment, or prompt."""
-    # First try to get from context (command line)
-    username = ctx.obj.get("USERNAME")
-    password = ctx.obj.get("PASSWORD")
+    """Get credentials from context, environment, or prompt.
+    
+    Args:
+        ctx: Click context object
+        
+    Returns:
+        Tuple of (username, password)
+        
+    Raises:
+        click.UsageError: If credentials cannot be obtained
+    """
+    username = None
+    password = None
+    
+    # Try to get from command line context first
+    if ctx.obj:
+        username = ctx.obj.get("USERNAME")
+        password = ctx.obj.get("PASSWORD")
 
-    # Then try environment variables
+    
+    # Try environment variables if not found in context
     if not username:
         username = os.getenv("AULA_USERNAME")
     if not password:
         password = os.getenv("AULA_PASSWORD")
-
-    # Then try config file
+    
+    # Try config file if still missing
     if not username or not password:
-        config = load_config()
-        if not username and "username" in config:
-            username = config["username"]
-        if not password and "password" in config:
-            password = config["password"]
-
-    # Finally, prompt if still missing
-    if not username or not password:
-        username, password = prompt_for_credentials()
-
-        # Ask to save to config
-        if click.confirm(
-            "Would you like to save these credentials to your config file?"
-        ):
+        try:
             config = load_config()
-            config.update({"username": username, "password": password})
-            save_config(config)
-            click.echo(f"Credentials saved to {CONFIG_FILE}")
-
+            if not username and "username" in config:
+                username = config["username"]
+            if not password and "password" in config:
+                password = config["password"]
+        except Exception as e:
+            logger.debug(f"Failed to load config: {e}")
+    
+    # If we're in a non-interactive context (e.g., script), fail fast
+    if not sys.stdin.isatty() and (not username or not password):
+        raise click.UsageError(
+            "Credentials not provided. Use -u/--username and -p/--password flags "
+            "or set AULA_USERNAME and AULA_PASSWORD environment variables."
+        )
+    
+    # Interactive prompt if still missing
+    if not username or not password:
+        click.echo("Aula authentication required")
+        username = username or click.prompt("Username")
+        password = password or click.prompt("Password", hide_input=True)
+        
+        # Offer to save credentials if we had to prompt
+        if click.confirm("Would you like to save these credentials to your config file?"):
+            try:
+                config = load_config()
+                config.update({"username": username, "password": password})
+                save_config(config)
+                click.echo(f"Credentials saved to {CONFIG_FILE}")
+            except Exception as e:
+                logger.warning(f"Failed to save credentials: {e}")
+    
+    # Final validation
+    if not username or not password:
+        raise click.UsageError("Username and password are required")
+        
     return username, password
 
 
 # Define the main group
 @click.group()
-@click.option(
-    "--username",
-    help="Aula username (can also be set via AULA_USERNAME env var or config file)",
-)
-@click.option(
-    "--password",
-    help="Aula password (can also be set via AULA_PASSWORD env var or config file)",
-)
-@click.option(
-    "-v",
-    "--verbose",
-    count=True,
-    help="Increase verbosity: -v for INFO, -vv for DEBUG.",
-)
+@click.option("--username", "-u", help="Aula username (email)", envvar="AULA_USERNAME")
+@click.option("--password", "-p", help="Aula password", envvar="AULA_PASSWORD")
+@click.option("--verbose", "-v", count=True, help="Increase verbosity")
+@click.option("--debug/--no-debug", default=False, help="Enable debug mode")
 @click.pass_context
-def cli(ctx, username: Optional[str], password: Optional[str], verbose: int):
-    """CLI for interacting with Aula API"""
-    # Configure logging based on verbosity
-    log_level = logging.WARNING  # Default: Show warnings and above
-    if verbose == 1:
-        log_level = logging.INFO  # -v: Show info and above
-    elif verbose >= 2:
-        log_level = logging.DEBUG  # -vv, -vvv, etc.: Show debug and above
+def cli(
+    ctx: click.Context, username: Optional[str], password: Optional[str], verbose: int, debug: bool
+) -> None:
+    """CLI for interacting with Aula API and data providers.
 
+    This CLI provides commands to interact with Aula and its data providers.
+    """
+    # Set up logging
+    log_level = logging.WARNING
+    if verbose == 1:
+        log_level = logging.INFO
+    elif verbose >= 2:
+        log_level = logging.DEBUG
+    
     logging.basicConfig(
         level=log_level,
-        format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
-        stream=sys.stdout,
-        force=True,  # Ensures reconfiguration even if root handlers exist
+        format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+        force=True
     )
+    
+    # Initialize context object if it doesn't exist
+    if ctx.obj is None:
+        ctx.obj = {}
+    
+    # Store credentials in context if provided (use lowercase keys for consistency)
+    if username is not None:
+        ctx.obj["username"] = username
+    if password is not None:
+        ctx.obj["password"] = password
 
-    # Set library loggers to a less verbose level to reduce noise
-    if log_level < logging.WARNING:  # Only apply if app logs are INFO or DEBUG
-        libraries_to_quiet = ["httpx", "httpcore", "asyncio"]
-        for lib_name in libraries_to_quiet:
-            lib_logger = logging.getLogger(lib_name)
-            lib_logger.setLevel(logging.WARNING)
+    # Set up debug mode if verbose is 3 or higher
+    if verbose >= 3:
+        import http.client as http_client
+
+        http_client.HTTPConnection.debuglevel = 1
+
+        # Enable asyncio debug if in debug mode
+        if debug:
+            logging.basicConfig(level=logging.DEBUG)
+            logging.getLogger("asyncio").setLevel(logging.DEBUG)
+
+            # Enable more verbose logging for aiohttp if needed
+            logging.getLogger("aiohttp").setLevel(logging.DEBUG)
+            logging.getLogger("aiohttp.client").setLevel(logging.DEBUG)
 
     # Initialize context
     ctx.ensure_object(dict)
@@ -171,6 +221,10 @@ async def _get_client(ctx):
     try:
         username, password = get_credentials(ctx)
         client = AulaApiClient(username, password)
+        
+        # Store the client in the context for reuse
+        ctx.obj["client"] = client
+        
         # Ensure login for commands that require auth (except login itself)
         command_name = ctx.invoked_subcommand
         if command_name != "login":
@@ -181,6 +235,24 @@ async def _get_client(ctx):
         click.echo(f"Error initializing client: {e}", err=True)
         ctx.exit(1)
 
+
+# Set up logger
+logger = logging.getLogger(__name__)
+
+# Import providers to ensure they register with ProviderRegistry
+try:
+    from aula.plugins.providers import biblioteket, minuddannelse
+    logger.debug(f"Imported providers: {biblioteket.__name__}, {minuddannelse.__name__}")
+    
+    # Debug: List registered providers
+    from aula.plugins.base import ProviderRegistry
+    providers = ProviderRegistry.get_providers()
+    logger.debug(f"Registered providers: {list(providers.keys())}")
+except ImportError as e:
+    logger.warning(f"Failed to import providers: {e}")
+
+# Register provider commands with the main CLI
+register_provider_commands(cli)
 
 # Define commands
 @cli.command()
@@ -283,7 +355,7 @@ async def messages(ctx, limit):
     click.echo(f"Fetching the latest {limit} message threads...")
 
     try:
-        threads: List[MessageThread] = await client.get_message_threads()
+        threads: list[MessageThread] = await client.get_message_threads()
         threads = threads[:limit]  # Apply limit if necessary
     except Exception as e:
         click.echo(f"Error fetching message threads: {e}")
@@ -298,28 +370,20 @@ async def messages(ctx, limit):
         # Print thread details (you might want to add more from MessageThread model)
         click.echo(f"Subject: {thread.subject}")
         # Access data from the _raw dictionary
-        last_updated_str = (
-            thread._raw.get("lastUpdatedDate", "N/A") if thread._raw else "N/A"
-        )
+        last_updated_str = thread._raw.get("lastUpdatedDate", "N/A") if thread._raw else "N/A"
         participants_list = thread._raw.get("participants", []) if thread._raw else []
         click.echo(f"Last Updated: {last_updated_str}")
-        click.echo(
-            f"Participants: {', '.join(p.get('name', 'N/A') for p in participants_list)}"
-        )
+        click.echo(f"Participants: {', '.join(p.get('name', 'N/A') for p in participants_list)}")
 
         click.echo("  Fetching latest messages...")
         try:
-            messages_list: List[Message] = await client.get_messages_for_thread(
-                thread.thread_id
-            )
+            messages_list: list[Message] = await client.get_messages_for_thread(thread.thread_id)
             if not messages_list:
                 click.echo("  No messages found in this thread.")
             else:
                 click.echo(f"  Latest {len(messages_list)} Messages:")
                 for j, msg in enumerate(messages_list):
-                    click.echo(
-                        f"    {j + 1}. ID: {msg.id}\n       Content: {msg.content}"
-                    )
+                    click.echo(f"    {j + 1}. ID: {msg.id}\n       Content: {msg.content}")
 
         except Exception as e:
             click.echo(f"  Error fetching messages for thread {thread.thread_id}: {e}")
@@ -364,14 +428,10 @@ async def calendar(ctx, institution_profile_id, start_date, end_date):
             click.echo(f"Error fetching profile to get child IDs: {e}")
             return
 
-    click.echo(
-        f"Fetching for institution IDs: {', '.join(map(str, institution_profile_ids))}"
-    )
+    click.echo(f"Fetching for institution IDs: {', '.join(map(str, institution_profile_ids))}")
 
     try:
-        events = await client.get_calendar_events(
-            institution_profile_ids, start_date, end_date
-        )
+        events = await client.get_calendar_events(institution_profile_ids, start_date, end_date)
 
         if not events:
             click.echo("No calendar events found for the specified criteria.")
@@ -456,9 +516,7 @@ async def posts(ctx, institution_profile_id, limit, page):
             click.echo("No posts found.")
             return
 
-        click.echo(
-            f"\n--- Posts (Page {page}, {len(posts_list)} of {limit} per page) ---"
-        )
+        click.echo(f"\n--- Posts (Page {page}, {len(posts_list)} of {limit} per page) ---")
         for i, post in enumerate(posts_list):
             click.echo(f"\n### Post {i} ###")
             click.echo(f"Title: {post.title}")
