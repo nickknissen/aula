@@ -11,7 +11,16 @@ from .models import (
     Message,
     MessageThread,
     Profile,
+    # Widget data classes
+    WidgetData,
+    BibliotekData,
+    LibraryLoan,
+    MinUddannelseOpgaverData,
+    Opgave,
+    Hold,
+    Forloeb,
 )
+from .widgets import widget_registry
 
 __all__ = [
     "AulaApiClient",
@@ -21,5 +30,13 @@ __all__ = [
     "MessageThread",
     "Message",
     "CalendarEvent",
+    "widget_registry",
+    "WidgetData",
+    "BibliotekData", 
+    "LibraryLoan",
+    "MinUddannelseOpgaverData",
+    "Opgave",
+    "Hold",
+    "Forloeb",
     "__version__",
 ]

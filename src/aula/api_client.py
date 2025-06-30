@@ -21,6 +21,7 @@ from .models import (
     Profile,
     ProfileContext,
 )
+from .widgets import widget_registry
 
 # Logger
 _LOGGER = logging.getLogger(__name__)
@@ -355,6 +356,84 @@ class AulaApiClient:
                 continue
                 
         return posts
+
+    async def get_widget_data(self, widget_id: str, **kwargs):
+        """
+        Fetch data from a registered widget.
+        
+        Args:
+            widget_id: Widget ID (e.g., '0019', '0030')
+            **kwargs: Additional parameters to pass to the widget
+            
+        Returns:
+            Widget-specific data object
+            
+        Raises:
+            ValueError: If widget is not registered
+            RuntimeError: If not logged in
+        """
+        if not await self.is_logged_in():
+            raise RuntimeError("Must be logged in to fetch widget data")
+        
+        # Get the widget implementation
+        widget = widget_registry.get_widget(widget_id)
+        if not widget:
+            available_widgets = widget_registry.get_widget_ids()
+            raise ValueError(
+                f"Widget '{widget_id}' not found. Available widgets: {available_widgets}"
+            )
+        
+        # Get user profile for default parameters if not provided
+        needs_defaults = (
+            ("institutions" not in kwargs and "institution_filter" not in kwargs) or
+            ("children" not in kwargs and "child_filter" not in kwargs)
+        )
+        if needs_defaults:
+            try:
+                profile = await self.get_profile()
+                
+                # Default institutions (with widget-specific parameter names)
+                if "institutions" not in kwargs and "institution_filter" not in kwargs:
+                    if profile.institution_profile_ids:
+                        institutions = [str(id) for id in profile.institution_profile_ids]
+                        # Use the parameter name expected by the specific widget
+                        if widget_id == "0030":  # MinUddannelse uses institution_filter
+                            kwargs["institution_filter"] = institutions
+                        else:  # Default to institutions
+                            kwargs["institutions"] = institutions
+                        _LOGGER.info(f"Using default institutions from profile: {institutions}")
+                    else:
+                        _LOGGER.warning("No institution_profile_ids found in profile")
+                
+                # Default children (with widget-specific parameter names)
+                if "children" not in kwargs and "child_filter" not in kwargs:
+                    if profile.children:
+                        children = [str(child.id) for child in profile.children]
+                        # Use the parameter name expected by the specific widget
+                        if widget_id == "0030":  # MinUddannelse uses child_filter
+                            kwargs["child_filter"] = children
+                        else:  # Default to children
+                            kwargs["children"] = children
+                        _LOGGER.info(f"Using default children from profile: {children}")
+                    else:
+                        _LOGGER.warning("No children found in profile")
+                        
+            except Exception as e:
+                _LOGGER.warning(f"Could not get profile for default parameters: {e}")
+        
+        # Get authentication token for this widget
+        token = await self._get_widget_auth_token(widget_id)
+        
+        # Fetch data using the widget implementation
+        return await widget.fetch_data(self._client, token, **kwargs)
+    
+    async def _get_widget_auth_token(self, widget_id: str) -> str:
+        """Get authentication token for a specific widget."""
+        resp = await self._client.get(
+            f"{self.api_url}?method=aulaToken.getAulaToken&widgetId={widget_id}"
+        )
+        resp.raise_for_status()
+        return resp.json()["data"]
 
     async def _get_bearer_token(self, widget_id: str) -> str:
         # reuse or fetch new

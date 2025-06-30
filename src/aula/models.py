@@ -7,6 +7,11 @@ from typing import Any, List, Optional
 
 import html2text
 
+# Import widget data classes
+from .widgets.base import WidgetData
+from .widgets.biblioteket import BibliotekData, LibraryLoan
+from .widgets.minuddannelse_opgaver import MinUddannelseOpgaverData, Opgave, Hold, Forloeb
+
 # Logger
 _LOGGER = logging.getLogger(__name__)
 

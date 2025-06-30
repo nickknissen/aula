@@ -1,0 +1,13 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(find:*)",
+      "Bash(ls:*)",
+      "Bash(grep:*)",
+      "Bash(mkdir:*)",
+      "Bash(rg:*)",
+      "Bash(~/.local/bin/uv run:*)"
+    ],
+    "deny": []
+  }
+}

@@ -19,6 +19,7 @@ if sys.platform.startswith("win"):
 
 from .api_client import AulaApiClient, DailyOverview, Profile
 from .models import Message, MessageThread
+from .widgets import widget_registry
 
 # Load environment variables from .env file
 load_dotenv()
@@ -471,6 +472,90 @@ async def posts(ctx, institution_profile_id, limit, page):
 
     except Exception as e:
         click.echo(f"Error fetching posts: {e}", err=True)
+        raise
+
+
+@cli.command()
+@click.argument("widget_id", required=False)
+@click.option("--list", "list_widgets", is_flag=True, help="List all available widgets")
+@click.option("--institutions", multiple=True, help="Institution IDs (can be used multiple times)")
+@click.option("--children", multiple=True, help="Child IDs (can be used multiple times)")
+@click.option("--session-uuid", help="Session UUID")
+@click.pass_context
+@async_cmd
+async def widget(ctx, widget_id: Optional[str], list_widgets: bool, institutions: tuple, children: tuple, session_uuid: Optional[str]):
+    """Fetch data from external widget providers."""
+    if list_widgets:
+        # List all available widgets
+        widgets = widget_registry.list_widgets()
+        if not widgets:
+            click.echo("No widgets registered.")
+            return
+        
+        click.echo("Available widgets:")
+        for w in widgets:
+            click.echo(f"  {w.widget_id}: {w.name}")
+            click.echo(f"    API: {w.base_url}")
+        return
+    
+    if not widget_id:
+        click.echo("Error: Widget ID is required. Use --list to see available widgets.")
+        ctx.exit(1)
+    
+    # Get authenticated client
+    client = await _get_client(ctx)
+    
+    try:
+        # Build parameters
+        params = {}
+        if institutions:
+            params["institutions"] = list(institutions)
+        if children:
+            params["children"] = list(children)
+        if session_uuid:
+            params["session_uuid"] = session_uuid
+        
+        # Fetch widget data
+        data = await client.get_widget_data(widget_id, **params)
+        
+        # Display results based on widget type
+        click.echo(f"\n--- {data.widget_id} Widget Data ---")
+        
+        if widget_id == "0019":  # Biblioteket
+            click.echo(f"Library loans: {len(data.loans)}")
+            for loan in data.loans:
+                click.echo(f"  📖 {loan.title} by {loan.author}")
+                click.echo(f"     Due: {loan.due_date} (Patron: {loan.patron_display_name})")
+            
+            if data.longterm_loans:
+                click.echo(f"\nLong-term loans: {len(data.longterm_loans)}")
+                for loan in data.longterm_loans:
+                    click.echo(f"  📚 {loan.title} by {loan.author}")
+            
+            if data.reservations:
+                click.echo(f"\nReservations: {len(data.reservations)}")
+        
+        elif widget_id == "0030":  # MinUddannelse Opgaver
+            click.echo(f"Assignments: {len(data.opgaver)}")
+            for opgave in data.opgaver:
+                status = "✅ Done" if opgave.er_faerdig else "❌ Pending"
+                click.echo(f"  {status} {opgave.title}")
+                click.echo(f"     Due: {opgave.ugedag} week {opgave.ugenummer} ({opgave.kuvertnavn})")
+                if opgave.hold:
+                    subjects = ", ".join([h.fag_navn for h in opgave.hold])
+                    click.echo(f"     Subject: {subjects}")
+        
+        else:
+            # Generic display for unknown widgets
+            click.echo("Raw data:")
+            import json
+            click.echo(json.dumps(data.raw_data, indent=2, ensure_ascii=False))
+    
+    except ValueError as e:
+        click.echo(f"Error: {e}", err=True)
+        ctx.exit(1)
+    except Exception as e:
+        click.echo(f"Error fetching widget data: {e}", err=True)
         raise
 
 
