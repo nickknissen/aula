@@ -135,7 +135,7 @@ class CustomSRP:
         self.B = hex_to_int(randomB)
 
         if self.B == 0 or self.B % self.N == 0:
-            raise Exception("randomB did not pass safety check")
+            raise ValueError("randomB did not pass safety check")
 
         m = hashlib.sha256()
         m.update((srpSalt + password).encode("ascii"))
