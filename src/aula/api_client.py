@@ -542,7 +542,7 @@ class AulaApiClient:
         return token
 
     def _parse_date(self, date_str: str) -> datetime:
-        return datetime.fromisoformat(date_str).astimezone(ZoneInfo("CET"))
+        return datetime.fromisoformat(date_str).astimezone(ZoneInfo("Europe/Copenhagen"))
 
     def _find_participant_by_role(self, lesson: dict, role: str):
         participants = lesson.get("participants", [])
