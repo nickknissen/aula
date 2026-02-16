@@ -7,12 +7,12 @@ to access the Aula API.
 
 import asyncio
 import logging
-from aula import AulaApiClient
+
+from aula import AulaApiClient, FileTokenStorage
 
 # Enable logging to see authentication progress
 logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+    level=logging.ERROR, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s"
 )
 
 
@@ -26,8 +26,10 @@ async def main():
     # Tokens will be cached in .aula_tokens.json by default
     client = AulaApiClient(
         mitid_username=mitid_username,
-        token_file=".aula_tokens.json",  # Optional: customize token storage location
-        debug=False  # Set to True for detailed debug logs
+        token_storage=FileTokenStorage(
+            ".aula_tokens.json"
+        ),  # Optional: customize token storage backend
+        debug=False,  # Set to True for detailed debug logs
     )
 
     try:
@@ -49,15 +51,18 @@ async def main():
                 print(f" - {child.name} (ID: {child.id})")
 
                 # Fetch daily overview for the first child
-                if child == profile.children[0]:
-                    overview = await client.get_daily_overview(child.id)
+                overview = await client.get_daily_overview(child.id)
+                if overview:
                     print(f"\n   Overview for {child.name}:")
-                    print(f"   - Status: {overview.status_text}")
+                    print(f"   - Status: {overview.status}")
+                else:
+                    print(f"\n   Overview for {child.name}: unavailable")
         else:
             print("\nNo children found.")
 
         # Example: Fetch calendar events
         from datetime import datetime, timedelta
+
         start = datetime.now()
         end = start + timedelta(days=7)
 
@@ -65,19 +70,22 @@ async def main():
         events = await client.get_calendar_events(
             institution_profile_ids=profile.institution_profile_ids,
             start=start,
-            end=end
+            end=end,
         )
 
         if events:
             print(f"Found {len(events)} events:")
             for event in events[:5]:  # Show first 5 events
-                print(f" - {event.title} on {event.start_datetime.strftime('%Y-%m-%d %H:%M')}")
+                print(
+                    f" - {event.title} on {event.start_datetime.strftime('%Y-%m-%d %H:%M')}"
+                )
         else:
             print("No calendar events found")
 
     except Exception as e:
         print(f"\nAn error occurred: {e}")
         import traceback
+
         traceback.print_exc()
     finally:
         # Important: Close the HTTP client sessions

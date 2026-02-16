@@ -8,7 +8,6 @@ import json
 import time
 import binascii
 import logging
-from pathlib import Path
 from typing import Dict, Optional
 from urllib.parse import parse_qs, urlparse, urljoin
 from bs4 import BeautifulSoup
@@ -637,57 +636,6 @@ class MitIDAuthClient:
                 raise
             else:
                 raise AulaAuthenticationError(f"Authentication failed: {str(e)}")
-
-    async def save_tokens(self, token_file_path: str = "aula_tokens.json") -> None:
-        """Save tokens to a JSON file."""
-        if not self.tokens:
-            raise ValueError("No tokens to save")
-
-        token_data = {
-            "timestamp": time.time(),
-            "created_at": time.strftime("%Y-%m-%d %H:%M:%S"),
-            "username": self.mitid_username,
-            "tokens": self.tokens,
-        }
-
-        token_path = Path(token_file_path)
-        token_path.parent.mkdir(parents=True, exist_ok=True)
-
-        with open(token_path, "w") as f:
-            json.dump(token_data, f, indent=2)
-
-        self.log(f"Tokens saved to: {token_file_path}")
-
-    async def load_tokens(self, token_file_path: str = "aula_tokens.json") -> bool:
-        """Load tokens from a JSON file."""
-        token_path = Path(token_file_path)
-
-        if not token_path.exists():
-            self.log(f"Token file does not exist: {token_file_path}")
-            return False
-
-        try:
-            with open(token_path, "r") as f:
-                token_data = json.load(f)
-
-            if not isinstance(token_data, dict) or "tokens" not in token_data:
-                self.log("Invalid token file format", "WARN")
-                return False
-
-            self.tokens = token_data["tokens"]
-
-            # Check if token is expired
-            if "expires_at" in self.tokens:
-                if time.time() >= self.tokens["expires_at"]:
-                    self.log("Token expired")
-                    return False
-
-            self.log("Tokens loaded successfully")
-            return True
-
-        except Exception as e:
-            self.log(f"Error loading tokens: {str(e)}", "ERROR")
-            return False
 
     @property
     def access_token(self) -> Optional[str]:

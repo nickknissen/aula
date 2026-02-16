@@ -1,12 +1,13 @@
-from datetime import datetime
 import logging
+import time
+from datetime import datetime
 from typing import Dict, List, Optional
-from pathlib import Path
-import pytz
 
 import httpx
+import pytz
 from bs4 import BeautifulSoup
 
+from .auth import AulaAuthenticationError, MitIDAuthClient
 from .const import (
     API_URL,
     API_VERSION,
@@ -26,7 +27,7 @@ from .models import (
     Profile,
     ProfileContext,
 )
-from .auth import MitIDAuthClient, AulaAuthenticationError
+from .token_storage import TokenStorage
 
 # Logger
 _LOGGER = logging.getLogger(__name__)
@@ -41,21 +42,18 @@ class AulaApiClient:
     """
 
     def __init__(
-        self,
-        mitid_username: str,
-        token_file: str = ".aula_tokens.json",
-        debug: bool = False
+        self, mitid_username: str, token_storage: TokenStorage, debug: bool = False
     ):
         """
         Initialize the Aula API client.
 
         Args:
             mitid_username: Your MitID username (not Aula username)
-            token_file: Path to store authentication tokens (default: .aula_tokens.json)
+            token_storage: A TokenStorage backend for persisting auth tokens.
             debug: Enable debug logging (default: False)
         """
         self.mitid_username = mitid_username
-        self.token_file = token_file
+        self._token_storage = token_storage
         self.debug = debug
         self.api_url = f"{API_URL}{API_VERSION}"
         self._client: Optional[httpx.AsyncClient] = None
@@ -74,27 +72,43 @@ class AulaApiClient:
         4. Discover the current API version
         """
         self._auth_client = MitIDAuthClient(
-            mitid_username=self.mitid_username,
-            debug=self.debug
+            mitid_username=self.mitid_username, debug=self.debug
         )
 
         # Try to load cached tokens
-        token_loaded = await self._auth_client.load_tokens(self.token_file)
+        token_data = await self._token_storage.load()
+        tokens_valid = False
 
-        if not token_loaded or not self._auth_client.is_authenticated():
+        if token_data is not None:
+            tokens = token_data.get("tokens", {})
+            expires_at = tokens.get("expires_at")
+            if tokens.get("access_token") and (
+                expires_at is None or time.time() < expires_at
+            ):
+                self._auth_client.tokens = tokens
+                tokens_valid = True
+                _LOGGER.info("Loaded cached authentication tokens")
+            else:
+                _LOGGER.info("Cached tokens are expired")
+
+        if not tokens_valid:
             _LOGGER.info("No valid tokens found, starting MitID authentication...")
             _LOGGER.info("Please approve the login request in your MitID app")
 
-            # Perform full authentication flow
             try:
                 await self._auth_client.authenticate()
-                await self._auth_client.save_tokens(self.token_file)
+                await self._token_storage.save(
+                    {
+                        "timestamp": time.time(),
+                        "created_at": time.strftime("%Y-%m-%d %H:%M:%S"),
+                        "username": self.mitid_username,
+                        "tokens": self._auth_client.tokens,
+                    }
+                )
                 _LOGGER.info("Authentication successful! Tokens saved.")
             except AulaAuthenticationError as e:
                 _LOGGER.error(f"Authentication failed: {e}")
                 raise RuntimeError(f"MitID authentication failed: {e}")
-        else:
-            _LOGGER.info("Loaded cached authentication tokens")
 
         self._access_token = self._auth_client.access_token
 
@@ -109,30 +123,39 @@ class AulaApiClient:
 
         await self._set_correct_api_version()
 
-    async def _set_correct_api_version(self) -> None:
-        api_version = int(API_VERSION)
-        while True:
-            test_url = f"{API_URL}{api_version}"
-            version_check = await self._client.get(
-                f"{test_url}?method=profiles.getProfilesByLogin"
-            )
-            if version_check.status_code == 410:
-                _LOGGER.info(f"API version v{api_version} is deprecated (410 Gone), trying v{api_version + 1}")
-                api_version += 1
-                continue
-            if version_check.status_code == 200:
-                self.api_url = test_url
-                _LOGGER.info(f"Using API version v{api_version}")
-                break
-            version_check.raise_for_status()
+        # Establish guardian role in the session (required for child-specific endpoints)
+        await self._request_with_version_retry(
+            "get",
+            f"{self.api_url}?method=profiles.getProfileContext&portalrole=guardian",
+        )
 
-    async def _request_with_version_retry(self, method: str, url: str, **kwargs) -> httpx.Response:
+    async def _set_correct_api_version(self) -> None:
+        resp = await self._request_with_version_retry(
+            "get",
+            f"{self.api_url}?method=profiles.getProfilesByLogin",
+        )
+        resp.raise_for_status()
+
+    async def _request_with_version_retry(
+        self, method: str, url: str, **kwargs
+    ) -> httpx.Response:
         """
         Make an HTTP request with automatic API version bump on 410 Gone.
 
         If the API returns 410 Gone (deprecated version), automatically increment
         the version number and retry the request with the new version.
+
+        Automatically appends the access_token query parameter for Aula API URLs.
         """
+        # Auto-append access token for Aula API requests
+        if self._access_token and url.startswith(API_URL):
+            params = kwargs.get("params")
+            if params is not None:
+                params["access_token"] = self._access_token
+            else:
+                sep = "&" if "?" in url else "?"
+                url = f"{url}{sep}access_token={self._access_token}"
+
         max_retries = 5
         for attempt in range(max_retries):
             response = await getattr(self._client, method.lower())(url, **kwargs)
@@ -156,11 +179,13 @@ class AulaApiClient:
 
             return response
 
-        raise RuntimeError(f"Failed to find working API version after {max_retries} attempts")
+        raise RuntimeError(
+            f"Failed to find working API version after {max_retries} attempts"
+        )
 
     async def get_profile(self) -> Profile:
-        resp = await self._request_with_version_retry("get",
-            f"{self.api_url}?method=profiles.getProfilesByLogin"
+        resp = await self._request_with_version_retry(
+            "get", f"{self.api_url}?method=profiles.getProfilesByLogin"
         )
         resp.raise_for_status()  # Ensure request was successful
         raw_data_list = resp.json().get("data", {}).get("profiles", [])
@@ -191,7 +216,6 @@ class AulaApiClient:
 
         institution_profile_ids.extend([x.id for x in children])
 
-
         # Parse main profile
         try:
             profile = Profile(
@@ -220,22 +244,37 @@ class AulaApiClient:
         return True
 
     async def get_profile_context(self) -> ProfileContext:
-        resp = await self._request_with_version_retry("get",
-            f"{self.api_url}?method=profiles.getProfileContext"
+        resp = await self._request_with_version_retry(
+            "get",
+            f"{self.api_url}?method=profiles.getProfileContext&portalrole=guardian",
         )
         resp.raise_for_status()
         return ProfileContext(_raw=resp.json())
 
-    async def get_daily_overview(self, child_id: int) -> DailyOverview:
-        """Fetches the daily overview for a specific child."""
-        resp = await self._request_with_version_retry("get",
-            f"{self.api_url}?method=presence.getDailyOverview&childIds[]={child_id}"
+    async def get_daily_overview(self, child_id: int) -> Optional[DailyOverview]:
+        """Fetches the daily overview for a specific child.
+
+        Returns None if the data is unavailable (e.g. 403 Forbidden).
+        """
+        resp = await self._request_with_version_retry(
+            "get",
+            f"{self.api_url}?method=presence.getDailyOverview&childIds[]={child_id}",
         )
-        return DailyOverview.from_dict(resp.json()["data"][0])
+        if resp.status_code != 200:
+            _LOGGER.warning(
+                f"Could not fetch daily overview for child {child_id}: HTTP {resp.status_code}"
+            )
+            return None
+        data = resp.json().get("data")
+        if not data:
+            _LOGGER.warning(f"No daily overview data for child {child_id}")
+            return None
+        return DailyOverview.from_dict(data[0])
 
     async def get_message_threads(self) -> List[MessageThread]:
-        resp = await self._request_with_version_retry("get",
-            f"{self.api_url}?method=messaging.getThreads&sortOn=date&orderDirection=desc&page=0"
+        resp = await self._request_with_version_retry(
+            "get",
+            f"{self.api_url}?method=messaging.getThreads&sortOn=date&orderDirection=desc&page=0",
         )
         resp.raise_for_status()
         threads_data = resp.json().get("data", {}).get("threads", [])
@@ -259,8 +298,9 @@ class AulaApiClient:
         self, thread_id: int, limit: int = 5
     ) -> List[Message]:
         """Fetches the latest messages for a specific thread."""
-        resp = await self._request_with_version_retry("get",
-            f"{self.api_url}?method=messaging.getMessagesForThread&threadId={thread_id}&page=0&limit={limit}"
+        resp = await self._request_with_version_retry(
+            "get",
+            f"{self.api_url}?method=messaging.getMessagesForThread&threadId={thread_id}&page=0&limit={limit}",
         )
         resp.raise_for_status()
         data = resp.json()
@@ -297,13 +337,16 @@ class AulaApiClient:
             "end": end.strftime("%Y-%m-%d 23:59:59.0000%z"),
         }
 
-        csrf_token = None
+        headers = {"content-type": "application/json"}
         if self._client and self._client.cookies:
             csrf_token = self._client.cookies.get("Csrfp-Token")
+            if csrf_token:
+                headers["csrfp-token"] = csrf_token
 
-        resp = await self._request_with_version_retry("post",
+        resp = await self._request_with_version_retry(
+            "post",
             f"{self.api_url}?method=calendar.getEventsByProfileIdsAndResourceIds",
-            headers={"content-type": "application/json", "csrfp-token": csrf_token},
+            headers=headers,
             json=data,
         )
 
@@ -318,7 +361,7 @@ class AulaApiClient:
 
         for event in raw_events:
             try:
-                lesson = (event.get("lesson", {}) or {})
+                lesson = event.get("lesson", {}) or {}
 
                 teacher = self._find_participant_by_role(lesson, "primaryTeacher")
                 substitute = self._find_participant_by_role(lesson, "substituteTeacher")
@@ -336,7 +379,7 @@ class AulaApiClient:
                         has_substitute=has_substitute,
                         substitute_name=substitute.get("teacherName"),
                         location=location,
-                        belongs_to= next(iter(event.get("belongsToProfiles")), None),
+                        belongs_to=next(iter(event.get("belongsToProfiles")), None),
                         _raw=event,
                     )
                 )
@@ -344,24 +387,24 @@ class AulaApiClient:
                 _LOGGER.warning(
                     f"Skipping calendar event due to initialization error: {e} - Data: {event}"
                 )
-                raise 
+                raise
 
         return events
 
     async def get_posts(
-        self, 
+        self,
         institution_profile_ids: List[int],
-        page: int = 1, 
-        limit: int = 10, 
+        page: int = 1,
+        limit: int = 10,
     ) -> List[Post]:
         """
         Fetch posts from Aula.
-        
+
         Args:
             page: Page number to fetch (1-based)
             limit: Number of posts per page
             institution_profile_ids: List of institution profile IDs to filter by
-            
+
         Returns:
             List of Post objects
         """
@@ -370,43 +413,45 @@ class AulaApiClient:
             "parent": "profile",
             "index": page - 1,  # API uses 0-based index
             "limit": limit,
-            "institutionProfileIds[]": institution_profile_ids
+            "institutionProfileIds[]": institution_profile_ids,
         }
 
         _LOGGER.debug("Fetching posts with params: %s", params)
-        
-        resp = await self._request_with_version_retry("get",
-            self.api_url,
-            params=params
+
+        resp = await self._request_with_version_retry(
+            "get", self.api_url, params=params
         )
 
         resp.raise_for_status()
 
         posts_data = resp.json().get("data", {}).get("posts", [])
         posts = []
-        
+
         for post_data in posts_data:
             try:
                 if not isinstance(post_data, dict):
                     _LOGGER.warning("Skipping non-dict post data: %s", post_data)
                     continue
-                    
+
                 _LOGGER.debug("Processing post data: %s", post_data)  # Debug log
-                
+
                 # Check if this is a post object with the expected structure
                 if "id" in post_data and "title" in post_data:
                     posts.append(Post.from_dict(post_data))
                 else:
-                    _LOGGER.warning("Skipping invalid post data (missing required fields): %s", post_data)
+                    _LOGGER.warning(
+                        "Skipping invalid post data (missing required fields): %s",
+                        post_data,
+                    )
             except (TypeError, ValueError, KeyError) as e:
                 _LOGGER.warning(
                     "Skipping post due to parsing error: %s - Data: %s",
                     e,
                     post_data,
-                    exc_info=_LOGGER.isEnabledFor(logging.DEBUG)
+                    exc_info=_LOGGER.isEnabledFor(logging.DEBUG),
                 )
                 continue
-                
+
         return posts
 
     async def get_mu_tasks(
@@ -414,7 +459,9 @@ class AulaApiClient:
     ) -> Appointment:
         token = await self._get_bearer_token(widget_id)
         url = f"{MIN_UDDANNELSE_API}/opgaveliste?assuranceLevel=2&childFilter={','.join(child_filter)}&currentWeekNumber={week}&isMobileApp=false&placement=narrow"
-        resp = await self._request_with_version_retry("get",url, headers={"Authorization": token})
+        resp = await self._request_with_version_retry(
+            "get", url, headers={"Authorization": token}
+        )
         data = resp.json()
         appointment = data.get("data", {}).get("appointments", [{}])[0]
         return Appointment(
@@ -428,7 +475,9 @@ class AulaApiClient:
     ) -> Appointment:
         token = await self._get_bearer_token(widget_id)
         url = f"{MIN_UDDANNELSE_API}/ugebrev?assuranceLevel=2&childFilter={','.join(child_filter)}&currentWeekNumber={week}&isMobileApp=false&placement=narrow"
-        resp = await self._request_with_version_retry("get",url, headers={"Authorization": token})
+        resp = await self._request_with_version_retry(
+            "get", url, headers={"Authorization": token}
+        )
         data = resp.json()
         appointment = data.get("data", {}).get("appointments", [{}])[0]
         return Appointment(
@@ -452,8 +501,8 @@ class AulaApiClient:
             "institutionFilter": institution_filter,
             "childFilter": [child_id],
         }
-        resp = await self._request_with_version_retry("post",
-            f"{EASYIQ_API}/weekplaninfo", json=payload, headers=headers
+        resp = await self._request_with_version_retry(
+            "post", f"{EASYIQ_API}/weekplaninfo", json=payload, headers=headers
         )
         data = resp.json()
         appointment = data.get("data", {}).get("appointments", [{}])[0]
@@ -471,7 +520,8 @@ class AulaApiClient:
             "children": ",".join(children),
             "institutions": ",".join(institutions),
         }
-        resp = await self._request_with_version_retry("get",
+        resp = await self._request_with_version_retry(
+            "get",
             f"{SYSTEMATIC_API}/reminders/v1",
             params=params,
             headers={"Aula-Authorization": token},
@@ -487,8 +537,8 @@ class AulaApiClient:
     async def _get_bearer_token(self, widget_id: str) -> str:
         # reuse or fetch new
         # simplistic: always fetch
-        resp = await self._request_with_version_retry("get",
-            f"{self.api_url}?method=aulaToken.getAulaToken&widgetId={widget_id}"
+        resp = await self._request_with_version_retry(
+            "get", f"{self.api_url}?method=aulaToken.getAulaToken&widgetId={widget_id}"
         )
         token = "Bearer " + str(resp.json()["data"])
         return token
