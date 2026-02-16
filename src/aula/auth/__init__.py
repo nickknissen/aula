@@ -1,14 +1,14 @@
 """MitID authentication module for Aula."""
 
 from .exceptions import (
-    AulaAuthenticationError,
-    MitIDError,
-    TokenExpiredError,
     APIError,
+    AulaAuthenticationError,
     ConfigurationError,
+    MitIDError,
     NetworkError,
-    SAMLError,
     OAuthError,
+    SAMLError,
+    TokenExpiredError,
 )
 from .mitid_client import MitIDAuthClient
 

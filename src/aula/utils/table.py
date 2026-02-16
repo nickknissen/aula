@@ -1,5 +1,5 @@
 from collections import defaultdict
-from typing import Any, Dict, List
+from typing import Any
 
 import click
 
@@ -14,7 +14,7 @@ except ImportError:
 from ..models import CalendarEvent
 
 
-def build_calendar_table(events: List[CalendarEvent]) -> Dict[str, Any]:
+def build_calendar_table(events: list[CalendarEvent]) -> dict[str, Any]:
     """
     Build a calendar table structure: columns are dates, rows are event start times.
     Returns a dict with 'dates', 'slots', and 'matrix'.
@@ -47,7 +47,7 @@ def build_calendar_table(events: List[CalendarEvent]) -> Dict[str, Any]:
     return {"dates": dates, "slots": slots, "matrix": matrix}
 
 
-def print_calendar_table(table_data: Dict[str, Any]):
+def print_calendar_table(table_data: dict[str, Any]):
     """Prints the calendar table using rich if available, else plain text."""
     dates = table_data["dates"]
     slots = table_data["slots"]
