@@ -5,7 +5,6 @@ import functools
 import logging
 import os
 import sys
-from typing import List, Optional
 from zoneinfo import ZoneInfo
 
 import click
@@ -74,7 +73,7 @@ def get_mitid_username(ctx: click.Context) -> str:
     help="Increase verbosity: -v for INFO, -vv for DEBUG.",
 )
 @click.pass_context
-def cli(ctx, username: Optional[str], verbose: int):
+def cli(ctx, username: str | None, verbose: int):
     """CLI for interacting with Aula API"""
     # Configure logging based on verbosity
     log_level = logging.WARNING  # Default: Show warnings and above
@@ -211,7 +210,7 @@ async def messages(ctx, limit):
         click.echo(f"Fetching the latest {limit} message threads...")
 
         try:
-            threads: List[MessageThread] = await client.get_message_threads()
+            threads: list[MessageThread] = await client.get_message_threads()
             threads = threads[:limit]
         except Exception as e:
             click.echo(f"Error fetching message threads: {e}")
@@ -235,7 +234,7 @@ async def messages(ctx, limit):
 
             click.echo("  Fetching latest messages...")
             try:
-                messages_list: List[Message] = await client.get_messages_for_thread(
+                messages_list: list[Message] = await client.get_messages_for_thread(
                     thread.thread_id
                 )
                 if not messages_list:

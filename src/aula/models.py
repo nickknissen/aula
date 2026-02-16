@@ -3,7 +3,7 @@ import datetime
 import logging
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import Any, List, Optional
+from typing import Any
 
 from .utils import html_to_markdown, html_to_plain
 
@@ -56,7 +56,7 @@ class Child(AulaDataClass):
     name: str
     institution_name: str
     profile_picture: str
-    _raw: Optional[dict] = field(default=None, repr=False)
+    _raw: dict | None = field(default=None, repr=False)
 
     @classmethod
     def from_dict(cls, data: dict) -> "Child":
@@ -74,35 +74,35 @@ class Child(AulaDataClass):
 class Profile(AulaDataClass):
     profile_id: int
     display_name: str
-    children: List[Child] = field(default_factory=list)
-    institution_profile_ids: List[int] = field(default_factory=list)
-    _raw: Optional[dict] = field(default=None, repr=False)
+    children: list[Child] = field(default_factory=list)
+    institution_profile_ids: list[int] = field(default_factory=list)
+    _raw: dict | None = field(default=None, repr=False)
 
 
 @dataclass
 class ProfileContext(AulaDataClass):
-    _raw: Optional[dict] = field(default=None, repr=False)
+    _raw: dict | None = field(default=None, repr=False)
 
 
 @dataclass
 class ProfilePicture(AulaDataClass):
-    url: Optional[str] = None
-    _raw: Optional[dict] = field(default=None, repr=False)
+    url: str | None = None
+    _raw: dict | None = field(default=None, repr=False)
 
 
 @dataclass
 class InstitutionProfile(AulaDataClass):
-    profile_id: Optional[int] = None
-    id: Optional[int] = None
-    institution_code: Optional[str] = None
-    institution_name: Optional[str] = None
-    role: Optional[str] = None
-    name: Optional[str] = None
-    profile_picture: Optional[ProfilePicture] = None
-    short_name: Optional[str] = None
-    institution_role: Optional[str] = None
-    metadata: Optional[str] = None
-    _raw: Optional[dict] = field(default=None, repr=False)
+    profile_id: int | None = None
+    id: int | None = None
+    institution_code: str | None = None
+    institution_name: str | None = None
+    role: str | None = None
+    name: str | None = None
+    profile_picture: ProfilePicture | None = None
+    short_name: str | None = None
+    institution_role: str | None = None
+    metadata: str | None = None
+    _raw: dict | None = field(default=None, repr=False)
 
     @classmethod
     def from_dict(cls, data: dict) -> "InstitutionProfile":
@@ -125,13 +125,13 @@ class InstitutionProfile(AulaDataClass):
 
 @dataclass
 class MainGroup(AulaDataClass):
-    id: Optional[int] = None
-    name: Optional[str] = None
-    short_name: Optional[str] = None
-    institution_code: Optional[str] = None
-    institution_name: Optional[str] = None
-    uni_group_type: Optional[str] = None
-    _raw: Optional[dict] = field(default=None, repr=False)
+    id: int | None = None
+    name: str | None = None
+    short_name: str | None = None
+    institution_code: str | None = None
+    institution_name: str | None = None
+    uni_group_type: str | None = None
+    _raw: dict | None = field(default=None, repr=False)
 
     @classmethod
     def from_dict(cls, data: dict) -> "MainGroup":
@@ -147,19 +147,19 @@ class MainGroup(AulaDataClass):
 
 @dataclass
 class DailyOverview(AulaDataClass):
-    id: Optional[int] = None
-    institution_profile: Optional[InstitutionProfile] = None
-    main_group: Optional[MainGroup] = None
-    status: Optional[PresenceState] = None
-    location: Optional[str] = None
-    sleep_intervals: List[Any] = dataclasses.field(default_factory=list)
-    check_in_time: Optional[str] = None
-    check_out_time: Optional[str] = None
-    entry_time: Optional[str] = None
-    exit_time: Optional[str] = None
-    exit_with: Optional[str] = None
-    comment: Optional[str] = None
-    _raw: Optional[dict] = field(default=None, repr=False)
+    id: int | None = None
+    institution_profile: InstitutionProfile | None = None
+    main_group: MainGroup | None = None
+    status: PresenceState | None = None
+    location: str | None = None
+    sleep_intervals: list[Any] = dataclasses.field(default_factory=list)
+    check_in_time: str | None = None
+    check_out_time: str | None = None
+    entry_time: str | None = None
+    exit_time: str | None = None
+    exit_with: str | None = None
+    comment: str | None = None
+    _raw: dict | None = field(default=None, repr=False)
 
     @classmethod
     def from_dict(cls, raw_data: dict) -> "DailyOverview":
@@ -195,21 +195,21 @@ class DailyOverview(AulaDataClass):
 class Institution(AulaDataClass):
     institution_code: str
     institution_name: str
-    _raw: Optional[dict] = field(default=None, repr=False)
+    _raw: dict | None = field(default=None, repr=False)
 
 
 @dataclass
 class MessageThread(AulaDataClass):
     thread_id: str
     subject: str
-    _raw: Optional[dict] = field(default=None, repr=False)
+    _raw: dict | None = field(default=None, repr=False)
 
 
 @dataclass
 class Message(AulaDataClass):
     id: str
     content_html: str
-    _raw: Optional[dict] = field(default=None, repr=False)
+    _raw: dict | None = field(default=None, repr=False)
 
     @property
     def content(self) -> str:
@@ -226,7 +226,7 @@ class Message(AulaDataClass):
 class Appointment(AulaDataClass):
     appointment_id: str
     title: str
-    _raw: Optional[dict] = field(default=None, repr=False)
+    _raw: dict | None = field(default=None, repr=False)
 
 
 @dataclass
@@ -241,8 +241,8 @@ class ProfileReference(AulaDataClass):
     short_name: str
     role: str
     institution_name: str
-    profile_picture: Optional[dict] = None
-    _raw: Optional[dict] = field(default=None, repr=False)
+    profile_picture: dict | None = None
+    _raw: dict | None = field(default=None, repr=False)
 
     @classmethod
     def from_dict(cls, data: dict) -> "ProfileReference":
@@ -270,20 +270,20 @@ class Post(AulaDataClass):
     timestamp: datetime.datetime
     owner: ProfileReference
     allow_comments: bool
-    shared_with_groups: List[dict]
-    publish_at: Optional[datetime.datetime]
+    shared_with_groups: list[dict]
+    publish_at: datetime.datetime | None
     is_published: bool
-    expire_at: Optional[datetime.datetime]
+    expire_at: datetime.datetime | None
     is_expired: bool
     is_important: bool
-    important_from: Optional[datetime.datetime]
-    important_to: Optional[datetime.datetime]
-    attachments: List[dict]
+    important_from: datetime.datetime | None
+    important_to: datetime.datetime | None
+    attachments: list[dict]
     comment_count: int
     can_current_user_delete: bool
     can_current_user_comment: bool
-    edited_at: Optional[datetime.datetime] = None
-    _raw: Optional[dict] = field(default=None, repr=False)
+    edited_at: datetime.datetime | None = None
+    _raw: dict | None = field(default=None, repr=False)
 
     @property
     def content(self) -> str:
@@ -299,7 +299,7 @@ class Post(AulaDataClass):
     def from_dict(cls, data: dict) -> "Post":
         """Create a Post instance from API response data."""
 
-        def parse_datetime(dt_str: Optional[str]) -> Optional[datetime.datetime]:
+        def parse_datetime(dt_str: str | None) -> datetime.datetime | None:
             if not dt_str:
                 return None
             try:
@@ -344,7 +344,7 @@ class CalendarEvent(AulaDataClass):
     end_datetime: datetime.datetime
     teacher_name: str
     has_substitute: bool
-    substitute_name: Optional[str]
-    location: Optional[str]
+    substitute_name: str | None
+    location: str | None
     belongs_to: int
-    _raw: Optional[dict] = field(default=None, repr=False)
+    _raw: dict | None = field(default=None, repr=False)

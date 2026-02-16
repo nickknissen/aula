@@ -1,7 +1,6 @@
 import logging
 import time
 from datetime import datetime
-from typing import Dict, List, Optional
 from zoneinfo import ZoneInfo
 
 import httpx
@@ -55,9 +54,9 @@ class AulaApiClient:
         self._token_storage = token_storage
         self.debug = debug
         self.api_url = f"{API_URL}{API_VERSION}"
-        self._client: Optional[httpx.AsyncClient] = None
-        self._auth_client: Optional[MitIDAuthClient] = None
-        self._access_token: Optional[str] = None
+        self._client: httpx.AsyncClient | None = None
+        self._auth_client: MitIDAuthClient | None = None
+        self._access_token: str | None = None
 
     async def login(self) -> None:
         """
@@ -250,7 +249,7 @@ class AulaApiClient:
         resp.raise_for_status()
         return ProfileContext(_raw=resp.json())
 
-    async def get_daily_overview(self, child_id: int) -> Optional[DailyOverview]:
+    async def get_daily_overview(self, child_id: int) -> DailyOverview | None:
         """Fetches the daily overview for a specific child.
 
         Returns None if the data is unavailable (e.g. 403 Forbidden).
@@ -270,7 +269,7 @@ class AulaApiClient:
             return None
         return DailyOverview.from_dict(data[0])
 
-    async def get_message_threads(self) -> List[MessageThread]:
+    async def get_message_threads(self) -> list[MessageThread]:
         resp = await self._request_with_version_retry(
             "get",
             f"{self.api_url}?method=messaging.getThreads&sortOn=date&orderDirection=desc&page=0",
@@ -295,7 +294,7 @@ class AulaApiClient:
 
     async def get_messages_for_thread(
         self, thread_id: int, limit: int = 5
-    ) -> List[Message]:
+    ) -> list[Message]:
         """Fetches the latest messages for a specific thread."""
         resp = await self._request_with_version_retry(
             "get",
@@ -326,8 +325,8 @@ class AulaApiClient:
         return messages
 
     async def get_calendar_events(
-        self, institution_profile_ids: List[int], start: datetime, end: datetime
-    ) -> List[CalendarEvent]:
+        self, institution_profile_ids: list[int], start: datetime, end: datetime
+    ) -> list[CalendarEvent]:
 
         data = {
             "instProfileIds": institution_profile_ids,
@@ -392,10 +391,10 @@ class AulaApiClient:
 
     async def get_posts(
         self,
-        institution_profile_ids: List[int],
+        institution_profile_ids: list[int],
         page: int = 1,
         limit: int = 10,
-    ) -> List[Post]:
+    ) -> list[Post]:
         """
         Fetch posts from Aula.
 
@@ -454,7 +453,7 @@ class AulaApiClient:
         return posts
 
     async def get_mu_tasks(
-        self, widget_id: str, child_filter: List[str], week: str
+        self, widget_id: str, child_filter: list[str], week: str
     ) -> Appointment:
         token = await self._get_bearer_token(widget_id)
         url = f"{MIN_UDDANNELSE_API}/opgaveliste?assuranceLevel=2&childFilter={','.join(child_filter)}&currentWeekNumber={week}&isMobileApp=false&placement=narrow"
@@ -470,7 +469,7 @@ class AulaApiClient:
         )
 
     async def get_ugeplan(
-        self, widget_id: str, child_filter: List[str], week: str
+        self, widget_id: str, child_filter: list[str], week: str
     ) -> Appointment:
         token = await self._get_bearer_token(widget_id)
         url = f"{MIN_UDDANNELSE_API}/ugebrev?assuranceLevel=2&childFilter={','.join(child_filter)}&currentWeekNumber={week}&isMobileApp=false&placement=narrow"
@@ -486,7 +485,7 @@ class AulaApiClient:
         )
 
     async def get_easyiq_weekplan(
-        self, week: str, session_uuid: str, institution_filter: List[str], child_id: str
+        self, week: str, session_uuid: str, institution_filter: list[str], child_id: str
     ) -> Appointment:
         token = await self._get_bearer_token("0001")
         headers = {
@@ -512,7 +511,7 @@ class AulaApiClient:
         )
 
     async def get_huskeliste(
-        self, children: List[str], institutions: List[str]
+        self, children: list[str], institutions: list[str]
     ) -> Appointment:
         token = await self._get_bearer_token("0062")
         params = {
@@ -545,7 +544,7 @@ class AulaApiClient:
     def _parse_date(self, date_str: str) -> datetime:
         return datetime.fromisoformat(date_str).astimezone(ZoneInfo("CET"))
 
-    def _find_participant_by_role(self, lesson: Dict, role: str):
+    def _find_participant_by_role(self, lesson: dict, role: str):
         participants = lesson.get("participants", [])
 
         return next(
