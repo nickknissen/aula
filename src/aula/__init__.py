@@ -1,11 +1,15 @@
 """Python client for Aula."""
 
-__version__ = "0.1.0"  # Or fetch dynamically from pyproject.toml
+from importlib.metadata import PackageNotFoundError, version
+
+try:
+    __version__ = version("aula")
+except PackageNotFoundError:
+    __version__ = "0.1.0"
 
 from .api_client import AulaApiClient
 from .models import (
     CalendarEvent,
-    # Add other commonly used models if desired
     Child,
     DailyOverview,
     Message,

@@ -2,10 +2,9 @@ import logging
 import time
 from datetime import datetime
 from typing import Dict, List, Optional
+from zoneinfo import ZoneInfo
 
 import httpx
-import pytz
-from bs4 import BeautifulSoup
 
 from .auth import AulaAuthenticationError, MitIDAuthClient
 from .const import (
@@ -544,7 +543,7 @@ class AulaApiClient:
         return token
 
     def _parse_date(self, date_str: str) -> datetime:
-        return datetime.fromisoformat(date_str).astimezone(pytz.timezone("CET"))
+        return datetime.fromisoformat(date_str).astimezone(ZoneInfo("CET"))
 
     def _find_participant_by_role(self, lesson: Dict, role: str):
         participants = lesson.get("participants", [])
@@ -553,6 +552,12 @@ class AulaApiClient:
             (x for x in participants if x.get("participantRole") == role),
             {},
         )
+
+    async def __aenter__(self) -> "AulaApiClient":
+        return self
+
+    async def __aexit__(self, exc_type, exc_val, exc_tb) -> None:
+        await self.close()
 
     async def close(self) -> None:
         """Close HTTP clients and cleanup resources."""
