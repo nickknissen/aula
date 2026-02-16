@@ -9,22 +9,27 @@ authors = [
 requires-python = ">=3.10"
 dependencies = [
     "beautifulsoup4>=4.12.3",
-    "lxml>=5.3.0",
     "httpx>=0.28.1",
-    "click",
+    "click>=8.0",
     "html2text>=2025.4.15",
-    "pytz>=2025.2",
     "python-dotenv>=1.0.0",
     "qrcode>=8.0",
     "pycryptodome>=3.20.0",
 ]
-packages = [ { include = "py_aula", from = "src" } ]
+
+[project.optional-dependencies]
+rich = ["rich"]
 
 [project.scripts]
-aula = "aula.__main__:main"
-
-
+aula = "aula.cli:cli"
 
 [build-system]
 requires = ["hatchling"]
 build-backend = "hatchling.build"
+
+[tool.ruff]
+target-version = "py310"
+line-length = 100
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "UP"]

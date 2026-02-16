@@ -5,7 +5,7 @@ from dataclasses import dataclass, field
 from enum import Enum
 from typing import Any, List, Optional
 
-import html2text
+from .utils import html_to_markdown, html_to_plain
 
 # Logger
 _LOGGER = logging.getLogger(__name__)
@@ -214,38 +214,12 @@ class Message(AulaDataClass):
     @property
     def content(self) -> str:
         """Return the plain text content stripped from HTML."""
-        if not self.content_html:
-            return ""
-        try:
-            h = html2text.HTML2Text()
-            h.images_to_alt = True
-            h.single_line_break = True
-            h.ignore_emphasis = True
-            h.ignore_links = True
-            h.ignore_tables = True
-            markdown = h.handle(self.content_html)
-            return markdown.strip()
-        except Exception as e:
-            _LOGGER.warning(f"Error parsing HTML content for message {self.id}: {e}")
-            return self.content_html  # Fallback to raw HTML if parsing fails
+        return html_to_plain(self.content_html)
 
     @property
     def content_markdown(self) -> str:
         """Return the content converted to Markdown format."""
-        if not self.content_html:
-            return ""
-        try:
-            h = html2text.HTML2Text()
-            # Configure html2text options if needed, e.g.:
-            # h.ignore_links = True
-            # h.ignore_images = True
-            markdown = h.handle(self.content_html)
-            return markdown.strip()
-        except Exception as e:
-            _LOGGER.warning(
-                f"Error converting HTML to Markdown for message {self.id}: {e}"
-            )
-            return self.content_html  # Fallback to raw HTML if conversion fails
+        return html_to_markdown(self.content_html)
 
 
 @dataclass
@@ -314,29 +288,12 @@ class Post(AulaDataClass):
     @property
     def content(self) -> str:
         """Return the plain text content stripped from HTML."""
-        if not self.content_html:
-            return ""
-        try:
-            h = html2text.HTML2Text()
-            h.ignore_links = True
-            h.ignore_images = True
-            h.ignore_tables = True
-            return h.handle(self.content_html).strip()
-        except Exception as e:
-            _LOGGER.warning(f"Error converting post content to plain text: {e}")
-            return self.content_html
+        return html_to_plain(self.content_html)
 
     @property
     def content_markdown(self) -> str:
         """Return the content converted to Markdown format."""
-        if not self.content_html:
-            return ""
-        try:
-            h = html2text.HTML2Text()
-            return h.handle(self.content_html).strip()
-        except Exception as e:
-            _LOGGER.warning(f"Error converting post content to Markdown: {e}")
-            return self.content_html
+        return html_to_markdown(self.content_html)
 
     @classmethod
     def from_dict(cls, data: dict) -> "Post":
