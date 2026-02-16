@@ -260,13 +260,13 @@ async def messages(ctx, limit):
 @click.option(
     "--start-date",
     type=click.DateTime(formats=["%Y-%m-%d"]),
-    default=datetime.datetime.now(ZoneInfo("CET")),
+    default=datetime.datetime.now(ZoneInfo("Europe/Copenhagen")),
     help="Start date for events (YYYY-MM-DD). Defaults to today.",
 )
 @click.option(
     "--end-date",
     type=click.DateTime(formats=["%Y-%m-%d"]),
-    default=(datetime.datetime.now(ZoneInfo("CET")) + datetime.timedelta(days=7)),
+    default=(datetime.datetime.now(ZoneInfo("Europe/Copenhagen")) + datetime.timedelta(days=7)),
     help="End date for events (YYYY-MM-DD). Defaults to 7 days from today.",
 )
 @click.pass_context
