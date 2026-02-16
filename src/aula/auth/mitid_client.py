@@ -1,27 +1,25 @@
 """MitID Authentication Client for Aula - handles complete OAuth 2.0 + SAML + MitID flow."""
 
-import httpx
 import base64
-import hashlib
-import secrets
-import json
-import time
 import binascii
+import hashlib
+import json
 import logging
-from typing import Dict, Optional
-from urllib.parse import parse_qs, urlparse, urljoin
+import secrets
+import time
+from urllib.parse import parse_qs, urlencode, urljoin, urlparse
+
+import httpx
 from bs4 import BeautifulSoup
 
+from .browser_client import BrowserClient
 from .exceptions import (
     AulaAuthenticationError,
     MitIDError,
-    TokenExpiredError,
-    APIError,
     NetworkError,
-    SAMLError,
     OAuthError,
+    SAMLError,
 )
-from .browser_client import BrowserClient
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -96,25 +94,10 @@ class MitIDAuthClient:
         self.tokens = None
         self.mitid_client = None
 
-    def log(self, message: str, level: str = "INFO"):
-        """Enhanced logging."""
-        level_map = {
-            "DEBUG": _LOGGER.debug,
-            "INFO": _LOGGER.info,
-            "WARN": _LOGGER.warning,
-            "WARNING": _LOGGER.warning,
-            "ERROR": _LOGGER.error,
-        }
-        log_method = level_map.get(level.upper(), _LOGGER.info)
-        if self.debug or level.upper() in ["INFO", "WARN", "WARNING", "ERROR"]:
-            log_method(message)
-
     def generate_pkce_parameters(self) -> tuple[str, str]:
         """Generate PKCE parameters for OAuth 2.0."""
         code_verifier = (
-            base64.urlsafe_b64encode(secrets.token_bytes(32))
-            .decode("utf-8")
-            .rstrip("=")
+            base64.urlsafe_b64encode(secrets.token_bytes(32)).decode("utf-8").rstrip("=")
         )
         challenge = hashlib.sha256(code_verifier.encode("utf-8")).digest()
         code_challenge = base64.urlsafe_b64encode(challenge).decode("utf-8").rstrip("=")
@@ -122,15 +105,11 @@ class MitIDAuthClient:
 
     def generate_state(self) -> str:
         """Generate OAuth state parameter."""
-        return (
-            base64.urlsafe_b64encode(secrets.token_bytes(16))
-            .decode("utf-8")
-            .rstrip("=")
-        )
+        return base64.urlsafe_b64encode(secrets.token_bytes(16)).decode("utf-8").rstrip("=")
 
     async def step1_start_oauth_flow(self) -> str:
         """Step 1: Start OAuth authorization flow."""
-        self.log("Starting OAuth 2.0 authorization flow")
+        _LOGGER.info("Starting OAuth 2.0 authorization flow")
 
         try:
             # Generate PKCE parameters
@@ -149,15 +128,14 @@ class MitIDAuthClient:
             }
 
             auth_url = f"{self.auth_base_url}/simplesaml/module.php/oidc/authorize.php"
-            from urllib.parse import urlencode
             full_auth_url = f"{auth_url}?{urlencode(auth_params)}"
 
-            self.log("Visiting OAuth authorization URL")
+            _LOGGER.info("Visiting OAuth authorization URL")
             oauth_response = await self.client.get(full_auth_url)
 
             if oauth_response.status_code in [301, 302, 303, 307, 308]:
                 redirect_url = oauth_response.headers.get("Location")
-                self.log(f"OAuth redirecting to SAML: {redirect_url[:80]}...")
+                _LOGGER.info(f"OAuth redirecting to SAML: {redirect_url[:80]}...")
                 return redirect_url
             elif oauth_response.status_code == 200:
                 soup = BeautifulSoup(oauth_response.text, "html.parser")
@@ -171,9 +149,9 @@ class MitIDAuthClient:
         except httpx.HTTPError as e:
             raise NetworkError(f"Network error during OAuth flow: {str(e)}")
 
-    async def step2_follow_redirect_to_mitid(self, start_url: str) -> Dict:
+    async def step2_follow_redirect_to_mitid(self, start_url: str) -> dict:
         """Step 2: Follow the redirect chain to MitID."""
-        self.log("Following redirect chain to MitID")
+        _LOGGER.info("Following redirect chain to MitID")
 
         current_url = start_url
         redirect_count = 0
@@ -183,17 +161,17 @@ class MitIDAuthClient:
             while redirect_count < max_redirects:
                 response = await self.client.get(current_url)
                 redirect_count += 1
-                self.log(f"Redirect {redirect_count}: {response.status_code}")
+                _LOGGER.info(f"Redirect {redirect_count}: {response.status_code}")
 
                 if response.status_code == 200:
                     soup = BeautifulSoup(response.text, "html.parser")
 
                     if "broker.unilogin.dk" in str(response.url):
-                        self.log("Reached UniLogin broker - looking for MitID selection")
+                        _LOGGER.info("Reached UniLogin broker - looking for MitID selection")
                         return await self._handle_broker_page(soup, response)
 
                     elif "mitid.dk" in str(response.url) or "nemlog-in" in str(response.url):
-                        self.log("Reached MitID page")
+                        _LOGGER.info("Reached MitID page")
                         token_input = soup.find("input", {"name": "__RequestVerificationToken"})
                         if not token_input:
                             raise SAMLError("Could not find RequestVerificationToken on MitID page")
@@ -217,7 +195,7 @@ class MitIDAuthClient:
         except httpx.HTTPError as e:
             raise NetworkError(f"Network error during redirect chain: {str(e)}")
 
-    async def _handle_broker_page(self, soup, response) -> Dict:
+    async def _handle_broker_page(self, soup, response) -> dict:
         """Handle the broker page for MitID selection."""
         main_form = soup.find("form")
         if not main_form:
@@ -227,7 +205,7 @@ class MitIDAuthClient:
         if not action:
             raise SAMLError("Form has no action attribute")
 
-        self.log("Submitting MitID selection form")
+        _LOGGER.info("Submitting MitID selection form")
 
         # Collect form data
         form_data = {}
@@ -245,96 +223,75 @@ class MitIDAuthClient:
         if post_response.status_code in [301, 302, 303, 307, 308]:
             if "Location" in post_response.headers:
                 current_url = post_response.headers["Location"]
-                self.log(f"Form submission redirected to: {current_url[:80]}...")
+                _LOGGER.info(f"Form submission redirected to: {current_url[:80]}...")
                 return await self.step2_follow_redirect_to_mitid(current_url)
 
         raise SAMLError("Could not find working IdP selection method")
 
     async def step3_mitid_authentication(self, verification_token: str) -> str:
         """Step 3: Perform MitID authentication with the app."""
-        self.log("Starting MitID authentication (APP method)")
+        _LOGGER.info("Starting MitID authentication (APP method)")
 
-        try:
-            # Initialize MitID authentication
-            post_url = "https://nemlog-in.mitid.dk/login/mitid/initialize"
-            post_headers = {
-                "accept": "*/*",
-                "content-type": "application/x-www-form-urlencoded; charset=UTF-8",
-                "origin": "https://nemlog-in.mitid.dk",
-                "referer": "https://nemlog-in.mitid.dk/login/mitid",
-                "x-requested-with": "XMLHttpRequest",
-            }
+        # Initialize MitID authentication
+        post_url = "https://nemlog-in.mitid.dk/login/mitid/initialize"
+        post_headers = {
+            "accept": "*/*",
+            "content-type": "application/x-www-form-urlencoded; charset=UTF-8",
+            "origin": "https://nemlog-in.mitid.dk",
+            "referer": "https://nemlog-in.mitid.dk/login/mitid",
+            "x-requested-with": "XMLHttpRequest",
+        }
 
-            resp_init = await self.client.post(
-                post_url,
-                headers=post_headers,
-                data={"__RequestVerificationToken": verification_token},
+        resp_init = await self.client.post(
+            post_url,
+            headers=post_headers,
+            data={"__RequestVerificationToken": verification_token},
+        )
+        resp_init_json = resp_init.json()
+
+        if isinstance(resp_init_json, str):
+            resp_init_json = json.loads(resp_init_json)
+
+        aux_value = resp_init_json.get("Aux")
+        if not aux_value:
+            raise MitIDError("No Aux value in MitID initialization response")
+
+        aux = json.loads(base64.b64decode(aux_value).decode())
+
+        # Use MitID BrowserClient for authentication
+        client_hash = binascii.hexlify(base64.b64decode(aux["coreClient"]["checksum"])).decode(
+            "ascii"
+        )
+        authentication_session_id = aux["parameters"]["authenticationSessionId"]
+
+        self.mitid_client = BrowserClient(client_hash, authentication_session_id, self.client)
+
+        await self.mitid_client.initialize()
+
+        available_authenticators = (
+            await self.mitid_client.identify_as_user_and_get_available_authenticators(
+                self.mitid_username
             )
-            resp_init_json = resp_init.json()
+        )
 
-            if isinstance(resp_init_json, str):
-                resp_init_json = json.loads(resp_init_json)
+        _LOGGER.info(f"Available authenticators: {available_authenticators}")
 
-            aux_value = resp_init_json.get("Aux")
-            if not aux_value:
-                raise MitIDError("No Aux value in MitID initialization response")
+        if "APP" in available_authenticators:
+            await self.mitid_client.authenticate_with_app()
+        else:
+            raise MitIDError("APP authentication method not available for this user")
 
-            aux = json.loads(base64.b64decode(aux_value).decode())
-
-            # Use MitID BrowserClient for authentication
-            authorization_code = await self._get_mitid_authentication_code(aux)
-            self.log("MitID authentication code obtained")
-
-            return authorization_code
-
-        except httpx.HTTPError as e:
-            raise NetworkError(f"Network error during MitID authentication: {str(e)}")
-        except (json.JSONDecodeError, KeyError) as e:
-            raise MitIDError(f"Invalid MitID response format: {str(e)}")
-
-    async def _get_mitid_authentication_code(self, aux: Dict) -> str:
-        """Use MitID BrowserClient to get authentication code."""
-        try:
-            client_hash = binascii.hexlify(
-                base64.b64decode(aux["coreClient"]["checksum"])
-            ).decode("ascii")
-            authentication_session_id = aux["parameters"]["authenticationSessionId"]
-
-            self.mitid_client = BrowserClient(
-                client_hash, authentication_session_id, self.client
-            )
-
-            # Initialize the browser client
-            await self.mitid_client.initialize()
-
-            # Identify as user and get available authenticators
-            available_authenticators = (
-                await self.mitid_client.identify_as_user_and_get_available_authenticators(
-                    self.mitid_username
-                )
-            )
-
-            self.log(f"Available authenticators: {available_authenticators}")
-
-            # Use APP authentication
-            if "APP" in available_authenticators:
-                await self.mitid_client.authenticate_with_app()
-            else:
-                raise MitIDError("APP authentication method not available for this user")
-
-            authorization_code = (
-                await self.mitid_client.finalize_authentication_and_get_authorization_code()
-            )
-            return authorization_code
-
-        except Exception as e:
-            raise MitIDError(f"MitID authentication failed: {str(e)}")
+        authorization_code = (
+            await self.mitid_client.finalize_authentication_and_get_authorization_code()
+        )
+        _LOGGER.info("MitID authentication code obtained")
+        return authorization_code
 
     async def step4_complete_mitid_flow(
         self, verification_token: str, authorization_code: str
-    ) -> Dict:
+    ) -> dict:
         """Step 4: Complete MitID authentication and get SAML response."""
-        self.log("Completing MitID authentication flow")
+        _LOGGER.info("Completing MitID authentication flow")
 
         try:
             session_uuid = self.client.cookies.get("SessionUuid", "")
@@ -351,9 +308,7 @@ class MitIDAuthClient:
                 "SessionStorageActiveChallenge": challenge,
             }
 
-            request = await self.client.post(
-                "https://nemlog-in.mitid.dk/login/mitid", data=params
-            )
+            request = await self.client.post("https://nemlog-in.mitid.dk/login/mitid", data=params)
 
             soup = BeautifulSoup(request.text, features="html.parser")
 
@@ -372,9 +327,9 @@ class MitIDAuthClient:
         except httpx.HTTPError as e:
             raise NetworkError(f"Network error during MitID completion: {str(e)}")
 
-    async def step5_saml_broker_flow(self, saml_data: Dict) -> Dict:
+    async def step5_saml_broker_flow(self, saml_data: dict) -> dict:
         """Step 5: Complete SAML broker authentication."""
-        self.log("Processing SAML broker flow")
+        _LOGGER.info("Processing SAML broker flow")
 
         try:
             # Post SAML response to broker
@@ -400,17 +355,17 @@ class MitIDAuthClient:
         except httpx.HTTPError as e:
             raise NetworkError(f"Network error during SAML broker flow: {str(e)}")
 
-    async def _process_broker_response(self, response) -> Dict:
+    async def _process_broker_response(self, response) -> dict:
         """Process broker response and extract SAML for Aula."""
-        self.log(f"Processing broker response from URL: {response.url}")
-        self.log(f"Response status: {response.status_code}")
+        _LOGGER.info(f"Processing broker response from URL: {response.url}")
+        _LOGGER.info(f"Response status: {response.status_code}")
 
         soup = BeautifulSoup(response.text, "html.parser")
 
         # Extract form and its action URL
         form = soup.find("form")
         if not form:
-            self.log("WARNING: No form found in broker response")
+            _LOGGER.warning("No form found in broker response")
             raise SAMLError("No form found in broker response")
 
         # Use the form's action URL directly - it contains the correct parameters
@@ -418,7 +373,7 @@ class MitIDAuthClient:
         if not form_action:
             raise SAMLError("Form has no action attribute")
 
-        self.log(f"Found form with action: {form_action}")
+        _LOGGER.info(f"Found form with action: {form_action}")
 
         # Extract form data (input fields)
         form_data = {}
@@ -427,19 +382,21 @@ class MitIDAuthClient:
             value = inp.get("value", "")
             if name:
                 form_data[name] = value
-        self.log(f"Extracted form data keys: {list(form_data.keys())}")
+        _LOGGER.info(f"Extracted form data keys: {list(form_data.keys())}")
 
         # Post to the form's action URL
-        self.log(f"Posting to broker URL: {form_action}")
+        _LOGGER.info(f"Posting to broker URL: {form_action}")
         post_broker_response = await self.client.post(form_action, data=form_data)
 
-        self.log(f"Post-broker response status: {post_broker_response.status_code}")
-        self.log(f"Post-broker response URL: {post_broker_response.url}")
+        _LOGGER.info(f"Post-broker response status: {post_broker_response.status_code}")
+        _LOGGER.info(f"Post-broker response URL: {post_broker_response.url}")
 
         if post_broker_response.status_code not in [301, 302, 303, 307, 308]:
-            self.log(f"Post-broker response headers: {dict(post_broker_response.headers)}")
-            self.log(f"Post-broker response text preview: {post_broker_response.text[:500]}")
-            raise SAMLError(f"No redirect from post-broker-login (status: {post_broker_response.status_code})")
+            _LOGGER.info(f"Post-broker response headers: {dict(post_broker_response.headers)}")
+            _LOGGER.info(f"Post-broker response text preview: {post_broker_response.text[:500]}")
+            raise SAMLError(
+                f"No redirect from post-broker-login (status: {post_broker_response.status_code})"
+            )
 
         # Follow final redirect
         after_url = post_broker_response.headers["Location"]
@@ -464,9 +421,9 @@ class MitIDAuthClient:
             "form_action": saml_form.get("action", ""),
         }
 
-    async def step6_complete_aula_login(self, saml_data: Dict) -> str:
+    async def step6_complete_aula_login(self, saml_data: dict) -> str:
         """Step 6: Complete Aula login with SAML response."""
-        self.log("Completing Aula login with SAML response")
+        _LOGGER.info("Completing Aula login with SAML response")
 
         try:
             aula_saml_data = {
@@ -484,9 +441,7 @@ class MitIDAuthClient:
             if aula_response.status_code not in [301, 302, 303, 307, 308]:
                 raise OAuthError("No redirect from Aula SAML endpoint")
 
-            return await self._follow_oauth_callback_redirects(
-                aula_response.headers["Location"]
-            )
+            return await self._follow_oauth_callback_redirects(aula_response.headers["Location"])
 
         except httpx.HTTPError as e:
             raise NetworkError(f"Network error during Aula login completion: {str(e)}")
@@ -502,11 +457,10 @@ class MitIDAuthClient:
             redirect_response = await self.client.get(redirect_url)
 
             # Check if this is the OAuth callback
-            if (
-                self.app_redirect_uri in str(redirect_response.url)
-                and "code=" in str(redirect_response.url)
+            if self.app_redirect_uri in str(redirect_response.url) and "code=" in str(
+                redirect_response.url
             ):
-                self.log("Found OAuth callback URL")
+                _LOGGER.info("Found OAuth callback URL")
                 return str(redirect_response.url)
 
             if "Location" in redirect_response.headers:
@@ -522,11 +476,11 @@ class MitIDAuthClient:
             else:
                 raise OAuthError(f"Unexpected status: {redirect_response.status_code}")
 
-        raise OAuthError(f"Too many redirects without finding OAuth callback")
+        raise OAuthError("Too many redirects without finding OAuth callback")
 
-    async def step7_exchange_oauth_code(self, callback_url: str) -> Dict:
+    async def step7_exchange_oauth_code(self, callback_url: str) -> dict:
         """Step 7: Exchange OAuth authorization code for tokens."""
-        self.log("Exchanging OAuth authorization code for tokens")
+        _LOGGER.info("Exchanging OAuth authorization code for tokens")
 
         try:
             parsed_url = urlparse(callback_url)
@@ -578,7 +532,7 @@ class MitIDAuthClient:
             if expires_in:
                 hours = int(expires_in // 3600)
                 minutes = int((expires_in % 3600) // 60)
-                self.log(f"Token obtained! Lifetime: {hours}h {minutes}m")
+                _LOGGER.info(f"Token obtained! Lifetime: {hours}h {minutes}m")
 
             return tokens
 
@@ -587,16 +541,16 @@ class MitIDAuthClient:
         except json.JSONDecodeError as e:
             raise OAuthError(f"Invalid token response format: {str(e)}")
 
-    async def authenticate(self) -> Dict:
+    async def authenticate(self) -> dict:
         """
         Execute the complete authentication flow.
 
         Returns:
             Dict containing success status and tokens
         """
-        self.log("=" * 60)
-        self.log("STARTING MITID AUTHENTICATION FLOW")
-        self.log("=" * 60)
+        _LOGGER.info("=" * 60)
+        _LOGGER.info("STARTING MITID AUTHENTICATION FLOW")
+        _LOGGER.info("=" * 60)
 
         try:
             # Step 1: Start OAuth flow
@@ -606,9 +560,7 @@ class MitIDAuthClient:
             mitid_data = await self.step2_follow_redirect_to_mitid(saml_redirect_url)
 
             # Step 3: MitID authentication
-            auth_code = await self.step3_mitid_authentication(
-                mitid_data["verification_token"]
-            )
+            auth_code = await self.step3_mitid_authentication(mitid_data["verification_token"])
 
             # Step 4: Complete MitID flow
             saml_response_data = await self.step4_complete_mitid_flow(
@@ -624,26 +576,26 @@ class MitIDAuthClient:
             # Step 7: Exchange OAuth code
             tokens = await self.step7_exchange_oauth_code(callback_url)
 
-            self.log("=" * 60)
-            self.log("AUTHENTICATION COMPLETED SUCCESSFULLY!")
-            self.log("=" * 60)
+            _LOGGER.info("=" * 60)
+            _LOGGER.info("AUTHENTICATION COMPLETED SUCCESSFULLY!")
+            _LOGGER.info("=" * 60)
 
             return {"success": True, "tokens": tokens}
 
         except Exception as e:
-            self.log(f"Authentication flow failed: {str(e)}", "ERROR")
+            _LOGGER.error(f"Authentication flow failed: {str(e)}")
             if isinstance(e, AulaAuthenticationError):
                 raise
             else:
                 raise AulaAuthenticationError(f"Authentication failed: {str(e)}")
 
     @property
-    def access_token(self) -> Optional[str]:
+    def access_token(self) -> str | None:
         """Get the current access token."""
         return self.tokens.get("access_token") if self.tokens else None
 
     @property
-    def refresh_token(self) -> Optional[str]:
+    def refresh_token(self) -> str | None:
         """Get the current refresh token."""
         return self.tokens.get("refresh_token") if self.tokens else None
 

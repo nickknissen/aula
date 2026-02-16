@@ -1,17 +1,14 @@
 """Custom SRP (Secure Remote Password) implementation for MitID authentication."""
 
-import base64
-import random
 import binascii
 import hashlib
-from Crypto.Cipher import AES
+import random
+
 from Crypto import Random
+from Crypto.Cipher import AES
 
 BLOCK_SIZE = 16
-pad = lambda s: s + (BLOCK_SIZE - len(s) % BLOCK_SIZE) * chr(
-    BLOCK_SIZE - len(s) % BLOCK_SIZE
-)
-unpad = lambda s: s[: -ord(s[len(s) - 1 :])]
+pad = lambda s: s + (BLOCK_SIZE - len(s) % BLOCK_SIZE) * chr(BLOCK_SIZE - len(s) % BLOCK_SIZE)
 
 
 def int_to_hex(x):
@@ -22,32 +19,12 @@ def int_to_bytes(x):
     return x.to_bytes((x.bit_length() + 7) // 8, "big")
 
 
-def bytes_to_int(x):
-    return int.from_bytes(x, "big")
-
-
 def bytes_to_hex(x):
     return binascii.hexlify(x).decode("utf-8")
 
 
-def hex_to_bytes(x):
-    return binascii.unhexlify(x)
-
-
 def hex_to_int(x):
     return int(x, 16)
-
-
-def AesDecryptWithKey(encMessage, key):
-    encMessage = base64.b64decode(encMessage)
-
-    iv = encMessage[:BLOCK_SIZE]
-    cipherText = encMessage[BLOCK_SIZE : len(encMessage) - BLOCK_SIZE]
-    macTag = encMessage[len(encMessage) - BLOCK_SIZE :]
-
-    cipher = AES.new(key, AES.MODE_GCM, iv)
-    decrypted = cipher.decrypt_and_verify(cipherText, macTag)
-    return decrypted
 
 
 class CustomSRP:
@@ -120,14 +97,9 @@ class CustomSRP:
 
         m = hashlib.sha256()
         m.update(
-            (
-                str(a)
-                + r
-                + srpSalt
-                + str(self.A)
-                + str(self.B)
-                + bytes_to_hex(self.K_bits)
-            ).encode("ascii")
+            (str(a) + r + srpSalt + str(self.A) + str(self.B) + bytes_to_hex(self.K_bits)).encode(
+                "ascii"
+            )
         )
         return m.hexdigest()
 
@@ -161,9 +133,7 @@ class CustomSRP:
         M1_bigInt = int(self.M1_hex, 16)
 
         m = hashlib.sha256()
-        m.update(
-            (str(self.A) + str(M1_bigInt) + bytes_to_hex(self.K_bits)).encode("utf-8")
-        )
+        m.update((str(self.A) + str(M1_bigInt) + bytes_to_hex(self.K_bits)).encode("utf-8"))
         M2_hex_verify = m.hexdigest()
         return M2_hex_verify == M2_hex
 
@@ -172,10 +142,3 @@ class CustomSRP:
         cipher = AES.new(self.K_bits, AES.MODE_GCM, iv)
         ciphertext, tag = cipher.encrypt_and_digest(plainText)
         return iv + ciphertext + tag
-
-    def AuthDec(self, encMessage):
-        return AesDecryptWithKey(encMessage, self.K_bits)
-
-    def AuthDecPin(self, encMessage):
-        pin_key = hashlib.sha256(binascii.hexlify(self.K_bits) + b"PIN").digest()
-        return AesDecryptWithKey(encMessage, pin_key)
