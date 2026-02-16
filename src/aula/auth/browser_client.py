@@ -7,7 +7,6 @@ import hmac
 import json
 import logging
 import time
-from typing import Dict, Optional, Tuple
 
 import httpx
 import qrcode
@@ -61,13 +60,13 @@ class BrowserClient:
         _LOGGER.debug(f"{self.reference_text_header}")
         _LOGGER.debug(f"{self.reference_text_body}")
 
-    def get_current_qr_codes(self) -> Optional[Tuple]:
+    def get_current_qr_codes(self) -> tuple | None:
         """Get current QR codes for external display (e.g., GUI)."""
         if self.qr1 and self.qr2:
             return (self.qr1, self.qr2)
         return None
 
-    def get_otp_code(self) -> Optional[str]:
+    def get_otp_code(self) -> str | None:
         """Get current OTP code if available."""
         return self.otp_code
 
@@ -97,7 +96,7 @@ class BrowserClient:
 
     async def identify_as_user_and_get_available_authenticators(
         self, user_id: str
-    ) -> Dict[str, str]:
+    ) -> dict[str, str]:
         """Identify as a user and get available authentication methods."""
         self.user_id = user_id
         r = await self.client.put(
@@ -411,17 +410,15 @@ class BrowserClient:
             self.broker_security_context.encode("utf8")
         ).hexdigest()
         base64_reference_text_header = base64.b64encode(
-            (self.reference_text_header.encode("utf8"))
+            self.reference_text_header.encode("utf8")
         ).decode("ascii")
         base64_reference_text_body = base64.b64encode(
-            (self.reference_text_body.encode("utf8"))
+            self.reference_text_body.encode("utf8")
         ).decode("ascii")
         base64_service_provider_name = base64.b64encode(
-            (self.service_provider_name.encode("utf8"))
+            self.service_provider_name.encode("utf8")
         ).decode("ascii")
-        return f"{self.current_authenticator_session_id},{self.current_authenticator_session_flow_key},{self.client_hash},{self.current_authenticator_eafe_hash},{hashed_broker_security_context},{base64_reference_text_header},{base64_reference_text_body},{base64_service_provider_name}".encode(
-            "utf-8"
-        )
+        return f"{self.current_authenticator_session_id},{self.current_authenticator_session_flow_key},{self.client_hash},{self.current_authenticator_eafe_hash},{hashed_broker_security_context},{base64_reference_text_header},{base64_reference_text_body},{base64_service_provider_name}".encode()
 
     async def __select_authenticator(self, authenticator_type: str) -> None:
         """Select a specific authenticator type."""

@@ -66,7 +66,7 @@ async def main():
         start = datetime.now()
         end = start + timedelta(days=7)
 
-        print(f"\nFetching calendar events for the next 7 days...")
+        print("\nFetching calendar events for the next 7 days...")
         events = await client.get_calendar_events(
             institution_profile_ids=profile.institution_profile_ids,
             start=start,
