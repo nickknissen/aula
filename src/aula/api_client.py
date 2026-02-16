@@ -1,6 +1,7 @@
 from datetime import datetime
 import logging
 from typing import Dict, List, Optional
+from pathlib import Path
 import pytz
 
 import httpx
@@ -25,6 +26,7 @@ from .models import (
     Profile,
     ProfileContext,
 )
+from .auth import MitIDAuthClient, AulaAuthenticationError
 
 # Logger
 _LOGGER = logging.getLogger(__name__)
@@ -33,84 +35,131 @@ _LOGGER = logging.getLogger(__name__)
 class AulaApiClient:
     """
     Async client for Aula API endpoints and parsing.
-    Based on work of https://github.com/scaarup/aula
+
+    Now uses MitID authentication instead of the old UniLogin system.
+    Requires a MitID username and the MitID app for authentication.
     """
 
-    def __init__(self, username: str, password: str):
-        self.username = username
-        self.password = password
+    def __init__(
+        self,
+        mitid_username: str,
+        token_file: str = ".aula_tokens.json",
+        debug: bool = False
+    ):
+        """
+        Initialize the Aula API client.
+
+        Args:
+            mitid_username: Your MitID username (not Aula username)
+            token_file: Path to store authentication tokens (default: .aula_tokens.json)
+            debug: Enable debug logging (default: False)
+        """
+        self.mitid_username = mitid_username
+        self.token_file = token_file
+        self.debug = debug
         self.api_url = f"{API_URL}{API_VERSION}"
         self._client: Optional[httpx.AsyncClient] = None
+        self._auth_client: Optional[MitIDAuthClient] = None
+        self._access_token: Optional[str] = None
 
     async def login(self) -> None:
-        """Authenticate and discover latest API URL."""
-        self._client = httpx.AsyncClient(follow_redirects=True)
-        # 1. Initial login page
-        resp = await self._client.get(
-            "https://login.aula.dk/auth/login.php",
-            params={"type": "unilogin"},
+        """
+        Authenticate using MitID and discover latest API URL.
+
+        This method will:
+        1. Try to load cached tokens from the token file
+        2. If tokens are missing or expired, perform MitID authentication
+           (requires MitID app approval)
+        3. Configure the HTTP client with the access token
+        4. Discover the current API version
+        """
+        self._auth_client = MitIDAuthClient(
+            mitid_username=self.mitid_username,
+            debug=self.debug
+        )
+
+        # Try to load cached tokens
+        token_loaded = await self._auth_client.load_tokens(self.token_file)
+
+        if not token_loaded or not self._auth_client.is_authenticated():
+            _LOGGER.info("No valid tokens found, starting MitID authentication...")
+            _LOGGER.info("Please approve the login request in your MitID app")
+
+            # Perform full authentication flow
+            try:
+                await self._auth_client.authenticate()
+                await self._auth_client.save_tokens(self.token_file)
+                _LOGGER.info("Authentication successful! Tokens saved.")
+            except AulaAuthenticationError as e:
+                _LOGGER.error(f"Authentication failed: {e}")
+                raise RuntimeError(f"MitID authentication failed: {e}")
+        else:
+            _LOGGER.info("Loaded cached authentication tokens")
+
+        self._access_token = self._auth_client.access_token
+
+        # Initialize HTTP client with authentication
+        self._client = httpx.AsyncClient(
+            follow_redirects=True,
             headers={"User-Agent": USER_AGENT},
         )
-        soup = BeautifulSoup(resp.text, "lxml")
-        # Ensure login form is present
-        form = soup.find("form")
-        if not form or not form.has_attr("action"):
-            _LOGGER.error(
-                "Login form not found (status %s). Response body: %s",
-                resp.status_code,
-                resp.text[:200],
-            )
-            raise RuntimeError("Unable to locate login form in Aula login page")
 
-        # 2. Select uni_idp
-        resp = await self._client.post(
-            form["action"],
-            data={"selectedIdp": "uni_idp"},
-            headers={
-                "User-Agent": USER_AGENT,
-                "Content-Type": "application/x-www-form-urlencoded",
-            },
-        )
-        # 3. Credentials
-        # follow redirects and 2FA forms
-        user_data = {
-            "username": self.username,
-            "password": self.password,
-            "selected-aktoer": "KONTAKT",
-        }
-        for i in range(10):
-            _LOGGER.debug(f"Login redirect loop {i}")
-
-            soup = BeautifulSoup(resp.text, "lxml")
-            data = {
-                inp["name"]: inp.get("value")
-                for inp in soup.find_all("input")
-                if inp.has_attr("name")
-            }
-            data.update(user_data)
-            resp = await self._client.post(soup.form["action"], data=data)
-            # httpx.Response.url is a URL object; convert to string before checking prefix
-            if resp.url == "https://www.aula.dk:443/portal/":
-                break
+        # Copy cookies from auth client to API client
+        self._client.cookies = self._auth_client.client.cookies
 
         await self._set_correct_api_version()
 
     async def _set_correct_api_version(self) -> None:
         api_version = int(API_VERSION)
         while True:
+            test_url = f"{API_URL}{api_version}"
             version_check = await self._client.get(
-                f"{self.api_url}?method=profiles.getProfilesByLogin"
+                f"{test_url}?method=profiles.getProfilesByLogin"
             )
             if version_check.status_code == 410:
+                _LOGGER.info(f"API version v{api_version} is deprecated (410 Gone), trying v{api_version + 1}")
                 api_version += 1
                 continue
             if version_check.status_code == 200:
-                self.api_url = f"{API_URL}{api_version}"
+                self.api_url = test_url
+                _LOGGER.info(f"Using API version v{api_version}")
                 break
             version_check.raise_for_status()
 
+    async def _request_with_version_retry(self, method: str, url: str, **kwargs) -> httpx.Response:
+        """
+        Make an HTTP request with automatic API version bump on 410 Gone.
+
+        If the API returns 410 Gone (deprecated version), automatically increment
+        the version number and retry the request with the new version.
+        """
+        max_retries = 5
+        for attempt in range(max_retries):
+            response = await getattr(self._client, method.lower())(url, **kwargs)
+
+            if response.status_code == 410:
+                # Extract current version number from self.api_url
+                current_version = int(self.api_url.split("/v")[-1])
+                new_version = current_version + 1
+
+                _LOGGER.warning(
+                    f"API version v{current_version} is deprecated (410 Gone), "
+                    f"automatically switching to v{new_version}"
+                )
+
+                # Update API URL to new version
+                self.api_url = f"{API_URL}{new_version}"
+
+                # Retry with new version URL
+                url = url.replace(f"/v{current_version}", f"/v{new_version}")
+                continue
+
+            return response
+
+        raise RuntimeError(f"Failed to find working API version after {max_retries} attempts")
+
     async def get_profile(self) -> Profile:
-        resp = await self._client.get(
+        resp = await self._request_with_version_retry("get",
             f"{self.api_url}?method=profiles.getProfilesByLogin"
         )
         resp.raise_for_status()  # Ensure request was successful
@@ -171,7 +220,7 @@ class AulaApiClient:
         return True
 
     async def get_profile_context(self) -> ProfileContext:
-        resp = await self._client.get(
+        resp = await self._request_with_version_retry("get",
             f"{self.api_url}?method=profiles.getProfileContext"
         )
         resp.raise_for_status()
@@ -179,13 +228,13 @@ class AulaApiClient:
 
     async def get_daily_overview(self, child_id: int) -> DailyOverview:
         """Fetches the daily overview for a specific child."""
-        resp = await self._client.get(
+        resp = await self._request_with_version_retry("get",
             f"{self.api_url}?method=presence.getDailyOverview&childIds[]={child_id}"
         )
         return DailyOverview.from_dict(resp.json()["data"][0])
 
     async def get_message_threads(self) -> List[MessageThread]:
-        resp = await self._client.get(
+        resp = await self._request_with_version_retry("get",
             f"{self.api_url}?method=messaging.getThreads&sortOn=date&orderDirection=desc&page=0"
         )
         resp.raise_for_status()
@@ -210,7 +259,7 @@ class AulaApiClient:
         self, thread_id: int, limit: int = 5
     ) -> List[Message]:
         """Fetches the latest messages for a specific thread."""
-        resp = await self._client.get(
+        resp = await self._request_with_version_retry("get",
             f"{self.api_url}?method=messaging.getMessagesForThread&threadId={thread_id}&page=0&limit={limit}"
         )
         resp.raise_for_status()
@@ -252,7 +301,7 @@ class AulaApiClient:
         if self._client and self._client.cookies:
             csrf_token = self._client.cookies.get("Csrfp-Token")
 
-        resp = await self._client.post(
+        resp = await self._request_with_version_retry("post",
             f"{self.api_url}?method=calendar.getEventsByProfileIdsAndResourceIds",
             headers={"content-type": "application/json", "csrfp-token": csrf_token},
             json=data,
@@ -326,7 +375,7 @@ class AulaApiClient:
 
         _LOGGER.debug("Fetching posts with params: %s", params)
         
-        resp = await self._client.get(
+        resp = await self._request_with_version_retry("get",
             self.api_url,
             params=params
         )
@@ -365,7 +414,7 @@ class AulaApiClient:
     ) -> Appointment:
         token = await self._get_bearer_token(widget_id)
         url = f"{MIN_UDDANNELSE_API}/opgaveliste?assuranceLevel=2&childFilter={','.join(child_filter)}&currentWeekNumber={week}&isMobileApp=false&placement=narrow"
-        resp = await self._client.get(url, headers={"Authorization": token})
+        resp = await self._request_with_version_retry("get",url, headers={"Authorization": token})
         data = resp.json()
         appointment = data.get("data", {}).get("appointments", [{}])[0]
         return Appointment(
@@ -379,7 +428,7 @@ class AulaApiClient:
     ) -> Appointment:
         token = await self._get_bearer_token(widget_id)
         url = f"{MIN_UDDANNELSE_API}/ugebrev?assuranceLevel=2&childFilter={','.join(child_filter)}&currentWeekNumber={week}&isMobileApp=false&placement=narrow"
-        resp = await self._client.get(url, headers={"Authorization": token})
+        resp = await self._request_with_version_retry("get",url, headers={"Authorization": token})
         data = resp.json()
         appointment = data.get("data", {}).get("appointments", [{}])[0]
         return Appointment(
@@ -403,7 +452,7 @@ class AulaApiClient:
             "institutionFilter": institution_filter,
             "childFilter": [child_id],
         }
-        resp = await self._client.post(
+        resp = await self._request_with_version_retry("post",
             f"{EASYIQ_API}/weekplaninfo", json=payload, headers=headers
         )
         data = resp.json()
@@ -422,7 +471,7 @@ class AulaApiClient:
             "children": ",".join(children),
             "institutions": ",".join(institutions),
         }
-        resp = await self._client.get(
+        resp = await self._request_with_version_retry("get",
             f"{SYSTEMATIC_API}/reminders/v1",
             params=params,
             headers={"Aula-Authorization": token},
@@ -438,7 +487,7 @@ class AulaApiClient:
     async def _get_bearer_token(self, widget_id: str) -> str:
         # reuse or fetch new
         # simplistic: always fetch
-        resp = await self._client.get(
+        resp = await self._request_with_version_retry("get",
             f"{self.api_url}?method=aulaToken.getAulaToken&widgetId={widget_id}"
         )
         token = "Bearer " + str(resp.json()["data"])
@@ -454,3 +503,10 @@ class AulaApiClient:
             (x for x in participants if x.get("participantRole") == role),
             {},
         )
+
+    async def close(self) -> None:
+        """Close HTTP clients and cleanup resources."""
+        if self._client:
+            await self._client.aclose()
+        if self._auth_client:
+            await self._auth_client.close()
