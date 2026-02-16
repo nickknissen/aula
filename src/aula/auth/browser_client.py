@@ -53,9 +53,7 @@ class BrowserClient:
         self.service_provider_name = r_json["serviceProviderName"]
         self.reference_text_header = r_json["referenceTextHeader"]
         self.reference_text_body = r_json["referenceTextBody"]
-        self.status_message = (
-            f"Beginning login session for {self.service_provider_name}"
-        )
+        self.status_message = f"Beginning login session for {self.service_provider_name}"
         _LOGGER.info(f"Beginning login session for {self.service_provider_name}")
         _LOGGER.debug(f"{self.reference_text_header}")
         _LOGGER.debug(f"{self.reference_text_body}")
@@ -108,24 +106,18 @@ class BrowserClient:
             _LOGGER.error(
                 f"Received status code ({r.status_code}) while attempting to identify as user ({user_id})"
             )
-            if (
-                r.status_code == 400
-                and r.json()["errorCode"] == "control.identity_not_found"
-            ):
+            if r.status_code == 400 and r.json()["errorCode"] == "control.identity_not_found":
                 _LOGGER.error(f"User '{user_id}' does not exist.")
                 raise MitIDError(f"User '{user_id}' does not exist")
 
             if (
                 r.status_code == 400
-                and r.json()["errorCode"]
-                == "control.authentication_session_not_found"
+                and r.json()["errorCode"] == "control.authentication_session_not_found"
             ):
                 _LOGGER.error("Authentication session not found")
                 raise MitIDError("Authentication session not found")
 
-            raise MitIDError(
-                f"Failed to identify as user ({user_id}): HTTP {r.status_code}"
-            )
+            raise MitIDError(f"Failed to identify as user ({user_id}): HTTP {r.status_code}")
 
         r = await self.client.post(
             f"https://www.mitid.dk/mitid-core-client-backend/v2/authentication-sessions/{self.authentication_session_id}/next",
@@ -144,8 +136,7 @@ class BrowserClient:
         if (
             r_json["errors"]
             and len(r_json["errors"]) > 0
-            and r_json["errors"][0]["errorCode"]
-            == "control.authenticator_cannot_be_started"
+            and r_json["errors"][0]["errorCode"] == "control.authenticator_cannot_be_started"
         ):
             error_text = r_json["errors"][0]["userMessage"]["text"]["text"]
             _LOGGER.error(
@@ -153,9 +144,7 @@ class BrowserClient:
             )
             raise MitIDError(f"Authenticator cannot be started: {error_text}")
 
-        self.current_authenticator_type = r_json["nextAuthenticator"][
-            "authenticatorType"
-        ]
+        self.current_authenticator_type = r_json["nextAuthenticator"]["authenticatorType"]
         self.current_authenticator_session_flow_key = r_json["nextAuthenticator"][
             "authenticatorSessionFlowKey"
         ]
@@ -170,9 +159,9 @@ class BrowserClient:
             auth_name = self.__convert_combination_id_to_human_authenticator_name(
                 available_combination["id"]
             )
-            available_authenticators[auth_name] = available_combination[
-                "combinationItems"
-            ][0]["name"]
+            available_authenticators[auth_name] = available_combination["combinationItems"][0][
+                "name"
+            ]
 
         return available_authenticators
 
@@ -191,8 +180,7 @@ class BrowserClient:
         r_json = r.json()
         if (
             "errorCode" in r_json
-            and r_json["errorCode"]
-            == "auth.codeapp.authentication.parallel_sessions_detected"
+            and r_json["errorCode"] == "auth.codeapp.authentication.parallel_sessions_detected"
         ):
             _LOGGER.error(
                 "Parallel app sessions detected, only a single app login session can be happening at any one time"
@@ -218,16 +206,11 @@ class BrowserClient:
                 self.status_message = (
                     f"Please use the following OTP code in the app: {self.otp_code}"
                 )
-                _LOGGER.info(
-                    f"Please use the following OTP code in the app: {self.otp_code}"
-                )
+                _LOGGER.info(f"Please use the following OTP code in the app: {self.otp_code}")
                 await asyncio.sleep(0.5)
                 continue
 
-            if (
-                r.status_code == 200
-                and r.json()["status"] == "channel_validation_tqr"
-            ):
+            if r.status_code == 200 and r.json()["status"] == "channel_validation_tqr":
                 # Generate QR codes
                 channel_binding = r.json()["channelBindingValue"]
                 half = int(len(channel_binding) / 2)
@@ -268,9 +251,7 @@ class BrowserClient:
                 self.status_message = (
                     "The OTP/QR code has been verified, now waiting user to approve login"
                 )
-                _LOGGER.info(
-                    "The OTP/QR code has been verified, now waiting user to approve login"
-                )
+                _LOGGER.info("The OTP/QR code has been verified, now waiting user to approve login")
                 await asyncio.sleep(0.5)
                 continue
 
@@ -308,14 +289,11 @@ class BrowserClient:
 
         m = hashlib.sha256()
         m.update(
-            base64.b64decode(response)
-            + self.current_authenticator_session_flow_key.encode("utf8")
+            base64.b64decode(response) + self.current_authenticator_session_flow_key.encode("utf8")
         )
         password = m.hexdigest()
 
-        m1 = SRP.SRPStage3(
-            srpSalt, randomB, password, self.current_authenticator_session_id
-        )
+        m1 = SRP.SRPStage3(srpSalt, randomB, password, self.current_authenticator_session_id)
 
         unhashed_flow_value_proof = self.__create_flow_value_proof()
         m = hashlib.sha256()
@@ -334,18 +312,16 @@ class BrowserClient:
             json={"m1": {"value": m1}, "flowValueProof": {"value": flow_value_proof}},
         )
         if r.status_code != 200:
-            _LOGGER.error(
-                f"Failed to submit app response proof, status code {r.status_code}"
-            )
+            _LOGGER.error(f"Failed to submit app response proof, status code {r.status_code}")
             raise MitIDError(f"Failed to submit app response proof: HTTP {r.status_code}")
 
         timer_3 = time.time()
         m2 = r.json()["m2"]["value"]
         if not SRP.SRPStage5(m2):
             raise MitIDError("m2 could not be validated during proving of app response")
-        auth_enc = base64.b64encode(
-            SRP.AuthEnc(base64.b64decode(pad(response_signature)))
-        ).decode("ascii")
+        auth_enc = base64.b64encode(SRP.AuthEnc(base64.b64decode(pad(response_signature)))).decode(
+            "ascii"
+        )
         timer_3 = time.time() - timer_3
 
         front_end_processing_time = int((timer_1 + timer_2 + timer_3) * 1000)
@@ -358,12 +334,8 @@ class BrowserClient:
             },
         )
         if r.status_code != 204:
-            _LOGGER.error(
-                f"Failed to verify app response signature, status code {r.status_code}"
-            )
-            raise MitIDError(
-                f"Failed to verify app response signature: HTTP {r.status_code}"
-            )
+            _LOGGER.error(f"Failed to verify app response signature, status code {r.status_code}")
+            raise MitIDError(f"Failed to verify app response signature: HTTP {r.status_code}")
 
         r = await self.client.post(
             f"https://www.mitid.dk/mitid-core-client-backend/v2/authentication-sessions/{self.authentication_session_id}/next",
@@ -395,12 +367,8 @@ class BrowserClient:
             f"https://www.mitid.dk/mitid-core-client-backend/v1/authentication-sessions/{self.finalization_authentication_session_id}/finalization"
         )
         if r.status_code != 200:
-            _LOGGER.error(
-                f"Failed to retrieve authorization code, status code {r.status_code}"
-            )
-            raise MitIDError(
-                f"Failed to retrieve authorization code: HTTP {r.status_code}"
-            )
+            _LOGGER.error(f"Failed to retrieve authorization code, status code {r.status_code}")
+            raise MitIDError(f"Failed to retrieve authorization code: HTTP {r.status_code}")
 
         return r.json()["authorizationCode"]
 
@@ -449,8 +417,7 @@ class BrowserClient:
         if (
             r_json["errors"]
             and len(r_json["errors"]) > 0
-            and r_json["errors"][0]["errorCode"]
-            == "control.authenticator_cannot_be_started"
+            and r_json["errors"][0]["errorCode"] == "control.authenticator_cannot_be_started"
         ):
             error_text = r_json["errors"][0]["userMessage"]["text"]["text"]
             _LOGGER.error(
@@ -458,9 +425,7 @@ class BrowserClient:
             )
             raise MitIDError(f"Authenticator cannot be started: {error_text}")
 
-        self.current_authenticator_type = r_json["nextAuthenticator"][
-            "authenticatorType"
-        ]
+        self.current_authenticator_type = r_json["nextAuthenticator"]["authenticatorType"]
         self.current_authenticator_session_flow_key = r_json["nextAuthenticator"][
             "authenticatorSessionFlowKey"
         ]
@@ -474,9 +439,7 @@ class BrowserClient:
                 f"Was not able to choose the desired authenticator ({authenticator_type}), instead we received ({self.current_authenticator_type})"
             )
 
-    def __convert_human_authenticator_name_to_combination_id(
-        self, authenticator_name: str
-    ) -> str:
+    def __convert_human_authenticator_name_to_combination_id(self, authenticator_name: str) -> str:
         """Convert human-readable authenticator name to combination ID."""
         match authenticator_name:
             case "APP":
@@ -486,9 +449,7 @@ class BrowserClient:
             case _:
                 raise MitIDError(f"No such authenticator name ({authenticator_name})")
 
-    def __convert_combination_id_to_human_authenticator_name(
-        self, combination_id: str
-    ) -> str:
+    def __convert_combination_id_to_human_authenticator_name(self, combination_id: str) -> str:
         """Convert combination ID to human-readable authenticator name."""
         match combination_id:
             case "S4":  # App + MitID chip
