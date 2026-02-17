@@ -4,33 +4,24 @@ Python library for interacting with the Aula platform using the **new MitID auth
 
 This library provides an asynchronous client (`AulaApiClient`) to fetch data such as profiles, daily overviews, messages, and calendar events from Aula.
 
-## 🚨 Important: MitID Authentication Required
+## TODO
 
-**Aula has migrated from UniLogin to MitID authentication.** This library now uses the new MitID system.
-
-- ✅ Requires **MitID username** and **MitID app** for authentication
-- ✅ Token caching for fast subsequent logins
-- ✅ Headless operation (no browser needed)
-- ❌ Old username/password authentication **no longer works**
-
-**If you're upgrading from an older version**, see [MIGRATION_GUIDE.md](MIGRATION_GUIDE.md) for detailed migration instructions.
-
-## TODO:
 ### Core functionality
-✅ Calendar fetching
-✅ Post fetching
-✅ Messages fetching
-✅ Daily Overview fetching
-✅ Profile fetching
-### Widgets:
-📋 0001 - EasyIQ - Ugeplan
-📋 0004 - Meebook Ugeplan
-📋 0019 - Biblioteket
-📋 0029 - MinUddannelse Ugenoter
-📋 0030 - MinUddannelse Opgaver
-📋 0047 - Fravær - forældreindberetning
-📋 0062 - Huskelisten
-📋 0121 - INFOBA Modulordninger til forældre
+- [x] Calendar fetching
+- [x] Post fetching
+- [x] Messages fetching
+- [x] Daily Overview fetching
+- [x] Profile fetching
+
+### Widgets
+- [ ] 0001 - EasyIQ - Ugeplan
+- [ ] 0004 - Meebook Ugeplan
+- [ ] 0019 - Biblioteket
+- [ ] 0029 - MinUddannelse Ugenoter
+- [ ] 0030 - MinUddannelse Opgaver
+- [ ] 0047 - Fravær - forældreindberetning
+- [ ] 0062 - Huskelisten
+- [ ] 0121 - INFOBA Modulordninger til forældre
 
 
 ## Library Usage
@@ -53,7 +44,6 @@ async def main():
     async with AulaApiClient(
         mitid_username=mitid_username,
         token_storage=token_storage,
-        debug=False  # Set to True for detailed logs
     ) as client:
         # Login using MitID
         # First time: Will prompt you to approve in MitID app
@@ -152,7 +142,7 @@ pip install aula
 
 ### Install from Source
 ```bash
-git clone https://github.com/yourusername/aula.git
+git clone https://github.com/nickknissen/aula.git
 cd aula
 pip install -e .
 ```
