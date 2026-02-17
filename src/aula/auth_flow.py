@@ -7,7 +7,7 @@ from collections.abc import Callable
 import qrcode
 
 from .api_client import AulaApiClient
-from .auth import AulaAuthenticationError, MitIDAuthClient
+from .auth import AulaAuthenticationError, MitIDAuthClient, OAuthError
 from .http_httpx import HttpxHttpClient
 from .token_storage import TokenStorage
 
@@ -18,6 +18,7 @@ async def authenticate_and_create_client(
     mitid_username: str,
     token_storage: TokenStorage,
     on_qr_codes: Callable[[qrcode.QRCode, qrcode.QRCode], None] | None = None,
+    on_login_required: Callable[[], None] | None = None,
 ) -> AulaApiClient:
     """Authenticate via MitID (or cached tokens) and return a ready-to-use client.
 
@@ -42,12 +43,31 @@ async def authenticate_and_create_client(
             cookies = token_data.get("cookies", {})
             tokens_valid = True
             _LOGGER.info("Loaded cached authentication tokens")
+        elif tokens.get("refresh_token"):
+            _LOGGER.info("Cached tokens expired, attempting refresh")
+            try:
+                new_tokens = await auth_client.refresh_access_token(tokens["refresh_token"])
+                cookies = token_data.get("cookies", {})
+                await token_storage.save(
+                    {
+                        "timestamp": time.time(),
+                        "created_at": time.strftime("%Y-%m-%d %H:%M:%S"),
+                        "username": mitid_username,
+                        "tokens": new_tokens,
+                        "cookies": cookies,
+                    }
+                )
+                tokens_valid = True
+                _LOGGER.info("Token refresh successful, tokens saved")
+            except (OAuthError, RuntimeError) as e:
+                _LOGGER.warning("Token refresh failed, will require full authentication: %s", e)
         else:
-            _LOGGER.info("Cached tokens are expired")
+            _LOGGER.info("Cached tokens are expired, no refresh token available")
 
     if not tokens_valid:
         _LOGGER.info("No valid tokens found, starting MitID authentication...")
-        _LOGGER.info("Please approve the login request in your MitID app")
+        if on_login_required:
+            on_login_required()
 
         try:
             await auth_client.authenticate()
