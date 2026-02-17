@@ -2,6 +2,8 @@
 
 import json
 import logging
+import os
+import sys
 from abc import ABC, abstractmethod
 from pathlib import Path
 from typing import Any
@@ -55,4 +57,7 @@ class FileTokenStorage(TokenStorage):
     async def save(self, data: dict[str, Any]) -> None:
         self._path.parent.mkdir(parents=True, exist_ok=True)
         self._path.write_text(json.dumps(data, indent=2))
+        # Restrict file permissions to owner-only on Unix systems
+        if sys.platform != "win32":
+            os.chmod(self._path, 0o600)
         _LOGGER.debug("Tokens saved to %s", self._path)
