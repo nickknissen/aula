@@ -18,6 +18,7 @@ class HttpxHttpClient:
             follow_redirects=True,
             headers={"User-Agent": USER_AGENT},
             cookies=cookies,
+            timeout=httpx.Timeout(30.0, read=60.0),
         )
 
     async def request(
@@ -45,6 +46,11 @@ class HttpxHttpClient:
             data=data,
             headers=dict(response.headers),
         )
+
+    async def download_bytes(self, url: str) -> bytes:
+        response = await self._client.get(url, timeout=httpx.Timeout(30.0, read=120.0))
+        response.raise_for_status()
+        return response.content
 
     def get_cookie(self, name: str) -> str | None:
         return self._client.cookies.get(name)

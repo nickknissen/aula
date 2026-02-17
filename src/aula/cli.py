@@ -850,6 +850,95 @@ async def momo_course(ctx):
             click.echo()
 
 
+@cli.command("download-images")
+@click.option(
+    "--output",
+    type=click.Path(),
+    default="./aula_images",
+    help="Output directory for downloaded images.",
+)
+@click.option(
+    "--since",
+    required=True,
+    type=click.DateTime(formats=["%Y-%m-%d"]),
+    help="Only download images from this date onwards (YYYY-MM-DD).",
+)
+@click.option(
+    "--source",
+    type=click.Choice(["all", "gallery", "posts", "messages"], case_sensitive=False),
+    default="all",
+    help="Which source(s) to download from.",
+)
+@click.option(
+    "--tags",
+    multiple=True,
+    help="Filter gallery images by tag (can be specified multiple times).",
+)
+@click.pass_context
+@async_cmd
+async def download_images(ctx, output, since, source, tags):
+    """Download images from Aula (gallery, posts, messages)."""
+    from pathlib import Path
+
+    from .utils.download import (
+        download_gallery_images,
+        download_message_images,
+        download_post_images,
+    )
+
+    output_path = Path(output)
+    cutoff = since.date()
+    tag_list = list(tags) if tags else None
+
+    async with await _get_client(ctx) as client:
+        prof = await client.get_profile()
+        institution_profile_ids = prof.institution_profile_ids
+
+        # Children's institution profile IDs and institution codes (for message search)
+        children_inst_ids = [child.id for child in prof.children]
+        institution_codes: list[str] = []
+        for child in prof.children:
+            if child._raw:
+                code = child._raw.get("institutionProfile", {}).get("institutionCode", "")
+                if code and code not in institution_codes:
+                    institution_codes.append(code)
+
+        total_downloaded = 0
+        total_skipped = 0
+
+        if source in ("all", "gallery"):
+            click.echo("Gallery")
+            dl, sk = await download_gallery_images(
+                client, institution_profile_ids, output_path, cutoff, tag_list,
+                on_progress=click.echo,
+            )
+            click.echo(f"  Done: {dl} downloaded, {sk} skipped\n")
+            total_downloaded += dl
+            total_skipped += sk
+
+        if source in ("all", "posts"):
+            click.echo("Posts")
+            dl, sk = await download_post_images(
+                client, institution_profile_ids, output_path, cutoff,
+                on_progress=click.echo,
+            )
+            click.echo(f"  Done: {dl} downloaded, {sk} skipped\n")
+            total_downloaded += dl
+            total_skipped += sk
+
+        if source in ("all", "messages"):
+            click.echo("Messages")
+            dl, sk = await download_message_images(
+                client, children_inst_ids, institution_codes, output_path, cutoff,
+                on_progress=click.echo,
+            )
+            click.echo(f"  Done: {dl} downloaded, {sk} skipped\n")
+            total_downloaded += dl
+            total_skipped += sk
+
+        click.echo(f"\nTotal: {total_downloaded} downloaded, {total_skipped} skipped")
+
+
 @cli.command("library:status")
 @click.pass_context
 @async_cmd
