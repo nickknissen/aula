@@ -1,5 +1,5 @@
 import logging
-from datetime import datetime
+from datetime import date, datetime
 from zoneinfo import ZoneInfo
 
 from .const import (
@@ -81,7 +81,10 @@ class AulaApiClient:
         # Auto-append access token for Aula API requests
         if self._access_token and url.startswith(API_URL):
             if params is not None:
-                params["access_token"] = self._access_token
+                if isinstance(params, list):
+                    params.append(("access_token", self._access_token))
+                else:
+                    params["access_token"] = self._access_token
             else:
                 sep = "&" if "?" in url else "?"
                 url = f"{url}{sep}access_token={self._access_token}"
@@ -544,6 +547,168 @@ class AulaApiClient:
             headers={"Authorization": token, "Accept": "application/json"},
         )
         return LibraryStatus.from_dict(resp.json())
+
+    async def get_gallery_albums(
+        self, institution_profile_ids: list[int], limit: int = 1000
+    ) -> list[dict]:
+        """Fetch gallery albums as raw dicts."""
+        params = {
+            "method": "gallery.getAlbums",
+            "index": 0,
+            "limit": limit,
+            "sortOn": "createdAt",
+            "orderDirection": "desc",
+            "filterBy": "all",
+            "filterInstProfileIds[]": institution_profile_ids,
+        }
+
+        resp = await self._request_with_version_retry("get", self.api_url, params=params)
+        resp.raise_for_status()
+        data = resp.json().get("data", [])
+        if isinstance(data, list):
+            return data
+        return data.get("albums", [])
+
+    async def get_album_pictures(
+        self, institution_profile_ids: list[int], album_id: int, limit: int = 1000
+    ) -> list[dict]:
+        """Fetch pictures for a specific album as raw dicts."""
+        params = {
+            "method": "gallery.getMedia",
+            "albumId": album_id,
+            "index": 0,
+            "limit": limit,
+            "sortOn": "uploadedAt",
+            "orderDirection": "desc",
+            "filterBy": "all",
+            "filterInstProfileIds[]": institution_profile_ids,
+        }
+
+        resp = await self._request_with_version_retry("get", self.api_url, params=params)
+        resp.raise_for_status()
+        data = resp.json().get("data", [])
+        if isinstance(data, list):
+            return data
+        return data.get("results", [])
+
+    async def search_messages(
+        self,
+        children_institution_profile_ids: list[int],
+        institution_codes: list[str],
+        from_date: date | None = None,
+        to_date: date | None = None,
+        has_attachments: bool | None = None,
+        limit: int = 100,
+    ) -> list[dict]:
+        """Search messages using search.findMessage with server-side filtering.
+
+        ``children_institution_profile_ids`` must only contain the children's
+        institution profile IDs (not the parent's), otherwise the API returns 403.
+
+        Paginates automatically to fetch all matching results.
+        """
+        csrf_token = self._client.get_cookie("Csrfp-Token")
+        headers: dict[str, str] = {"content-type": "application/json"}
+        if csrf_token:
+            headers["csrfp-token"] = csrf_token
+
+        all_results: list[dict] = []
+        offset = 0
+
+        while True:
+            payload = {
+                "text": "",
+                "typeahead": False,
+                "exactTerm": True,
+                "activeChildrenInstitutionProfileIds": children_institution_profile_ids,
+                "institutionCodes": institution_codes,
+                "limit": limit,
+                "offset": offset,
+                "commonInboxID": None,
+                "filterBy": "all",
+                "sortBy": "date",
+                "sortDirection": "desc",
+                "threadSubject": None,
+                "messageContent": None,
+                "fromDate": from_date.isoformat() + "T00:00:00" if from_date else None,
+                "toDate": to_date.isoformat() + "T23:59:59" if to_date else None,
+                "threadCreators": [],
+                "participants": [],
+                "hasAttachments": has_attachments,
+            }
+
+            resp = await self._request_with_version_retry(
+                "post",
+                f"{self.api_url}?method=search.findMessage",
+                headers=headers,
+                json=payload,
+            )
+            resp.raise_for_status()
+            data = resp.json().get("data", {})
+            results = data.get("results", [])
+            if not results:
+                break
+
+            all_results.extend(results)
+            total = data.get("totalSize", 0)
+            offset += limit
+
+            if offset >= total or len(results) < limit:
+                break
+
+        return all_results
+
+    async def get_all_message_threads(self, cutoff_date: date) -> list[dict]:
+        """Paginate messaging.getThreads until threads are older than cutoff_date."""
+        all_threads: list[dict] = []
+        page = 0
+        while True:
+            resp = await self._request_with_version_retry(
+                "get",
+                f"{self.api_url}?method=messaging.getThreads&sortOn=date&orderDirection=desc&page={page}",
+            )
+            resp.raise_for_status()
+            threads = resp.json().get("data", {}).get("threads", [])
+            if not threads:
+                break
+
+            for t in threads:
+                last_date_str = t.get("lastMessageDate") or t.get("lastUpdatedDate", "")
+                if last_date_str:
+                    try:
+                        thread_date = datetime.fromisoformat(last_date_str).date()
+                        if thread_date < cutoff_date:
+                            return all_threads
+                    except (ValueError, TypeError):
+                        pass
+                all_threads.append(t)
+
+            page += 1
+
+        return all_threads
+
+    async def get_all_messages_for_thread(self, thread_id: str) -> list[dict]:
+        """Paginate messaging.getMessagesForThread to get all messages."""
+        all_messages: list[dict] = []
+        page = 0
+        while True:
+            resp = await self._request_with_version_retry(
+                "get",
+                f"{self.api_url}?method=messaging.getMessagesForThread&threadId={thread_id}&page={page}",
+            )
+            resp.raise_for_status()
+            messages = resp.json().get("data", {}).get("messages", [])
+            if not messages:
+                break
+
+            all_messages.extend(messages)
+            page += 1
+
+        return all_messages
+
+    async def download_file(self, url: str) -> bytes:
+        """Download a file as raw bytes."""
+        return await self._client.download_bytes(url)
 
     def _parse_appointment(self, resp: HttpResponse) -> Appointment:
         """Extract the first appointment from a widget API response."""
