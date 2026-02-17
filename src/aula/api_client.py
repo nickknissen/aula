@@ -297,7 +297,7 @@ class AulaApiClient:
                     e,
                     event,
                 )
-                raise
+                continue
 
         return events
 
