@@ -7,6 +7,7 @@ from .library import LibraryStatus as LibraryStatus
 from .meebook_weekplan import MeebookStudentPlan as MeebookStudentPlan
 from .message import Message as Message
 from .message_thread import MessageThread as MessageThread
+from .momo_huskeliste import MomoUserCourses as MomoUserCourses
 from .mu_task import MUTask as MUTask
 from .mu_weekly_letter import MUWeeklyPerson as MUWeeklyPerson
 from .post import Post as Post

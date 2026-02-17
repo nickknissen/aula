@@ -784,6 +784,72 @@ async def meebook_ugeplan(ctx, week):
             click.echo()
 
 
+@cli.command("momo:forløb")
+@click.pass_context
+@async_cmd
+async def momo_course(ctx):
+    """Fetch MoMo courses (forløb) for children."""
+    async with await _get_client(ctx) as client:
+        try:
+            prof: Profile = await client.get_profile()
+        except Exception as e:
+            click.echo(f"Error fetching profile: {e}")
+            return
+
+        if not prof.children:
+            click.echo("No children found in profile.")
+            return
+
+        children = [
+            str(child._raw["userId"])
+            for child in prof.children
+            if child._raw and "userId" in child._raw
+        ]
+        if not children:
+            click.echo("No child user IDs found in profile data.")
+            return
+
+        institutions: list[str] = []
+        for child in prof.children:
+            if child._raw:
+                inst_code = child._raw.get("institutionProfile", {}).get("institutionCode", "")
+                if inst_code and str(inst_code) not in institutions:
+                    institutions.append(str(inst_code))
+
+        try:
+            profile_context = await client.get_profile_context()
+            session_uuid = profile_context["data"]["userId"]
+        except Exception as e:
+            click.echo(f"Error fetching profile context: {e}")
+            return
+
+        try:
+            users_with_courses = await client.get_momo_courses(children, institutions, session_uuid)
+        except Exception as e:
+            click.echo(f"Error fetching MoMo courses: {e}")
+            return
+
+        if not users_with_courses:
+            click.echo("No courses found.")
+            return
+
+        for user in users_with_courses:
+            name = user.name.split()[0] if user.name else "Unknown"
+
+            click.echo(f"{'=' * 60}")
+            click.echo(f"  {name}  |  MoMo Course")
+            click.echo(f"{'=' * 60}")
+
+            if not user.courses:
+                click.echo("  No courses.")
+            else:
+                for course in user.courses:
+                    click.echo(f"\n  {course.title}")
+                    click.echo(f"  {'-' * 40}")
+
+            click.echo()
+
+
 @cli.command("library:status")
 @click.pass_context
 @async_cmd

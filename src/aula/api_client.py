@@ -24,6 +24,7 @@ from .models import (
     MeebookStudentPlan,
     Message,
     MessageThread,
+    MomoUserCourses,
     MUTask,
     MUWeeklyPerson,
     Post,
@@ -489,19 +490,32 @@ class AulaApiClient:
         )
         return [MeebookStudentPlan.from_dict(s) for s in resp.json()]
 
-    async def get_huskeliste(self, children: list[str], institutions: list[str]) -> Appointment:
+    async def get_momo_courses(
+        self,
+        children: list[str],
+        institutions: list[str],
+        session_uuid: str,
+    ) -> list[MomoUserCourses]:
+        """Fetch MoMo courses (forløb) for children."""
         token = await self._get_bearer_token(WIDGET_HUSKELISTEN)
-        params = {
-            "children": ",".join(children),
-            "institutions": ",".join(institutions),
-        }
+
+        params: list[tuple[str, str]] = [
+            ("widgetVersion", "1.3"),
+            ("userProfile", "guardian"),
+            ("sessionId", session_uuid),
+        ]
+        for child in children:
+            params.append(("children", child))
+        for inst in institutions:
+            params.append(("institutions", inst))
+
         resp = await self._request_with_version_retry(
             "get",
-            f"{SYSTEMATIC_API}/reminders/v1",
+            f"{SYSTEMATIC_API}/courses/v1",
             params=params,
             headers={"Aula-Authorization": token},
         )
-        return self._parse_appointment(resp)
+        return [MomoUserCourses.from_dict(u) for u in resp.json()]
 
     async def get_library_status(
         self,
