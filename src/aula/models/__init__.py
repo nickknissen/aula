@@ -5,5 +5,6 @@ from .daily_overview import DailyOverview as DailyOverview
 from .message import Message as Message
 from .message_thread import MessageThread as MessageThread
 from .mu_task import MUTask as MUTask
+from .mu_weekly_letter import MUWeeklyPerson as MUWeeklyPerson
 from .post import Post as Post
 from .profile import Profile as Profile
