@@ -616,5 +616,94 @@ async def mu_ugeplan(ctx, week):
                     click.echo()
 
 
+@cli.command("library:status")
+@click.pass_context
+@async_cmd
+async def library_status(ctx):
+    """Fetch library loans and reservations for children."""
+    async with await _get_client(ctx) as client:
+        try:
+            prof: Profile = await client.get_profile()
+        except Exception as e:
+            click.echo(f"Error fetching profile: {e}")
+            return
+
+        if not prof.children:
+            click.echo("No children found in profile.")
+            return
+
+        children = [
+            str(child._raw["userId"])
+            for child in prof.children
+            if child._raw and "userId" in child._raw
+        ]
+        if not children:
+            click.echo("No child user IDs found in profile data.")
+            return
+
+        institutions: list[str] = []
+        for child in prof.children:
+            if child._raw:
+                inst_code = child._raw.get("institutionProfile", {}).get("institutionCode", "")
+                if inst_code and str(inst_code) not in institutions:
+                    institutions.append(str(inst_code))
+
+        try:
+            profile_context = await client.get_profile_context()
+            session_uuid = profile_context["data"]["userId"]
+        except Exception as e:
+            click.echo(f"Error fetching profile context: {e}")
+            return
+
+        from .const import WIDGET_BIBLIOTEKET
+
+        try:
+            status = await client.get_library_status(
+                WIDGET_BIBLIOTEKET,
+                children,
+                institutions,
+                session_uuid,
+            )
+        except Exception as e:
+            click.echo(f"Error fetching library status: {e}")
+            return
+
+        click.echo(f"{'=' * 60}")
+        click.echo("  Library Status")
+        click.echo(f"{'=' * 60}")
+
+        if status.loans:
+            click.echo(f"\n  Loans ({len(status.loans)})")
+            for loan in status.loans:
+                click.echo(f"\n  {loan.title}")
+                click.echo(f"  {'-' * 40}")
+                if loan.author:
+                    click.echo(f"  Author:   {loan.author}")
+                click.echo(f"  Borrower: {loan.patron_display_name}")
+                click.echo(f"  Due date: {loan.due_date}")
+        else:
+            click.echo("\n  No active loans.")
+
+        if status.longterm_loans:
+            click.echo(f"\n  Long-term loans ({len(status.longterm_loans)})")
+            for loan in status.longterm_loans:
+                click.echo(f"\n  {loan.title}")
+                click.echo(f"  {'-' * 40}")
+                if loan.author:
+                    click.echo(f"  Author:   {loan.author}")
+                click.echo(f"  Borrower: {loan.patron_display_name}")
+                click.echo(f"  Due date: {loan.due_date}")
+
+        if status.reservations:
+            click.echo(f"\n  Reservations ({len(status.reservations)})")
+            for res in status.reservations:
+                click.echo(f"  - {res}")
+
+        if not status.loans and not status.longterm_loans and not status.reservations:
+            click.echo("\n  No loans or reservations found.")
+
+        click.echo()
+
+
 if __name__ == "__main__":
     cli()

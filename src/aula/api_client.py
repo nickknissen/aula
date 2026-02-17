@@ -5,6 +5,7 @@ from zoneinfo import ZoneInfo
 from .const import (
     API_URL,
     API_VERSION,
+    CICERO_API,
     EASYIQ_API,
     MIN_UDDANNELSE_API,
     SYSTEMATIC_API,
@@ -17,6 +18,7 @@ from .models import (
     CalendarEvent,
     Child,
     DailyOverview,
+    LibraryStatus,
     Message,
     MessageThread,
     MUTask,
@@ -446,6 +448,34 @@ class AulaApiClient:
             headers={"Aula-Authorization": token},
         )
         return self._parse_appointment(resp)
+
+    async def get_library_status(
+        self,
+        widget_id: str,
+        children: list[str],
+        institutions: list[str],
+        session_uuid: str,
+    ) -> LibraryStatus:
+        """Fetch library status (loans, reservations) from Cicero."""
+        token = await self._get_bearer_token(widget_id)
+        params: list[tuple[str, str]] = [
+            ("coverImageHeight", "160"),
+            ("widgetVersion", "1.6"),
+            ("userProfile", "guardian"),
+            ("sessionUUID", session_uuid),
+        ]
+        for inst in institutions:
+            params.append(("institutions", inst))
+        for child in children:
+            params.append(("children", child))
+
+        resp = await self._request_with_version_retry(
+            "get",
+            f"{CICERO_API}/library/status/v3",
+            params=params,
+            headers={"Authorization": token, "Accept": "application/json"},
+        )
+        return LibraryStatus.from_dict(resp.json())
 
     def _parse_appointment(self, resp: HttpResponse) -> Appointment:
         """Extract the first appointment from a widget API response."""
