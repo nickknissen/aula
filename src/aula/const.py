@@ -7,6 +7,7 @@ EASYIQ_API = "https://api.easyiqcloud.dk/api/aula"
 
 # Widget IDs for third-party integrations
 WIDGET_EASYIQ = "0001"
+WIDGET_MIN_UDDANNELSE = "0030"
 WIDGET_HUSKELISTEN = "0062"
 
 USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/135.0.0.0 Safari/537.36"  # noqa: E501

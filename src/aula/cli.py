@@ -443,5 +443,90 @@ async def posts(ctx, institution_profile_id, limit, page):
             raise
 
 
+@cli.command("mu:tasks")
+@click.option(
+    "--week",
+    type=str,
+    default=None,
+    help="Week to fetch tasks for (YYYY-Wn, e.g. 2026-W8). Defaults to current week.",
+)
+@click.pass_context
+@async_cmd
+async def mu_tasks(ctx, week):
+    """Fetch Min Uddannelse tasks (opgaver) for children."""
+    async with await _get_client(ctx) as client:
+        try:
+            prof: Profile = await client.get_profile()
+        except Exception as e:
+            click.echo(f"Error fetching profile: {e}")
+            return
+
+        if not prof.children:
+            click.echo("No children found in profile.")
+            return
+
+        child_filter = [
+            str(child._raw["userId"])
+            for child in prof.children
+            if child._raw and "userId" in child._raw
+        ]
+        if not child_filter:
+            click.echo("No child user IDs found in profile data.")
+            return
+
+        institution_filter: list[str] = []
+        for child in prof.children:
+            if child._raw:
+                inst_code = child._raw.get("institutionProfile", {}).get("institutionCode", "")
+                if inst_code and str(inst_code) not in institution_filter:
+                    institution_filter.append(str(inst_code))
+
+        try:
+            profile_context = await client.get_profile_context()
+            session_uuid = profile_context["data"]["userId"]
+        except Exception as e:
+            click.echo(f"Error fetching profile context: {e}")
+            return
+
+        from .const import WIDGET_MIN_UDDANNELSE
+
+        now = datetime.datetime.now(ZoneInfo("Europe/Copenhagen"))
+        if week is None:
+            week = f"{now.year}-W{now.isocalendar()[1]}"
+
+        try:
+            opgaver = await client.get_mu_tasks(
+                WIDGET_MIN_UDDANNELSE,
+                child_filter,
+                institution_filter,
+                week,
+                session_uuid,
+            )
+        except Exception as e:
+            click.echo(f"Error fetching tasks: {e}")
+            return
+
+        click.echo(f"{'=' * 60}")
+        click.echo(f"  Min Uddannelse Tasks  [{week}]")
+        click.echo(f"{'=' * 60}")
+
+        if not opgaver:
+            click.echo("  No tasks found.")
+        else:
+            for task in opgaver:
+                click.echo(f"\n  {task.title}")
+                click.echo(f"  {'-' * 40}")
+                if task.student_name:
+                    click.echo(f"  Student: {task.student_name}")
+                if task.weekday:
+                    click.echo(f"  Day:     {task.weekday}")
+                if task.task_type:
+                    click.echo(f"  Type:    {task.task_type}")
+                for cls in task.classes:
+                    click.echo(f"  Class:   {cls.name} ({cls.subject_name})")
+                if task.course:
+                    click.echo(f"  Course:  {task.course.name}")
+
+
 if __name__ == "__main__":
     cli()
