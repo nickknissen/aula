@@ -2,6 +2,8 @@ from .appointment import Appointment as Appointment
 from .calendar_event import CalendarEvent as CalendarEvent
 from .child import Child as Child
 from .daily_overview import DailyOverview as DailyOverview
+from .library import LibraryLoan as LibraryLoan
+from .library import LibraryStatus as LibraryStatus
 from .message import Message as Message
 from .message_thread import MessageThread as MessageThread
 from .mu_task import MUTask as MUTask

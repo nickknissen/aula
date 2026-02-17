@@ -4,9 +4,11 @@ API_VERSION = "22"
 MIN_UDDANNELSE_API = "https://api.minuddannelse.net/aula"
 SYSTEMATIC_API = "https://systematic-momo.dk/api/aula"
 EASYIQ_API = "https://api.easyiqcloud.dk/api/aula"
+CICERO_API = "https://surf.cicero-suite.com/portal-api/rest/aula"
 
 # Widget IDs for third-party integrations
 WIDGET_EASYIQ = "0001"
+WIDGET_BIBLIOTEKET = "0019"
 WIDGET_MIN_UDDANNELSE_UGEPLAN = "0029"
 WIDGET_MIN_UDDANNELSE = "0030"
 WIDGET_HUSKELISTEN = "0062"
