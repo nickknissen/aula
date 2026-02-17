@@ -195,16 +195,10 @@ async def overview(ctx, child_id):
                     continue
 
                 fallback = (
-                    data.institution_profile.name
-                    if data.institution_profile
-                    else f"Child {c_id}"
+                    data.institution_profile.name if data.institution_profile else f"Child {c_id}"
                 )
                 name = child_names.get(c_id, fallback)
-                status = (
-                    data.status.name.replace("_", " ").title()
-                    if data.status
-                    else "Unknown"
-                )
+                status = data.status.name.replace("_", " ").title() if data.status else "Unknown"
                 ip = data.institution_profile
                 institution = ip.institution_name if ip else None
                 group = data.main_group.name if data.main_group else None
@@ -340,7 +334,8 @@ async def calendar(ctx, institution_profile_id, start_date, end_date):
                 click.echo(f"Error fetching profile to get child IDs: {e}")
                 return
 
-        click.echo(f"Fetching for institution IDs: {', '.join(map(str, institution_profile_ids))}")
+        ids_str = ", ".join(str(x) for x in institution_profile_ids)
+        click.echo(f"Fetching for institution IDs: {ids_str}")
 
         try:
             events = await client.get_calendar_events(institution_profile_ids, start_date, end_date)
@@ -406,11 +401,7 @@ async def posts(ctx, institution_profile_id, limit, page):
                 return
 
             for i, post in enumerate(posts_list):
-                date_str = (
-                    post.timestamp.strftime("%Y-%m-%d %H:%M")
-                    if post.timestamp
-                    else ""
-                )
+                date_str = post.timestamp.strftime("%Y-%m-%d %H:%M") if post.timestamp else ""
 
                 click.echo(f"{'=' * 60}")
                 click.echo(f"  {post.title}")
@@ -425,9 +416,7 @@ async def posts(ctx, institution_profile_id, limit, page):
                         click.echo(f"  {line}")
 
                 if post.attachments:
-                    click.echo(
-                        f"\n  Attachments: {len(post.attachments)}"
-                    )
+                    click.echo(f"\n  Attachments: {len(post.attachments)}")
 
                 if i < len(posts_list) - 1:
                     click.echo()

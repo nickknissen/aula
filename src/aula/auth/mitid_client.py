@@ -43,9 +43,11 @@ def _extract_form_data(soup: BeautifulSoup) -> tuple[str, dict[str, str]]:
 
     data: dict[str, str] = {}
     for inp in form.find_all("input"):
-        name = inp.get("name")
+        if not isinstance(inp, Tag):
+            continue
+        name = str(inp.get("name", ""))
         if name:
-            data[name] = inp.get("value", "")
+            data[name] = str(inp.get("value", ""))
 
     return str(action), data
 
@@ -248,11 +250,11 @@ class MitIDAuthClient:
                     if "mitid.dk" in str(response.url) or "nemlog-in" in str(response.url):
                         _LOGGER.info("Reached MitID page")
                         token_input = soup.find("input", {"name": "__RequestVerificationToken"})
-                        if not token_input:
+                        if not isinstance(token_input, Tag):
                             raise SAMLError("Could not find RequestVerificationToken on MitID page")
 
                         return {
-                            "verification_token": token_input["value"],
+                            "verification_token": str(token_input["value"]),
                             "mitid_url": str(response.url),
                         }
 
@@ -371,12 +373,12 @@ class MitIDAuthClient:
             relay_state_input = soup.find("input", {"name": "RelayState"})
             saml_response_input = soup.find("input", {"name": "SAMLResponse"})
 
-            if not relay_state_input or not saml_response_input:
+            if not isinstance(relay_state_input, Tag) or not isinstance(saml_response_input, Tag):
                 raise SAMLError("Could not find SAML data in MitID completion response")
 
             return {
-                "relay_state": relay_state_input.get("value"),
-                "saml_response": saml_response_input.get("value"),
+                "relay_state": str(relay_state_input.get("value", "")),
+                "saml_response": str(saml_response_input.get("value", "")),
             }
 
         except httpx.HTTPError as e:
@@ -434,13 +436,17 @@ class MitIDAuthClient:
         saml_response_input = saml_form.find("input", {"name": "SAMLResponse"})
         relay_state_input = saml_form.find("input", {"name": "RelayState"})
 
-        if not saml_response_input:
+        if not isinstance(saml_response_input, Tag):
             raise SAMLError("Could not find SAMLResponse")
 
         return {
-            "final_saml_response": saml_response_input.get("value"),
-            "final_relay_state": relay_state_input.get("value", "") if relay_state_input else "",
-            "form_action": saml_form.get("action", ""),
+            "final_saml_response": str(saml_response_input.get("value", "")),
+            "final_relay_state": (
+                str(relay_state_input.get("value", ""))
+                if isinstance(relay_state_input, Tag)
+                else ""
+            ),
+            "form_action": str(saml_form.get("action", "")),
         }
 
     async def _step6_complete_aula_login(self, saml_data: dict) -> str:

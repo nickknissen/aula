@@ -59,14 +59,14 @@ class Child(AulaDataClass):
     _raw: dict | None = field(default=None, repr=False)
 
     @classmethod
-    def from_dict(cls, data: dict) -> "Child":
+    def from_dict(cls, data: dict[str, Any]) -> "Child":
         return cls(
             _raw=data,
-            id=data.get("id"),
-            profile_id=data.get("profileId"),
-            name=data.get("name"),
-            institution_name=data.get("institutionProfile").get("institutionName"),
-            profile_picture=data.get("profilePicture", {}).get("url"),
+            id=data["id"],
+            profile_id=data["profileId"],
+            name=data["name"],
+            institution_name=data.get("institutionProfile", {}).get("institutionName", ""),
+            profile_picture=data.get("profilePicture", {}).get("url", ""),
         )
 
 
@@ -105,7 +105,7 @@ class InstitutionProfile(AulaDataClass):
     _raw: dict | None = field(default=None, repr=False)
 
     @classmethod
-    def from_dict(cls, data: dict) -> "InstitutionProfile":
+    def from_dict(cls, data: dict[str, Any]) -> "InstitutionProfile":
         pic_data = data.get("profilePicture", {})
         return cls(
             profile_id=data.get("profileId"),
@@ -132,7 +132,7 @@ class MainGroup(AulaDataClass):
     _raw: dict | None = field(default=None, repr=False)
 
     @classmethod
-    def from_dict(cls, data: dict) -> "MainGroup":
+    def from_dict(cls, data: dict[str, Any]) -> "MainGroup":
         return cls(
             id=data.get("id"),
             name=data.get("name"),
@@ -160,7 +160,7 @@ class DailyOverview(AulaDataClass):
     _raw: dict | None = field(default=None, repr=False)
 
     @classmethod
-    def from_dict(cls, raw_data: dict) -> "DailyOverview":
+    def from_dict(cls, raw_data: dict[str, Any]) -> "DailyOverview":
         status_value = raw_data.get("status")
         presence_status = None
         if status_value is not None:
@@ -168,6 +168,9 @@ class DailyOverview(AulaDataClass):
                 presence_status = PresenceState(status_value)
             except ValueError:
                 _LOGGER.warning(f"Unknown presence status value received: {status_value}")
+
+        inst_data = raw_data.get("institutionProfile")
+        mg_data = raw_data.get("mainGroup")
 
         return cls(
             id=raw_data.get("id"),
@@ -180,8 +183,10 @@ class DailyOverview(AulaDataClass):
             exit_time=raw_data.get("exitTime"),
             exit_with=raw_data.get("exitWith"),
             comment=raw_data.get("comment"),
-            institution_profile=InstitutionProfile.from_dict(raw_data.get("institutionProfile")),
-            main_group=MainGroup.from_dict(raw_data.get("mainGroup")),
+            institution_profile=(
+                InstitutionProfile.from_dict(inst_data) if isinstance(inst_data, dict) else None
+            ),
+            main_group=MainGroup.from_dict(mg_data) if isinstance(mg_data, dict) else None,
         )
 
 
@@ -239,10 +244,10 @@ class ProfileReference(AulaDataClass):
     _raw: dict | None = field(default=None, repr=False)
 
     @classmethod
-    def from_dict(cls, data: dict) -> "ProfileReference":
+    def from_dict(cls, data: dict[str, Any]) -> "ProfileReference":
         return cls(
-            id=data.get("id"),
-            profile_id=data.get("profileId"),
+            id=data["id"],
+            profile_id=data["profileId"],
             first_name=data.get("firstName", ""),
             last_name=data.get("lastName", ""),
             full_name=data.get("fullName", ""),
@@ -261,7 +266,7 @@ class Post(AulaDataClass):
     id: int
     title: str
     content_html: str
-    timestamp: datetime.datetime
+    timestamp: datetime.datetime | None
     owner: ProfileReference
     allow_comments: bool
     shared_with_groups: list[dict]
@@ -290,7 +295,7 @@ class Post(AulaDataClass):
         return html_to_markdown(self.content_html)
 
     @classmethod
-    def from_dict(cls, data: dict) -> "Post":
+    def from_dict(cls, data: dict[str, Any]) -> "Post":
         """Create a Post instance from API response data."""
 
         def parse_datetime(dt_str: str | None) -> datetime.datetime | None:
@@ -307,7 +312,7 @@ class Post(AulaDataClass):
         owner = ProfileReference.from_dict(data.get("ownerProfile", {}))
 
         return cls(
-            id=data.get("id"),
+            id=data["id"],
             title=data.get("title", ""),
             content_html=data.get("content", {}).get("html", ""),
             timestamp=parse_datetime(data.get("timestamp")),
@@ -336,9 +341,9 @@ class CalendarEvent(AulaDataClass):
     title: str
     start_datetime: datetime.datetime
     end_datetime: datetime.datetime
-    teacher_name: str
+    teacher_name: str | None
     has_substitute: bool
     substitute_name: str | None
     location: str | None
-    belongs_to: int
+    belongs_to: int | None
     _raw: dict | None = field(default=None, repr=False)
