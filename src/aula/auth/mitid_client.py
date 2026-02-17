@@ -235,7 +235,9 @@ class MitIDAuthClient:
                 response = await self._client.get(current_url)
                 _LOGGER.debug(
                     "Redirect %d: HTTP %d → %s",
-                    redirect_count, response.status_code, response.url,
+                    redirect_count,
+                    response.status_code,
+                    response.url,
                 )
 
                 if response.is_success:
