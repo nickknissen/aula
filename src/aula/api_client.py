@@ -435,8 +435,17 @@ class AulaApiClient:
 
     async def get_mu_tasks(self, widget_id: str, child_filter: list[str], week: str) -> Appointment:
         token = await self._get_bearer_token(widget_id)
-        url = f"{MIN_UDDANNELSE_API}/opgaveliste?assuranceLevel=2&childFilter={','.join(child_filter)}&currentWeekNumber={week}&isMobileApp=false&placement=narrow"
-        resp = await self._request_with_version_retry("get", url, headers={"Authorization": token})
+        params = {
+            "assuranceLevel": "2",
+            "childFilter": ",".join(child_filter),
+            "currentWeekNumber": week,
+            "isMobileApp": "false",
+            "placement": "narrow",
+        }
+        resp = await self._request_with_version_retry(
+            "get", f"{MIN_UDDANNELSE_API}/opgaveliste",
+            params=params, headers={"Authorization": token},
+        )
         data = resp.json()
         appointment = data.get("data", {}).get("appointments", [{}])[0]
         return Appointment(
@@ -447,8 +456,17 @@ class AulaApiClient:
 
     async def get_ugeplan(self, widget_id: str, child_filter: list[str], week: str) -> Appointment:
         token = await self._get_bearer_token(widget_id)
-        url = f"{MIN_UDDANNELSE_API}/ugebrev?assuranceLevel=2&childFilter={','.join(child_filter)}&currentWeekNumber={week}&isMobileApp=false&placement=narrow"
-        resp = await self._request_with_version_retry("get", url, headers={"Authorization": token})
+        params = {
+            "assuranceLevel": "2",
+            "childFilter": ",".join(child_filter),
+            "currentWeekNumber": week,
+            "isMobileApp": "false",
+            "placement": "narrow",
+        }
+        resp = await self._request_with_version_retry(
+            "get", f"{MIN_UDDANNELSE_API}/ugebrev",
+            params=params, headers={"Authorization": token},
+        )
         data = resp.json()
         appointment = data.get("data", {}).get("appointments", [{}])[0]
         return Appointment(
