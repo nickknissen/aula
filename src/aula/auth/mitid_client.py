@@ -12,6 +12,9 @@ from urllib.parse import parse_qs, urlencode, urljoin, urlparse
 import httpx
 from bs4 import BeautifulSoup, Tag
 
+from ..const import (
+    USER_AGENT,
+)
 from .browser_client import BrowserClient
 from .exceptions import (
     AulaAuthenticationError,
@@ -71,20 +74,15 @@ class MitIDAuthClient:
         self,
         mitid_username: str,
         timeout: int = 30,
-        debug: bool = False,
     ):
         self._client = httpx.AsyncClient(follow_redirects=False, timeout=timeout)
         self._mitid_username = mitid_username
         self._timeout = timeout
-        self._debug = debug
 
         # Mobile app user agent
         self._client.headers.update(
             {
-                "User-Agent": (
-                    "Mozilla/5.0 (Linux; Android 14; sdk_gphone64_x86_64) "
-                    "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/113.0.0.0 Mobile Safari/537.36"
-                ),
+                "User-Agent": USER_AGENT,
                 "Accept": (
                     "text/html,application/xhtml+xml,application/xml;q=0.9,"
                     "image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.7"

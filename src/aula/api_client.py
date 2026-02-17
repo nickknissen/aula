@@ -39,18 +39,16 @@ class AulaApiClient:
     Requires a MitID username and the MitID app for authentication.
     """
 
-    def __init__(self, mitid_username: str, token_storage: TokenStorage, debug: bool = False):
+    def __init__(self, mitid_username: str, token_storage: TokenStorage):
         """
         Initialize the Aula API client.
 
         Args:
             mitid_username: Your MitID username (not Aula username)
             token_storage: A TokenStorage backend for persisting auth tokens.
-            debug: Enable debug logging (default: False)
         """
         self.mitid_username = mitid_username
         self._token_storage = token_storage
-        self.debug = debug
         self.api_url = f"{API_URL}{API_VERSION}"
         self._client: httpx.AsyncClient | None = None
         self._auth_client: MitIDAuthClient | None = None
@@ -67,7 +65,7 @@ class AulaApiClient:
         3. Configure the HTTP client with the access token
         4. Discover the current API version
         """
-        self._auth_client = MitIDAuthClient(mitid_username=self.mitid_username, debug=self.debug)
+        self._auth_client = MitIDAuthClient(mitid_username=self.mitid_username)
 
         # Try to load cached tokens
         token_data = await self._token_storage.load()
@@ -313,7 +311,6 @@ class AulaApiClient:
     async def get_calendar_events(
         self, institution_profile_ids: list[int], start: datetime, end: datetime
     ) -> list[CalendarEvent]:
-
         data = {
             "instProfileIds": institution_profile_ids,
             "resourceIds": [],
