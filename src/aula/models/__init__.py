@@ -4,6 +4,7 @@ from .child import Child as Child
 from .daily_overview import DailyOverview as DailyOverview
 from .library import LibraryLoan as LibraryLoan
 from .library import LibraryStatus as LibraryStatus
+from .meebook_weekplan import MeebookStudentPlan as MeebookStudentPlan
 from .message import Message as Message
 from .message_thread import MessageThread as MessageThread
 from .mu_task import MUTask as MUTask

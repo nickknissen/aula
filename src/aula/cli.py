@@ -698,6 +698,92 @@ async def easyiq_ugeplan(ctx, week):
             click.echo()
 
 
+@cli.command("meebook:ugeplan")
+@click.option(
+    "--week",
+    type=str,
+    default=None,
+    help="Week number (e.g. 8) or full format (2026-W8). Defaults to current week.",
+)
+@click.pass_context
+@async_cmd
+async def meebook_ugeplan(ctx, week):
+    """Fetch Meebook weekly plan (ugeplan) for children."""
+    week = _resolve_week(week)
+    async with await _get_client(ctx) as client:
+        try:
+            prof: Profile = await client.get_profile()
+        except Exception as e:
+            click.echo(f"Error fetching profile: {e}")
+            return
+
+        if not prof.children:
+            click.echo("No children found in profile.")
+            return
+
+        child_filter = [
+            str(child._raw["userId"])
+            for child in prof.children
+            if child._raw and "userId" in child._raw
+        ]
+        if not child_filter:
+            click.echo("No child user IDs found in profile data.")
+            return
+
+        institution_filter: list[str] = []
+        for child in prof.children:
+            if child._raw:
+                inst_code = child._raw.get("institutionProfile", {}).get("institutionCode", "")
+                if inst_code and str(inst_code) not in institution_filter:
+                    institution_filter.append(str(inst_code))
+
+        try:
+            profile_context = await client.get_profile_context()
+            session_uuid = profile_context["data"]["userId"]
+        except Exception as e:
+            click.echo(f"Error fetching profile context: {e}")
+            return
+
+        try:
+            students = await client.get_meebook_weekplan(
+                child_filter, institution_filter, week, session_uuid
+            )
+        except Exception as e:
+            click.echo(f"Error fetching Meebook weekplan: {e}")
+            return
+
+        if not students:
+            click.echo("No weekly plans found.")
+            return
+
+        from .utils.html import html_to_plain
+
+        for student in students:
+            click.echo(f"{'=' * 60}")
+            click.echo(f"  {student.name}  |  Meebook Ugeplan  [{week}]")
+            click.echo(f"{'=' * 60}")
+
+            if not student.week_plan:
+                click.echo("  No plan for this week.")
+                continue
+
+            for day in student.week_plan:
+                if not day.tasks:
+                    continue
+                click.echo(f"\n  {day.date}")
+                click.echo(f"  {'-' * 40}")
+                for task in day.tasks:
+                    label = task.title or task.type
+                    if task.pill:
+                        label = f"[{task.pill}] {label}"
+                    click.echo(f"  {label}")
+                    if task.content:
+                        for line in html_to_plain(task.content).splitlines():
+                            click.echo(f"    {line}")
+
+            click.echo()
+
+
 @cli.command("library:status")
 @click.pass_context
 @async_cmd
