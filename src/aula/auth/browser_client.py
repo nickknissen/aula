@@ -281,24 +281,24 @@ class BrowserClient:
 
     def _print_qr_codes_in_terminal(self, qr1: qrcode.QRCode, qr2: qrcode.QRCode) -> None:
         """Print QR codes as ASCII art in the terminal."""
-        print("\n" + "=" * 60)
-        print("SCAN THESE QR CODES WITH YOUR MITID APP")
-        print("=" * 60)
-        print("\nQR CODE 1 (Scan this first):")
+        _LOGGER.info("=" * 60)
+        _LOGGER.info("SCAN THESE QR CODES WITH YOUR MITID APP")
+        _LOGGER.info("=" * 60)
+        _LOGGER.info("QR CODE 1 (Scan this first):")
         try:
             qr1.print_ascii(invert=True)
         except UnicodeEncodeError:
             qr1.print_tty()
 
-        print("\nQR CODE 2 (Scan this second):")
+        _LOGGER.info("QR CODE 2 (Scan this second):")
         try:
             qr2.print_ascii(invert=True)
         except UnicodeEncodeError:
             qr2.print_tty()
 
-        print("\n" + "=" * 60)
-        print("Waiting for you to scan the QR codes...")
-        print("=" * 60 + "\n")
+        _LOGGER.info("=" * 60)
+        _LOGGER.info("Waiting for you to scan the QR codes...")
+        _LOGGER.info("=" * 60)
 
     async def _perform_srp_handshake(self, response: str, response_signature: str) -> None:
         """Execute the full SRP handshake (init → prove → verify → next)."""
