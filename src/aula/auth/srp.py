@@ -7,109 +7,142 @@ from Crypto.Cipher import AES
 
 from ._utils import bytes_to_hex, hex_to_int, int_to_bytes
 
+# MitID SRP parameters: 2048-bit safe prime and generator
+_N = (  # noqa: E501
+    4983313092069490398852700692508795473567251422586244806694940877242664573189903192937797446992068818099986958054998012331720869136296780936009508700487789962429161515853541556719593346959929531150706457338429058926505817847524855862259333438239756474464759974189984231409170758360686392625635632084395639143229889862041528635906990913087245817959460948345336333086784608823084788906689865566621015175424691535711520273786261989851360868669067101108956159530739641990220546209432953829448997561743719584980402874346226230488627145977608389858706391858138200618631385210304429902847702141587470513336905449351327122086464725143970313054358650488241167131544692349123381333204515637608656643608393788598011108539679620836313915590459891513992208387515629240292926570894321165482608544030173975452781623791805196546326996790536207359143527182077625412731080411108775183565594553871817639221414953634530830290393130518228654795859
+)
+_G = 2
+
+
+def _sha256(data: bytes) -> bytes:
+    """Compute SHA-256 digest."""
+    return hashlib.sha256(data).digest()
+
+
+def _sha256_hex(data: bytes) -> str:
+    """Compute SHA-256 hex digest."""
+    return hashlib.sha256(data).hexdigest()
+
+
+def _pad_to_n_length(value: bytes) -> bytes:
+    """Pad bytes with leading zeros to match the byte length of N."""
+    n_length = len(int_to_bytes(_N))
+    return value.zfill(n_length)
+
 
 class CustomSRP:
-    def SRPStage1(self) -> str:
-        self.N = (  # noqa: E501
-            4983313092069490398852700692508795473567251422586244806694940877242664573189903192937797446992068818099986958054998012331720869136296780936009508700487789962429161515853541556719593346959929531150706457338429058926505817847524855862259333438239756474464759974189984231409170758360686392625635632084395639143229889862041528635906990913087245817959460948345336333086784608823084788906689865566621015175424691535711520273786261989851360868669067101108956159530739641990220546209432953829448997561743719584980402874346226230488627145977608389858706391858138200618631385210304429902847702141587470513336905449351327122086464725143970313054358650488241167131544692349123381333204515637608656643608393788598011108539679620836313915590459891513992208387515629240292926570894321165482608544030173975452781623791805196546326996790536207359143527182077625412731080411108775183565594553871817639221414953634530830290393130518228654795859
-        )
-        self.g = 2
-        self.a = secrets.randbits(256)
+    """SRP client for MitID's non-standard SRP variant.
 
-        self.A = pow(self.g, self.a, self.N)
-        return format(self.A, "x")
+    Implements the three-stage SRP handshake (init, prove, verify)
+    plus AES-GCM authenticated encryption using the derived session key.
+    """
 
-    def computeLittleS(self) -> int:
-        N_bytes = int_to_bytes(self.N)
-        g_bytes = int_to_bytes(self.g)
+    def __init__(self) -> None:
+        self._private_key: int = 0
+        self._public_key: int = 0
+        self._server_public_key: int = 0
+        self._hashed_password: int = 0
+        self._session_key_bytes: bytes = b""
+        self._m1_hex: str = ""
 
-        # Prepend g_bytes with |N_bytes|-|g_bytes| of 0
-        g_bytes = (b"\0" * (len(N_bytes) - len(g_bytes))) + g_bytes
+    # -- Public API (the three SRP stages + encryption) --
 
-        m = hashlib.sha256()
-        m.update(str(self.N).encode("utf-8") + g_bytes)
-        return hex_to_int(m.hexdigest())
+    def srp_stage1(self) -> str:
+        """Stage 1: Generate client key pair and return public key A as hex."""
+        self._private_key = secrets.randbits(256)
+        self._public_key = pow(_G, self._private_key, _N)
+        return format(self._public_key, "x")
 
-    def computeU(self) -> int:
-        N_length = len(int_to_bytes(self.N))
-        A_bytes = int_to_bytes(self.A)
-        B_bytes = int_to_bytes(self.B)
+    def srp_stage3(self, srp_salt: str, random_b: str, password: str, auth_session_id: str) -> str:
+        """Stage 3: Compute session key and client proof M1.
 
-        # Prepend A_bytes with |N_bytes|-|A_bytes| of 0
-        A_bytes = (b"\0" * (N_length - len(A_bytes))) + A_bytes
+        Args:
+            srp_salt: Salt provided by the server.
+            random_b: Server's public value B as hex.
+            password: Derived password (pre-hashed by caller).
+            auth_session_id: The authenticator session ID.
 
-        # Prepend B_bytes with |N_bytes|-|B_bytes| of 0
-        B_bytes = (b"\0" * (N_length - len(B_bytes))) + B_bytes
+        Returns:
+            The M1 proof as a hex string.
+        """
+        self._server_public_key = hex_to_int(random_b)
 
-        m = hashlib.sha256()
-        m.update(A_bytes + B_bytes)
-        return hex_to_int(m.hexdigest()) % self.N
+        if self._server_public_key == 0 or self._server_public_key % _N == 0:
+            raise ValueError("Server public key B did not pass safety check")
 
-    def computeSessionKey(self) -> int:
-        u = self.computeU()
-        s = self.computeLittleS()
+        self._hashed_password = hex_to_int(_sha256_hex((srp_salt + password).encode("ascii")))
 
-        a = u * self.hashed_password + self.a
-        c = pow((self.B - (pow(self.g, self.hashed_password, self.N) * s)), a, self.N)
-        if a < 0:
-            a += self.N
+        raw_session_key = self._compute_session_key()
+        self._session_key_bytes = _sha256(str(raw_session_key).encode("utf-8"))
 
-        return c
+        identity_hash = _sha256_hex(auth_session_id.encode("utf-8"))
+        self._m1_hex = self._compute_m1(identity_hash, srp_salt)
 
-    def computeM1(self, r: str, srpSalt: str) -> str:
-        m = hashlib.sha256()
-        m.update(str(self.N).encode("utf-8"))
-        N = hex_to_int(m.hexdigest())
+        return self._m1_hex
 
-        m = hashlib.sha256()
-        m.update(str(self.g).encode("utf-8"))
-        g = hex_to_int(m.hexdigest())
-        a = N ^ g
+    def srp_stage5(self, m2_hex: str) -> bool:
+        """Stage 5: Verify server proof M2.
 
-        m = hashlib.sha256()
-        m.update(
-            (str(a) + r + srpSalt + str(self.A) + str(self.B) + bytes_to_hex(self.K_bits)).encode(
-                "ascii"
+        Returns:
+            True if the server's proof is valid.
+        """
+        m1_int = int(self._m1_hex, 16)
+        expected = _sha256_hex(
+            (str(self._public_key) + str(m1_int) + bytes_to_hex(self._session_key_bytes)).encode(
+                "utf-8"
             )
         )
-        return m.hexdigest()
+        return expected == m2_hex
 
-    def SRPStage3(self, srpSalt: str, randomB: str, password: str, auth_session_id: str) -> str:
-        self.B = hex_to_int(randomB)
+    def auth_enc(self, plain_text: bytes) -> bytes:
+        """Encrypt data with AES-256-GCM using the derived session key.
 
-        if self.B == 0 or self.B % self.N == 0:
-            raise ValueError("randomB did not pass safety check")
-
-        m = hashlib.sha256()
-        m.update((srpSalt + password).encode("ascii"))
-        self.hashed_password = hex_to_int(m.hexdigest())
-
-        a = self.computeSessionKey()
-
-        m = hashlib.sha256()
-        m.update(str(a).encode("utf-8"))
-        self.K_bits = m.digest()
-
-        m = hashlib.sha256()
-        m.update(auth_session_id.encode("utf-8"))
-        I_hex = m.hexdigest()
-
-        self.M1_hex = self.computeM1(I_hex, srpSalt)
-
-        return self.M1_hex
-
-    # Should satisfy if the server is correct
-    # Interestingly enough, this cannot be checked for the pin-binding proof
-    def SRPStage5(self, M2_hex: str) -> bool:
-        M1_bigInt = int(self.M1_hex, 16)
-
-        m = hashlib.sha256()
-        m.update((str(self.A) + str(M1_bigInt) + bytes_to_hex(self.K_bits)).encode("utf-8"))
-        M2_hex_verify = m.hexdigest()
-        return M2_hex_verify == M2_hex
-
-    def AuthEnc(self, plainText: bytes) -> bytes:
+        Returns:
+            IV + ciphertext + GCM tag.
+        """
         iv = secrets.token_bytes(16)
-        cipher = AES.new(self.K_bits, AES.MODE_GCM, iv)
-        ciphertext, tag = cipher.encrypt_and_digest(plainText)
+        cipher = AES.new(self._session_key_bytes, AES.MODE_GCM, iv)
+        ciphertext, tag = cipher.encrypt_and_digest(plain_text)
         return iv + ciphertext + tag
+
+    @property
+    def session_key_bytes(self) -> bytes:
+        """The derived session key (available after srp_stage3)."""
+        return self._session_key_bytes
+
+    # -- Internal computations --
+
+    def _compute_little_s(self) -> int:
+        n_bytes = int_to_bytes(_N)
+        g_bytes = int_to_bytes(_G).rjust(len(n_bytes), b"\0")
+
+        return hex_to_int(_sha256_hex(str(_N).encode("utf-8") + g_bytes))
+
+    def _compute_u(self) -> int:
+        a_bytes = _pad_to_n_length(int_to_bytes(self._public_key))
+        b_bytes = _pad_to_n_length(int_to_bytes(self._server_public_key))
+
+        return hex_to_int(_sha256_hex(a_bytes + b_bytes)) % _N
+
+    def _compute_session_key(self) -> int:
+        u = self._compute_u()
+        s = self._compute_little_s()
+
+        exponent = u * self._hashed_password + self._private_key
+        base = self._server_public_key - pow(_G, self._hashed_password, _N) * s
+        return pow(base, exponent, _N)
+
+    def _compute_m1(self, identity_hash: str, srp_salt: str) -> str:
+        n_hash = hex_to_int(_sha256_hex(str(_N).encode("utf-8")))
+        g_hash = hex_to_int(_sha256_hex(str(_G).encode("utf-8")))
+        xor_hash = n_hash ^ g_hash
+
+        payload = (
+            str(xor_hash)
+            + identity_hash
+            + srp_salt
+            + str(self._public_key)
+            + str(self._server_public_key)
+            + bytes_to_hex(self._session_key_bytes)
+        )
+        return _sha256_hex(payload.encode("ascii"))
