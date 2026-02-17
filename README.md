@@ -14,11 +14,11 @@ This library provides an asynchronous client (`AulaApiClient`) to fetch data suc
 - [x] Profile fetching
 
 ### Widgets
-- [ ] 0001 - EasyIQ - Ugeplan
+- [x] 0001 - EasyIQ - Ugeplan
 - [ ] 0004 - Meebook Ugeplan
-- [ ] 0019 - Biblioteket
-- [ ] 0029 - MinUddannelse Ugenoter
-- [ ] 0030 - MinUddannelse Opgaver
+- [x] 0019 - Biblioteket
+- [x] 0029 - MinUddannelse Ugenoter
+- [x] 0030 - MinUddannelse Opgaver
 - [ ] 0047 - Fravær - forældreindberetning
 - [ ] 0062 - Huskelisten
 - [ ] 0121 - INFOBA Modulordninger til forældre
