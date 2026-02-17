@@ -48,13 +48,15 @@ async def authenticate_and_create_client(
         try:
             await auth_client.authenticate()
             cookies = dict(auth_client.cookies)
-            await token_storage.save({
-                "timestamp": time.time(),
-                "created_at": time.strftime("%Y-%m-%d %H:%M:%S"),
-                "username": mitid_username,
-                "tokens": auth_client.tokens,
-                "cookies": cookies,
-            })
+            await token_storage.save(
+                {
+                    "timestamp": time.time(),
+                    "created_at": time.strftime("%Y-%m-%d %H:%M:%S"),
+                    "username": mitid_username,
+                    "tokens": auth_client.tokens,
+                    "cookies": cookies,
+                }
+            )
             _LOGGER.info("Authentication successful! Tokens saved.")
         except AulaAuthenticationError as e:
             _LOGGER.error("Authentication failed: %s", e)
