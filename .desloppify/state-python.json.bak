@@ -1,0 +1,3639 @@
+{
+  "version": 1,
+  "created": "2026-02-17T20:56:57+00:00",
+  "last_scan": "2026-02-17T21:26:49+00:00",
+  "scan_count": 4,
+  "overall_score": 91.8,
+  "objective_score": 98.6,
+  "strict_score": 76.8,
+  "stats": {
+    "total": 127,
+    "open": 27,
+    "fixed": 33,
+    "auto_resolved": 30,
+    "wontfix": 22,
+    "false_positive": 15,
+    "by_tier": {
+      "2": {
+        "open": 0,
+        "fixed": 5,
+        "auto_resolved": 1,
+        "wontfix": 1,
+        "false_positive": 0
+      },
+      "3": {
+        "open": 1,
+        "fixed": 28,
+        "auto_resolved": 24,
+        "wontfix": 21,
+        "false_positive": 15
+      },
+      "4": {
+        "open": 26,
+        "fixed": 0,
+        "auto_resolved": 5,
+        "wontfix": 0,
+        "false_positive": 0
+      }
+    }
+  },
+  "findings": {
+    "structural::src/aula/cli.py": {
+      "id": "structural::src/aula/cli.py",
+      "detector": "structural",
+      "file": "src/aula/cli.py",
+      "tier": 3,
+      "confidence": "medium",
+      "summary": "Needs decomposition: large (697 LOC)",
+      "detail": {
+        "loc": 697
+      },
+      "status": "wontfix",
+      "note": "Click CLI command group with shared context",
+      "first_seen": "2026-02-17T20:56:58+00:00",
+      "last_seen": "2026-02-17T21:26:49+00:00",
+      "resolved_at": "2026-02-17T21:27:26+00:00",
+      "reopen_count": 1,
+      "lang": "python",
+      "zone": "production"
+    },
+    "structural::src/aula/auth/mitid_client.py": {
+      "id": "structural::src/aula/auth/mitid_client.py",
+      "detector": "structural",
+      "file": "src/aula/auth/mitid_client.py",
+      "tier": 3,
+      "confidence": "medium",
+      "summary": "Needs decomposition: large (629 LOC) / MitIDAuthClient (25 methods, 2 long methods (>50 LOC))",
+      "detail": {
+        "loc": 629,
+        "name": "MitIDAuthClient"
+      },
+      "status": "wontfix",
+      "note": "Multi-step OAuth/SAML/MitID flow with shared state machine",
+      "first_seen": "2026-02-17T20:56:58+00:00",
+      "last_seen": "2026-02-17T21:26:49+00:00",
+      "resolved_at": "2026-02-17T21:27:26+00:00",
+      "reopen_count": 1,
+      "lang": "python",
+      "zone": "production"
+    },
+    "structural::src/aula/api_client.py": {
+      "id": "structural::src/aula/api_client.py",
+      "detector": "structural",
+      "file": "src/aula/api_client.py",
+      "tier": 3,
+      "confidence": "medium",
+      "summary": "Needs decomposition: large (518 LOC)",
+      "detail": {
+        "loc": 518
+      },
+      "status": "wontfix",
+      "note": "Single API client class with cohesive endpoint methods",
+      "first_seen": "2026-02-17T20:56:58+00:00",
+      "last_seen": "2026-02-17T21:26:49+00:00",
+      "resolved_at": "2026-02-17T21:27:25+00:00",
+      "reopen_count": 1,
+      "lang": "python",
+      "zone": "production"
+    },
+    "structural::src/aula/auth/browser_client.py": {
+      "id": "structural::src/aula/auth/browser_client.py",
+      "detector": "structural",
+      "file": "src/aula/auth/browser_client.py",
+      "tier": 3,
+      "confidence": "medium",
+      "summary": "Needs decomposition: large (417 LOC) / BrowserClient (15 methods, 1 long methods (>50 LOC))",
+      "detail": {
+        "loc": 417,
+        "name": "BrowserClient"
+      },
+      "status": "wontfix",
+      "note": "Sequential MitID browser protocol with shared state",
+      "first_seen": "2026-02-17T20:56:58+00:00",
+      "last_seen": "2026-02-17T21:26:49+00:00",
+      "resolved_at": "2026-02-17T21:27:25+00:00",
+      "reopen_count": 1,
+      "lang": "python",
+      "zone": "production"
+    },
+    "facade::src/aula/auth/__init__.py": {
+      "id": "facade::src/aula/auth/__init__.py",
+      "detector": "facade",
+      "file": "src/aula/auth/__init__.py",
+      "tier": 2,
+      "confidence": "medium",
+      "summary": "Re-export facade (19 LOC): imports from exceptions, mitid_client (1 importers)",
+      "detail": {
+        "loc": 19,
+        "importers": 1,
+        "imports_from": [
+          "exceptions",
+          "mitid_client"
+        ],
+        "kind": "file"
+      },
+      "status": "fixed",
+      "note": null,
+      "first_seen": "2026-02-17T20:56:58+00:00",
+      "last_seen": "2026-02-17T20:56:58+00:00",
+      "resolved_at": "2026-02-17T20:58:42+00:00",
+      "reopen_count": 0,
+      "lang": "python",
+      "zone": "production"
+    },
+    "facade::src/aula/utils/__init__.py": {
+      "id": "facade::src/aula/utils/__init__.py",
+      "detector": "facade",
+      "file": "src/aula/utils/__init__.py",
+      "tier": 2,
+      "confidence": "medium",
+      "summary": "Re-export facade (3 LOC): imports from html (2 importers)",
+      "detail": {
+        "loc": 3,
+        "importers": 2,
+        "imports_from": [
+          "html"
+        ],
+        "kind": "file"
+      },
+      "status": "fixed",
+      "note": null,
+      "first_seen": "2026-02-17T20:56:58+00:00",
+      "last_seen": "2026-02-17T20:56:58+00:00",
+      "resolved_at": "2026-02-17T20:58:42+00:00",
+      "reopen_count": 0,
+      "lang": "python",
+      "zone": "production"
+    },
+    "test_coverage::src/aula/cli.py": {
+      "id": "test_coverage::src/aula/cli.py",
+      "detector": "test_coverage",
+      "file": "src/aula/cli.py",
+      "tier": 3,
+      "confidence": "high",
+      "summary": "Untested module (717 LOC, 1 importers) \u2014 no test files found",
+      "detail": {
+        "kind": "untested_module",
+        "loc": 717,
+        "importer_count": 1,
+        "loc_weight": 26.77685567799177
+      },
+      "status": "auto_resolved",
+      "note": "Disappeared from scan \u2014 likely fixed",
+      "first_seen": "2026-02-17T20:56:58+00:00",
+      "last_seen": "2026-02-17T20:56:58+00:00",
+      "resolved_at": "2026-02-17T21:08:46+00:00",
+      "reopen_count": 0,
+      "lang": "python",
+      "zone": "production"
+    },
+    "test_coverage::src/aula/auth/mitid_client.py": {
+      "id": "test_coverage::src/aula/auth/mitid_client.py",
+      "detector": "test_coverage",
+      "file": "src/aula/auth/mitid_client.py",
+      "tier": 3,
+      "confidence": "high",
+      "summary": "Untested module (632 LOC, 1 importers) \u2014 no test files found",
+      "detail": {
+        "kind": "untested_module",
+        "loc": 632,
+        "importer_count": 1,
+        "loc_weight": 25.13961017995307
+      },
+      "status": "auto_resolved",
+      "note": "Disappeared from scan \u2014 likely fixed",
+      "first_seen": "2026-02-17T20:56:58+00:00",
+      "last_seen": "2026-02-17T20:56:58+00:00",
+      "resolved_at": "2026-02-17T21:08:46+00:00",
+      "reopen_count": 0,
+      "lang": "python",
+      "zone": "production"
+    },
+    "test_coverage::src/aula/api_client.py": {
+      "id": "test_coverage::src/aula/api_client.py",
+      "detector": "test_coverage",
+      "file": "src/aula/api_client.py",
+      "tier": 3,
+      "confidence": "high",
+      "summary": "Untested module (518 LOC, 2 importers) \u2014 no test files found",
+      "detail": {
+        "kind": "untested_module",
+        "loc": 518,
+        "importer_count": 2,
+        "loc_weight": 22.759613353482084
+      },
+      "status": "auto_resolved",
+      "note": "Disappeared from scan \u2014 likely fixed",
+      "first_seen": "2026-02-17T20:56:58+00:00",
+      "last_seen": "2026-02-17T20:56:58+00:00",
+      "resolved_at": "2026-02-17T21:08:46+00:00",
+      "reopen_count": 0,
+      "lang": "python",
+      "zone": "production"
+    },
+    "test_coverage::src/aula/auth/browser_client.py": {
+      "id": "test_coverage::src/aula/auth/browser_client.py",
+      "detector": "test_coverage",
+      "file": "src/aula/auth/browser_client.py",
+      "tier": 3,
+      "confidence": "high",
+      "summary": "Untested module (411 LOC, 1 importers) \u2014 no test files found",
+      "detail": {
+        "kind": "untested_module",
+        "loc": 411,
+        "importer_count": 1,
+        "loc_weight": 20.273134932713294
+      },
+      "status": "auto_resolved",
+      "note": "Disappeared from scan \u2014 likely fixed",
+      "first_seen": "2026-02-17T20:56:58+00:00",
+      "last_seen": "2026-02-17T20:56:58+00:00",
+      "resolved_at": "2026-02-17T21:08:46+00:00",
+      "reopen_count": 0,
+      "lang": "python",
+      "zone": "production"
+    },
+    "test_coverage::src/aula/auth/srp.py": {
+      "id": "test_coverage::src/aula/auth/srp.py",
+      "detector": "test_coverage",
+      "file": "src/aula/auth/srp.py",
+      "tier": 3,
+      "confidence": "high",
+      "summary": "Untested module (148 LOC, 1 importers) \u2014 no test files found",
+      "detail": {
+        "kind": "untested_module",
+        "loc": 148,
+        "importer_count": 1,
+        "loc_weight": 12.165525060596439
+      },
+      "status": "auto_resolved",
+      "note": "Disappeared from scan \u2014 likely fixed",
+      "first_seen": "2026-02-17T20:56:58+00:00",
+      "last_seen": "2026-02-17T20:56:58+00:00",
+      "resolved_at": "2026-02-17T21:08:46+00:00",
+      "reopen_count": 0,
+      "lang": "python",
+      "zone": "production"
+    },
+    "test_coverage::src/aula/models/mu_task.py": {
+      "id": "test_coverage::src/aula/models/mu_task.py",
+      "detector": "test_coverage",
+      "file": "src/aula/models/mu_task.py",
+      "tier": 3,
+      "confidence": "high",
+      "summary": "Untested module (103 LOC, 1 importers) \u2014 no test files found",
+      "detail": {
+        "kind": "untested_module",
+        "loc": 103,
+        "importer_count": 1,
+        "loc_weight": 10.14889156509222
+      },
+      "status": "auto_resolved",
+      "note": "Disappeared from scan \u2014 likely fixed",
+      "first_seen": "2026-02-17T20:56:58+00:00",
+      "last_seen": "2026-02-17T20:56:58+00:00",
+      "resolved_at": "2026-02-17T21:08:46+00:00",
+      "reopen_count": 0,
+      "lang": "python",
+      "zone": "production"
+    },
+    "test_coverage::src/aula/auth_flow.py": {
+      "id": "test_coverage::src/aula/auth_flow.py",
+      "detector": "test_coverage",
+      "file": "src/aula/auth_flow.py",
+      "tier": 3,
+      "confidence": "high",
+      "summary": "Untested module (98 LOC, 1 importers) \u2014 no test files found",
+      "detail": {
+        "kind": "untested_module",
+        "loc": 98,
+        "importer_count": 1,
+        "loc_weight": 9.899494936611665
+      },
+      "status": "auto_resolved",
+      "note": "Disappeared from scan \u2014 likely fixed",
+      "first_seen": "2026-02-17T20:56:58+00:00",
+      "last_seen": "2026-02-17T20:56:58+00:00",
+      "resolved_at": "2026-02-17T21:08:46+00:00",
+      "reopen_count": 0,
+      "lang": "python",
+      "zone": "production"
+    },
+    "test_coverage::src/aula/models/post.py": {
+      "id": "test_coverage::src/aula/models/post.py",
+      "detector": "test_coverage",
+      "file": "src/aula/models/post.py",
+      "tier": 3,
+      "confidence": "high",
+      "summary": "Untested module (83 LOC, 1 importers) \u2014 no test files found",
+      "detail": {
+        "kind": "untested_module",
+        "loc": 83,
+        "importer_count": 1,
+        "loc_weight": 9.1104335791443
+      },
+      "status": "auto_resolved",
+      "note": "Disappeared from scan \u2014 likely fixed",
+      "first_seen": "2026-02-17T20:56:58+00:00",
+      "last_seen": "2026-02-17T20:56:58+00:00",
+      "resolved_at": "2026-02-17T21:08:46+00:00",
+      "reopen_count": 0,
+      "lang": "python",
+      "zone": "production"
+    },
+    "test_coverage::src/aula/utils/table.py": {
+      "id": "test_coverage::src/aula/utils/table.py",
+      "detector": "test_coverage",
+      "file": "src/aula/utils/table.py",
+      "tier": 3,
+      "confidence": "high",
+      "summary": "Untested module (78 LOC, 1 importers) \u2014 no test files found",
+      "detail": {
+        "kind": "untested_module",
+        "loc": 78,
+        "importer_count": 1,
+        "loc_weight": 8.831760866327848
+      },
+      "status": "auto_resolved",
+      "note": "Disappeared from scan \u2014 likely fixed",
+      "first_seen": "2026-02-17T20:56:58+00:00",
+      "last_seen": "2026-02-17T20:56:58+00:00",
+      "resolved_at": "2026-02-17T21:08:46+00:00",
+      "reopen_count": 0,
+      "lang": "python",
+      "zone": "production"
+    },
+    "test_coverage::src/aula/token_storage.py": {
+      "id": "test_coverage::src/aula/token_storage.py",
+      "detector": "test_coverage",
+      "file": "src/aula/token_storage.py",
+      "tier": 3,
+      "confidence": "high",
+      "summary": "Untested module (63 LOC, 3 importers) \u2014 no test files found",
+      "detail": {
+        "kind": "untested_module",
+        "loc": 63,
+        "importer_count": 3,
+        "loc_weight": 7.937253933193772
+      },
+      "status": "auto_resolved",
+      "note": "Disappeared from scan \u2014 likely fixed",
+      "first_seen": "2026-02-17T20:56:58+00:00",
+      "last_seen": "2026-02-17T20:56:58+00:00",
+      "resolved_at": "2026-02-17T21:08:46+00:00",
+      "reopen_count": 0,
+      "lang": "python",
+      "zone": "production"
+    },
+    "test_coverage::src/aula/http.py": {
+      "id": "test_coverage::src/aula/http.py",
+      "detector": "test_coverage",
+      "file": "src/aula/http.py",
+      "tier": 3,
+      "confidence": "high",
+      "summary": "Untested module (61 LOC, 3 importers) \u2014 no test files found",
+      "detail": {
+        "kind": "untested_module",
+        "loc": 61,
+        "importer_count": 3,
+        "loc_weight": 7.810249675906654
+      },
+      "status": "auto_resolved",
+      "note": "Disappeared from scan \u2014 likely fixed",
+      "first_seen": "2026-02-17T20:56:58+00:00",
+      "last_seen": "2026-02-17T20:56:58+00:00",
+      "resolved_at": "2026-02-17T21:08:46+00:00",
+      "reopen_count": 0,
+      "lang": "python",
+      "zone": "production"
+    },
+    "test_coverage::src/aula/models/mu_weekly_letter.py": {
+      "id": "test_coverage::src/aula/models/mu_weekly_letter.py",
+      "detector": "test_coverage",
+      "file": "src/aula/models/mu_weekly_letter.py",
+      "tier": 3,
+      "confidence": "high",
+      "summary": "Untested module (61 LOC, 1 importers) \u2014 no test files found",
+      "detail": {
+        "kind": "untested_module",
+        "loc": 61,
+        "importer_count": 1,
+        "loc_weight": 7.810249675906654
+      },
+      "status": "auto_resolved",
+      "note": "Disappeared from scan \u2014 likely fixed",
+      "first_seen": "2026-02-17T20:56:58+00:00",
+      "last_seen": "2026-02-17T20:56:58+00:00",
+      "resolved_at": "2026-02-17T21:08:46+00:00",
+      "reopen_count": 0,
+      "lang": "python",
+      "zone": "production"
+    },
+    "test_coverage::src/aula/models/daily_overview.py": {
+      "id": "test_coverage::src/aula/models/daily_overview.py",
+      "detector": "test_coverage",
+      "file": "src/aula/models/daily_overview.py",
+      "tier": 3,
+      "confidence": "high",
+      "summary": "Untested module (59 LOC, 1 importers) \u2014 no test files found",
+      "detail": {
+        "kind": "untested_module",
+        "loc": 59,
+        "importer_count": 1,
+        "loc_weight": 7.681145747868608
+      },
+      "status": "auto_resolved",
+      "note": "Disappeared from scan \u2014 likely fixed",
+      "first_seen": "2026-02-17T20:56:58+00:00",
+      "last_seen": "2026-02-17T20:56:58+00:00",
+      "resolved_at": "2026-02-17T21:08:46+00:00",
+      "reopen_count": 0,
+      "lang": "python",
+      "zone": "production"
+    },
+    "test_coverage::src/aula/http_httpx.py": {
+      "id": "test_coverage::src/aula/http_httpx.py",
+      "detector": "test_coverage",
+      "file": "src/aula/http_httpx.py",
+      "tier": 3,
+      "confidence": "high",
+      "summary": "Untested module (53 LOC, 2 importers) \u2014 no test files found",
+      "detail": {
+        "kind": "untested_module",
+        "loc": 53,
+        "importer_count": 2,
+        "loc_weight": 7.280109889280518
+      },
+      "status": "auto_resolved",
+      "note": "Disappeared from scan \u2014 likely fixed",
+      "first_seen": "2026-02-17T20:56:58+00:00",
+      "last_seen": "2026-02-17T20:56:58+00:00",
+      "resolved_at": "2026-02-17T21:08:46+00:00",
+      "reopen_count": 0,
+      "lang": "python",
+      "zone": "production"
+    },
+    "test_coverage::src/aula/models/library.py": {
+      "id": "test_coverage::src/aula/models/library.py",
+      "detector": "test_coverage",
+      "file": "src/aula/models/library.py",
+      "tier": 3,
+      "confidence": "high",
+      "summary": "Untested module (48 LOC, 1 importers) \u2014 no test files found",
+      "detail": {
+        "kind": "untested_module",
+        "loc": 48,
+        "importer_count": 1,
+        "loc_weight": 6.928203230275509
+      },
+      "status": "auto_resolved",
+      "note": "Disappeared from scan \u2014 likely fixed",
+      "first_seen": "2026-02-17T20:56:58+00:00",
+      "last_seen": "2026-02-17T20:56:58+00:00",
+      "resolved_at": "2026-02-17T21:08:46+00:00",
+      "reopen_count": 0,
+      "lang": "python",
+      "zone": "production"
+    },
+    "test_coverage::src/aula/utils/html.py": {
+      "id": "test_coverage::src/aula/utils/html.py",
+      "detector": "test_coverage",
+      "file": "src/aula/utils/html.py",
+      "tier": 3,
+      "confidence": "high",
+      "summary": "Untested module (39 LOC, 2 importers) \u2014 no test files found",
+      "detail": {
+        "kind": "untested_module",
+        "loc": 39,
+        "importer_count": 2,
+        "loc_weight": 6.244997998398398
+      },
+      "status": "auto_resolved",
+      "note": "Disappeared from scan \u2014 likely fixed",
+      "first_seen": "2026-02-17T20:56:58+00:00",
+      "last_seen": "2026-02-17T20:56:58+00:00",
+      "resolved_at": "2026-02-17T21:08:46+00:00",
+      "reopen_count": 0,
+      "lang": "python",
+      "zone": "production"
+    },
+    "test_coverage::src/aula/models/institution_profile.py": {
+      "id": "test_coverage::src/aula/models/institution_profile.py",
+      "detector": "test_coverage",
+      "file": "src/aula/models/institution_profile.py",
+      "tier": 3,
+      "confidence": "high",
+      "summary": "Untested module (36 LOC, 1 importers) \u2014 no test files found",
+      "detail": {
+        "kind": "untested_module",
+        "loc": 36,
+        "importer_count": 1,
+        "loc_weight": 6.0
+      },
+      "status": "auto_resolved",
+      "note": "Disappeared from scan \u2014 likely fixed",
+      "first_seen": "2026-02-17T20:56:58+00:00",
+      "last_seen": "2026-02-17T20:56:58+00:00",
+      "resolved_at": "2026-02-17T21:08:46+00:00",
+      "reopen_count": 0,
+      "lang": "python",
+      "zone": "production"
+    },
+    "test_coverage::src/aula/models/profile_reference.py": {
+      "id": "test_coverage::src/aula/models/profile_reference.py",
+      "detector": "test_coverage",
+      "file": "src/aula/models/profile_reference.py",
+      "tier": 3,
+      "confidence": "high",
+      "summary": "Untested module (35 LOC, 1 importers) \u2014 no test files found",
+      "detail": {
+        "kind": "untested_module",
+        "loc": 35,
+        "importer_count": 1,
+        "loc_weight": 5.916079783099616
+      },
+      "status": "auto_resolved",
+      "note": "Disappeared from scan \u2014 likely fixed",
+      "first_seen": "2026-02-17T20:56:58+00:00",
+      "last_seen": "2026-02-17T20:56:58+00:00",
+      "resolved_at": "2026-02-17T21:08:46+00:00",
+      "reopen_count": 0,
+      "lang": "python",
+      "zone": "production"
+    },
+    "test_coverage::src/aula/models/main_group.py": {
+      "id": "test_coverage::src/aula/models/main_group.py",
+      "detector": "test_coverage",
+      "file": "src/aula/models/main_group.py",
+      "tier": 3,
+      "confidence": "high",
+      "summary": "Untested module (26 LOC, 1 importers) \u2014 no test files found",
+      "detail": {
+        "kind": "untested_module",
+        "loc": 26,
+        "importer_count": 1,
+        "loc_weight": 5.0990195135927845
+      },
+      "status": "auto_resolved",
+      "note": "Disappeared from scan \u2014 likely fixed",
+      "first_seen": "2026-02-17T20:56:58+00:00",
+      "last_seen": "2026-02-17T20:56:58+00:00",
+      "resolved_at": "2026-02-17T21:08:46+00:00",
+      "reopen_count": 0,
+      "lang": "python",
+      "zone": "production"
+    },
+    "test_coverage::src/aula/models/child.py": {
+      "id": "test_coverage::src/aula/models/child.py",
+      "detector": "test_coverage",
+      "file": "src/aula/models/child.py",
+      "tier": 3,
+      "confidence": "high",
+      "summary": "Untested module (25 LOC, 2 importers) \u2014 no test files found",
+      "detail": {
+        "kind": "untested_module",
+        "loc": 25,
+        "importer_count": 2,
+        "loc_weight": 5.0
+      },
+      "status": "auto_resolved",
+      "note": "Disappeared from scan \u2014 likely fixed",
+      "first_seen": "2026-02-17T20:56:58+00:00",
+      "last_seen": "2026-02-17T20:56:58+00:00",
+      "resolved_at": "2026-02-17T21:08:46+00:00",
+      "reopen_count": 0,
+      "lang": "python",
+      "zone": "production"
+    },
+    "test_coverage::src/aula/models/presence.py": {
+      "id": "test_coverage::src/aula/models/presence.py",
+      "detector": "test_coverage",
+      "file": "src/aula/models/presence.py",
+      "tier": 3,
+      "confidence": "high",
+      "summary": "Untested module (23 LOC, 1 importers) \u2014 no test files found",
+      "detail": {
+        "kind": "untested_module",
+        "loc": 23,
+        "importer_count": 1,
+        "loc_weight": 4.795831523312719
+      },
+      "status": "auto_resolved",
+      "note": "Disappeared from scan \u2014 likely fixed",
+      "first_seen": "2026-02-17T20:56:58+00:00",
+      "last_seen": "2026-02-17T20:56:58+00:00",
+      "resolved_at": "2026-02-17T21:08:46+00:00",
+      "reopen_count": 0,
+      "lang": "python",
+      "zone": "production"
+    },
+    "test_coverage::src/aula/models/base.py": {
+      "id": "test_coverage::src/aula/models/base.py",
+      "detector": "test_coverage",
+      "file": "src/aula/models/base.py",
+      "tier": 2,
+      "confidence": "high",
+      "summary": "Untested module (21 LOC, 15 importers) \u2014 no test files found",
+      "detail": {
+        "kind": "untested_critical",
+        "loc": 21,
+        "importer_count": 15,
+        "loc_weight": 4.58257569495584
+      },
+      "status": "auto_resolved",
+      "note": "Disappeared from scan \u2014 likely fixed",
+      "first_seen": "2026-02-17T20:56:58+00:00",
+      "last_seen": "2026-02-17T20:56:58+00:00",
+      "resolved_at": "2026-02-17T21:08:46+00:00",
+      "reopen_count": 0,
+      "lang": "python",
+      "zone": "production"
+    },
+    "test_coverage::src/aula/models/message.py": {
+      "id": "test_coverage::src/aula/models/message.py",
+      "detector": "test_coverage",
+      "file": "src/aula/models/message.py",
+      "tier": 3,
+      "confidence": "high",
+      "summary": "Untested module (21 LOC, 1 importers) \u2014 no test files found",
+      "detail": {
+        "kind": "untested_module",
+        "loc": 21,
+        "importer_count": 1,
+        "loc_weight": 4.58257569495584
+      },
+      "status": "auto_resolved",
+      "note": "Disappeared from scan \u2014 likely fixed",
+      "first_seen": "2026-02-17T20:56:58+00:00",
+      "last_seen": "2026-02-17T20:56:58+00:00",
+      "resolved_at": "2026-02-17T21:08:46+00:00",
+      "reopen_count": 0,
+      "lang": "python",
+      "zone": "production"
+    },
+    "test_coverage::src/aula/auth/_utils.py": {
+      "id": "test_coverage::src/aula/auth/_utils.py",
+      "detector": "test_coverage",
+      "file": "src/aula/auth/_utils.py",
+      "tier": 3,
+      "confidence": "high",
+      "summary": "Untested module (18 LOC, 2 importers) \u2014 no test files found",
+      "detail": {
+        "kind": "untested_module",
+        "loc": 18,
+        "importer_count": 2,
+        "loc_weight": 4.242640687119285
+      },
+      "status": "auto_resolved",
+      "note": "Disappeared from scan \u2014 likely fixed",
+      "first_seen": "2026-02-17T20:56:58+00:00",
+      "last_seen": "2026-02-17T20:56:58+00:00",
+      "resolved_at": "2026-02-17T21:08:46+00:00",
+      "reopen_count": 0,
+      "lang": "python",
+      "zone": "production"
+    },
+    "smells::src/aula/cli.py::silent_except": {
+      "id": "smells::src/aula/cli.py::silent_except",
+      "detector": "smells",
+      "file": "src/aula/cli.py",
+      "tier": 2,
+      "confidence": "medium",
+      "summary": "1x Except handler silently suppresses error (pass/continue, no log)",
+      "detail": {
+        "smell_id": "silent_except",
+        "severity": "high",
+        "count": 1,
+        "lines": [
+          17
+        ]
+      },
+      "status": "wontfix",
+      "note": "Standard optional dependency pattern for dotenv",
+      "first_seen": "2026-02-17T20:56:58+00:00",
+      "last_seen": "2026-02-17T21:26:49+00:00",
+      "resolved_at": "2026-02-17T21:29:31+00:00",
+      "reopen_count": 2,
+      "lang": "python",
+      "zone": "production"
+    },
+    "smells::src/aula/api_client.py::broad_except": {
+      "id": "smells::src/aula/api_client.py::broad_except",
+      "detector": "smells",
+      "file": "src/aula/api_client.py",
+      "tier": 3,
+      "confidence": "medium",
+      "summary": "1x Broad except \u2014 check library exceptions before narrowing",
+      "detail": {
+        "smell_id": "broad_except",
+        "severity": "medium",
+        "count": 1,
+        "lines": [
+          160
+        ]
+      },
+      "status": "wontfix",
+      "note": "Health check catch-all",
+      "first_seen": "2026-02-17T20:56:58+00:00",
+      "last_seen": "2026-02-17T21:26:49+00:00",
+      "resolved_at": "2026-02-17T21:29:32+00:00",
+      "reopen_count": 1,
+      "lang": "python",
+      "zone": "production"
+    },
+    "smells::src/aula/auth/mitid_client.py::broad_except": {
+      "id": "smells::src/aula/auth/mitid_client.py::broad_except",
+      "detector": "smells",
+      "file": "src/aula/auth/mitid_client.py",
+      "tier": 3,
+      "confidence": "medium",
+      "summary": "1x Broad except \u2014 check library exceptions before narrowing",
+      "detail": {
+        "smell_id": "broad_except",
+        "severity": "medium",
+        "count": 1,
+        "lines": [
+          146
+        ]
+      },
+      "status": "wontfix",
+      "note": "Error translation pattern",
+      "first_seen": "2026-02-17T20:56:58+00:00",
+      "last_seen": "2026-02-17T21:26:49+00:00",
+      "resolved_at": "2026-02-17T21:29:32+00:00",
+      "reopen_count": 1,
+      "lang": "python",
+      "zone": "production"
+    },
+    "smells::src/aula/cli.py::broad_except": {
+      "id": "smells::src/aula/cli.py::broad_except",
+      "detector": "smells",
+      "file": "src/aula/cli.py",
+      "tier": 3,
+      "confidence": "medium",
+      "summary": "16x Broad except \u2014 check library exceptions before narrowing",
+      "detail": {
+        "smell_id": "broad_except",
+        "severity": "medium",
+        "count": 16,
+        "lines": [
+          187,
+          215,
+          258,
+          309,
+          325,
+          366,
+          405,
+          425,
+          460,
+          496
+        ]
+      },
+      "status": "wontfix",
+      "note": "CLI user boundary error handling",
+      "first_seen": "2026-02-17T20:56:58+00:00",
+      "last_seen": "2026-02-17T21:26:49+00:00",
+      "resolved_at": "2026-02-17T21:29:31+00:00",
+      "reopen_count": 1,
+      "lang": "python",
+      "zone": "production"
+    },
+    "smells::src/aula/http_httpx.py::broad_except": {
+      "id": "smells::src/aula/http_httpx.py::broad_except",
+      "detector": "smells",
+      "file": "src/aula/http_httpx.py",
+      "tier": 3,
+      "confidence": "medium",
+      "summary": "1x Broad except \u2014 check library exceptions before narrowing",
+      "detail": {
+        "smell_id": "broad_except",
+        "severity": "medium",
+        "count": 1,
+        "lines": [
+          41
+        ]
+      },
+      "status": "fixed",
+      "note": null,
+      "first_seen": "2026-02-17T20:56:58+00:00",
+      "last_seen": "2026-02-17T20:56:58+00:00",
+      "resolved_at": "2026-02-17T21:04:19+00:00",
+      "reopen_count": 0,
+      "lang": "python",
+      "zone": "production"
+    },
+    "smells::src/aula/utils/html.py::broad_except": {
+      "id": "smells::src/aula/utils/html.py::broad_except",
+      "detector": "smells",
+      "file": "src/aula/utils/html.py",
+      "tier": 3,
+      "confidence": "medium",
+      "summary": "2x Broad except \u2014 check library exceptions before narrowing",
+      "detail": {
+        "smell_id": "broad_except",
+        "severity": "medium",
+        "count": 2,
+        "lines": [
+          24,
+          37
+        ]
+      },
+      "status": "fixed",
+      "note": null,
+      "first_seen": "2026-02-17T20:56:58+00:00",
+      "last_seen": "2026-02-17T20:56:58+00:00",
+      "resolved_at": "2026-02-17T21:04:18+00:00",
+      "reopen_count": 0,
+      "lang": "python",
+      "zone": "production"
+    },
+    "smells::src/aula/api_client.py::annotation_quality": {
+      "id": "smells::src/aula/api_client.py::annotation_quality",
+      "detector": "smells",
+      "file": "src/aula/api_client.py",
+      "tier": 3,
+      "confidence": "medium",
+      "summary": "1x Loose type annotation \u2014 use specific types",
+      "detail": {
+        "smell_id": "annotation_quality",
+        "severity": "medium",
+        "count": 1,
+        "lines": [
+          162
+        ]
+      },
+      "status": "fixed",
+      "note": null,
+      "first_seen": "2026-02-17T20:56:58+00:00",
+      "last_seen": "2026-02-17T20:56:58+00:00",
+      "resolved_at": "2026-02-17T21:02:29+00:00",
+      "reopen_count": 0,
+      "lang": "python",
+      "zone": "production"
+    },
+    "smells::src/aula/auth/mitid_client.py::annotation_quality": {
+      "id": "smells::src/aula/auth/mitid_client.py::annotation_quality",
+      "detector": "smells",
+      "file": "src/aula/auth/mitid_client.py",
+      "tier": 3,
+      "confidence": "medium",
+      "summary": "2x Loose type annotation \u2014 use specific types",
+      "detail": {
+        "smell_id": "annotation_quality",
+        "severity": "medium",
+        "count": 2,
+        "lines": [
+          120,
+          570
+        ]
+      },
+      "status": "fixed",
+      "note": null,
+      "first_seen": "2026-02-17T20:56:58+00:00",
+      "last_seen": "2026-02-17T20:56:58+00:00",
+      "resolved_at": "2026-02-17T21:02:29+00:00",
+      "reopen_count": 0,
+      "lang": "python",
+      "zone": "production"
+    },
+    "smells::src/aula/cli.py::annotation_quality": {
+      "id": "smells::src/aula/cli.py::annotation_quality",
+      "detector": "smells",
+      "file": "src/aula/cli.py",
+      "tier": 3,
+      "confidence": "medium",
+      "summary": "9x Loose type annotation \u2014 use specific types",
+      "detail": {
+        "smell_id": "annotation_quality",
+        "severity": "medium",
+        "count": 9,
+        "lines": [
+          81,
+          207,
+          241,
+          317,
+          394,
+          451,
+          510,
+          574,
+          628
+        ]
+      },
+      "status": "wontfix",
+      "note": "Click framework convention",
+      "first_seen": "2026-02-17T20:56:58+00:00",
+      "last_seen": "2026-02-17T21:26:49+00:00",
+      "resolved_at": "2026-02-17T21:29:31+00:00",
+      "reopen_count": 1,
+      "lang": "python",
+      "zone": "production"
+    },
+    "smells::src/aula/utils/table.py::annotation_quality": {
+      "id": "smells::src/aula/utils/table.py::annotation_quality",
+      "detector": "smells",
+      "file": "src/aula/utils/table.py",
+      "tier": 3,
+      "confidence": "medium",
+      "summary": "1x Loose type annotation \u2014 use specific types",
+      "detail": {
+        "smell_id": "annotation_quality",
+        "severity": "medium",
+        "count": 1,
+        "lines": [
+          50
+        ]
+      },
+      "status": "wontfix",
+      "note": "dict[str, Any] is most specific practical type",
+      "first_seen": "2026-02-17T20:56:58+00:00",
+      "last_seen": "2026-02-17T21:26:49+00:00",
+      "resolved_at": "2026-02-17T21:29:33+00:00",
+      "reopen_count": 1,
+      "lang": "python",
+      "zone": "production"
+    },
+    "smells::src/aula/auth/browser_client.py::hardcoded_url": {
+      "id": "smells::src/aula/auth/browser_client.py::hardcoded_url",
+      "detector": "smells",
+      "file": "src/aula/auth/browser_client.py",
+      "tier": 3,
+      "confidence": "medium",
+      "summary": "3x Hardcoded URL in source code",
+      "detail": {
+        "smell_id": "hardcoded_url",
+        "severity": "medium",
+        "count": 3,
+        "lines": [
+          96,
+          99,
+          204
+        ]
+      },
+      "status": "wontfix",
+      "note": "MitID protocol endpoints",
+      "first_seen": "2026-02-17T20:56:58+00:00",
+      "last_seen": "2026-02-17T21:26:49+00:00",
+      "resolved_at": "2026-02-17T21:29:33+00:00",
+      "reopen_count": 1,
+      "lang": "python",
+      "zone": "production"
+    },
+    "smells::src/aula/auth/mitid_client.py::hardcoded_url": {
+      "id": "smells::src/aula/auth/mitid_client.py::hardcoded_url",
+      "detector": "smells",
+      "file": "src/aula/auth/mitid_client.py",
+      "tier": 3,
+      "confidence": "medium",
+      "summary": "6x Hardcoded URL in source code",
+      "detail": {
+        "smell_id": "hardcoded_url",
+        "severity": "medium",
+        "count": 6,
+        "lines": [
+          296,
+          300,
+          301,
+          372,
+          401,
+          467
+        ]
+      },
+      "status": "wontfix",
+      "note": "MitID protocol endpoints",
+      "first_seen": "2026-02-17T20:56:58+00:00",
+      "last_seen": "2026-02-17T21:26:49+00:00",
+      "resolved_at": "2026-02-17T21:29:32+00:00",
+      "reopen_count": 1,
+      "lang": "python",
+      "zone": "production"
+    },
+    "smells::src/aula/api_client.py::duplicate_constant": {
+      "id": "smells::src/aula/api_client.py::duplicate_constant",
+      "detector": "smells",
+      "file": "src/aula/api_client.py",
+      "tier": 3,
+      "confidence": "medium",
+      "summary": "1x Constant defined identically in multiple modules",
+      "detail": {
+        "smell_id": "duplicate_constant",
+        "severity": "medium",
+        "count": 1,
+        "lines": [
+          32
+        ]
+      },
+      "status": "false_positive",
+      "note": null,
+      "first_seen": "2026-02-17T20:56:58+00:00",
+      "last_seen": "2026-02-17T21:26:49+00:00",
+      "resolved_at": "2026-02-17T21:02:34+00:00",
+      "reopen_count": 0,
+      "lang": "python",
+      "zone": "production"
+    },
+    "smells::src/aula/auth/browser_client.py::duplicate_constant": {
+      "id": "smells::src/aula/auth/browser_client.py::duplicate_constant",
+      "detector": "smells",
+      "file": "src/aula/auth/browser_client.py",
+      "tier": 3,
+      "confidence": "medium",
+      "summary": "1x Constant defined identically in multiple modules",
+      "detail": {
+        "smell_id": "duplicate_constant",
+        "severity": "medium",
+        "count": 1,
+        "lines": [
+          19
+        ]
+      },
+      "status": "false_positive",
+      "note": null,
+      "first_seen": "2026-02-17T20:56:58+00:00",
+      "last_seen": "2026-02-17T21:26:49+00:00",
+      "resolved_at": "2026-02-17T21:02:35+00:00",
+      "reopen_count": 0,
+      "lang": "python",
+      "zone": "production"
+    },
+    "smells::src/aula/auth/mitid_client.py::duplicate_constant": {
+      "id": "smells::src/aula/auth/mitid_client.py::duplicate_constant",
+      "detector": "smells",
+      "file": "src/aula/auth/mitid_client.py",
+      "tier": 3,
+      "confidence": "medium",
+      "summary": "1x Constant defined identically in multiple modules",
+      "detail": {
+        "smell_id": "duplicate_constant",
+        "severity": "medium",
+        "count": 1,
+        "lines": [
+          30
+        ]
+      },
+      "status": "false_positive",
+      "note": null,
+      "first_seen": "2026-02-17T20:56:58+00:00",
+      "last_seen": "2026-02-17T21:26:49+00:00",
+      "resolved_at": "2026-02-17T21:02:34+00:00",
+      "reopen_count": 0,
+      "lang": "python",
+      "zone": "production"
+    },
+    "smells::src/aula/auth_flow.py::duplicate_constant": {
+      "id": "smells::src/aula/auth_flow.py::duplicate_constant",
+      "detector": "smells",
+      "file": "src/aula/auth_flow.py",
+      "tier": 3,
+      "confidence": "medium",
+      "summary": "1x Constant defined identically in multiple modules",
+      "detail": {
+        "smell_id": "duplicate_constant",
+        "severity": "medium",
+        "count": 1,
+        "lines": [
+          15
+        ]
+      },
+      "status": "false_positive",
+      "note": null,
+      "first_seen": "2026-02-17T20:56:58+00:00",
+      "last_seen": "2026-02-17T21:26:49+00:00",
+      "resolved_at": "2026-02-17T21:04:24+00:00",
+      "reopen_count": 0,
+      "lang": "python",
+      "zone": "production"
+    },
+    "smells::src/aula/models/daily_overview.py::duplicate_constant": {
+      "id": "smells::src/aula/models/daily_overview.py::duplicate_constant",
+      "detector": "smells",
+      "file": "src/aula/models/daily_overview.py",
+      "tier": 3,
+      "confidence": "medium",
+      "summary": "1x Constant defined identically in multiple modules",
+      "detail": {
+        "smell_id": "duplicate_constant",
+        "severity": "medium",
+        "count": 1,
+        "lines": [
+          11
+        ]
+      },
+      "status": "false_positive",
+      "note": null,
+      "first_seen": "2026-02-17T20:56:58+00:00",
+      "last_seen": "2026-02-17T21:26:49+00:00",
+      "resolved_at": "2026-02-17T21:04:24+00:00",
+      "reopen_count": 0,
+      "lang": "python",
+      "zone": "production"
+    },
+    "smells::src/aula/token_storage.py::duplicate_constant": {
+      "id": "smells::src/aula/token_storage.py::duplicate_constant",
+      "detector": "smells",
+      "file": "src/aula/token_storage.py",
+      "tier": 3,
+      "confidence": "medium",
+      "summary": "1x Constant defined identically in multiple modules",
+      "detail": {
+        "smell_id": "duplicate_constant",
+        "severity": "medium",
+        "count": 1,
+        "lines": [
+          12
+        ]
+      },
+      "status": "false_positive",
+      "note": null,
+      "first_seen": "2026-02-17T20:56:58+00:00",
+      "last_seen": "2026-02-17T21:26:49+00:00",
+      "resolved_at": "2026-02-17T21:04:23+00:00",
+      "reopen_count": 0,
+      "lang": "python",
+      "zone": "production"
+    },
+    "smells::src/aula/utils/html.py::duplicate_constant": {
+      "id": "smells::src/aula/utils/html.py::duplicate_constant",
+      "detector": "smells",
+      "file": "src/aula/utils/html.py",
+      "tier": 3,
+      "confidence": "medium",
+      "summary": "1x Constant defined identically in multiple modules",
+      "detail": {
+        "smell_id": "duplicate_constant",
+        "severity": "medium",
+        "count": 1,
+        "lines": [
+          7
+        ]
+      },
+      "status": "false_positive",
+      "note": null,
+      "first_seen": "2026-02-17T20:56:58+00:00",
+      "last_seen": "2026-02-17T21:26:49+00:00",
+      "resolved_at": "2026-02-17T21:04:23+00:00",
+      "reopen_count": 0,
+      "lang": "python",
+      "zone": "production"
+    },
+    "smells::src/aula/utils/table.py::type_ignore": {
+      "id": "smells::src/aula/utils/table.py::type_ignore",
+      "detector": "smells",
+      "file": "src/aula/utils/table.py",
+      "tier": 3,
+      "confidence": "medium",
+      "summary": "2x type: ignore comment",
+      "detail": {
+        "smell_id": "type_ignore",
+        "severity": "medium",
+        "count": 2,
+        "lines": [
+          7,
+          8
+        ]
+      },
+      "status": "false_positive",
+      "note": null,
+      "first_seen": "2026-02-17T20:56:58+00:00",
+      "last_seen": "2026-02-17T21:26:49+00:00",
+      "resolved_at": "2026-02-17T21:05:00+00:00",
+      "reopen_count": 0,
+      "lang": "python",
+      "zone": "production"
+    },
+    "smells::src/aula/token_storage.py::unsafe_file_write": {
+      "id": "smells::src/aula/token_storage.py::unsafe_file_write",
+      "detector": "smells",
+      "file": "src/aula/token_storage.py",
+      "tier": 3,
+      "confidence": "medium",
+      "summary": "1x Non-atomic file write (use temp+rename for safety)",
+      "detail": {
+        "smell_id": "unsafe_file_write",
+        "severity": "medium",
+        "count": 1,
+        "lines": [
+          59
+        ]
+      },
+      "status": "fixed",
+      "note": null,
+      "first_seen": "2026-02-17T20:56:58+00:00",
+      "last_seen": "2026-02-17T20:56:58+00:00",
+      "resolved_at": "2026-02-17T21:04:14+00:00",
+      "reopen_count": 0,
+      "lang": "python",
+      "zone": "production"
+    },
+    "smells::src/aula/cli.py::deferred_import": {
+      "id": "smells::src/aula/cli.py::deferred_import",
+      "detector": "smells",
+      "file": "src/aula/cli.py",
+      "tier": 3,
+      "confidence": "low",
+      "summary": "4x Function-level import (possible circular import workaround)",
+      "detail": {
+        "smell_id": "deferred_import",
+        "severity": "low",
+        "count": 4,
+        "lines": [
+          420,
+          529,
+          593,
+          646
+        ]
+      },
+      "status": "wontfix",
+      "note": "Function-level imports for optional dependencies",
+      "first_seen": "2026-02-17T20:56:58+00:00",
+      "last_seen": "2026-02-17T21:26:49+00:00",
+      "resolved_at": "2026-02-17T21:29:31+00:00",
+      "reopen_count": 1,
+      "lang": "python",
+      "zone": "production"
+    },
+    "smells::src/aula/auth/browser_client.py::magic_number": {
+      "id": "smells::src/aula/auth/browser_client.py::magic_number",
+      "detector": "smells",
+      "file": "src/aula/auth/browser_client.py",
+      "tier": 3,
+      "confidence": "low",
+      "summary": "1x Magic numbers (>1000 in logic)",
+      "detail": {
+        "smell_id": "magic_number",
+        "severity": "low",
+        "count": 1,
+        "lines": [
+          331
+        ]
+      },
+      "status": "false_positive",
+      "note": null,
+      "first_seen": "2026-02-17T20:56:58+00:00",
+      "last_seen": "2026-02-17T21:26:49+00:00",
+      "resolved_at": "2026-02-17T21:05:00+00:00",
+      "reopen_count": 0,
+      "lang": "python",
+      "zone": "production"
+    },
+    "smells::src/aula/models/mu_task.py::magic_number": {
+      "id": "smells::src/aula/models/mu_task.py::magic_number",
+      "detector": "smells",
+      "file": "src/aula/models/mu_task.py",
+      "tier": 3,
+      "confidence": "low",
+      "summary": "1x Magic numbers (>1000 in logic)",
+      "detail": {
+        "smell_id": "magic_number",
+        "severity": "low",
+        "count": 1,
+        "lines": [
+          16
+        ]
+      },
+      "status": "false_positive",
+      "note": null,
+      "first_seen": "2026-02-17T20:56:58+00:00",
+      "last_seen": "2026-02-17T21:26:49+00:00",
+      "resolved_at": "2026-02-17T21:05:00+00:00",
+      "reopen_count": 0,
+      "lang": "python",
+      "zone": "production"
+    },
+    "smells::src/aula/models/child.py::sig_variance::from_dict": {
+      "id": "smells::src/aula/models/child.py::sig_variance::from_dict",
+      "detector": "smells",
+      "file": "src/aula/models/child.py",
+      "tier": 3,
+      "confidence": "medium",
+      "summary": "Signature variance: from_dict() has 2 parameter signatures and 14 return signatures across 9 files",
+      "detail": {
+        "function": "from_dict",
+        "group_type": "name",
+        "file_count": 9,
+        "signature_count": 2,
+        "return_signature_count": 14,
+        "return_signatures": [
+          "\"Child\"",
+          "\"DailyOverview\"",
+          "\"InstitutionProfile\"",
+          "\"LibraryLoan\"",
+          "\"LibraryStatus\"",
+          "\"MUTask\"",
+          "\"MUTaskClass\"",
+          "\"MUTaskCourse\"",
+          "\"MUWeeklyInstitution\"",
+          "\"MUWeeklyLetter\"",
+          "\"MUWeeklyPerson\"",
+          "\"MainGroup\"",
+          "\"Post\"",
+          "\"ProfileReference\""
+        ],
+        "variants": [
+          {
+            "file": "src/aula/models/child.py",
+            "line": 17,
+            "params": [
+              "data"
+            ],
+            "param_count": 1,
+            "return_annotation": "\"Child\""
+          },
+          {
+            "file": "src/aula/models/daily_overview.py",
+            "line": 31,
+            "params": [
+              "raw_data"
+            ],
+            "param_count": 1,
+            "return_annotation": "\"DailyOverview\""
+          },
+          {
+            "file": "src/aula/models/institution_profile.py",
+            "line": 23,
+            "params": [
+              "data"
+            ],
+            "param_count": 1,
+            "return_annotation": "\"InstitutionProfile\""
+          },
+          {
+            "file": "src/aula/models/library.py",
+            "line": 19,
+            "params": [
+              "data"
+            ],
+            "param_count": 1,
+            "return_annotation": "\"LibraryLoan\""
+          },
+          {
+            "file": "src/aula/models/library.py",
+            "line": 41,
+            "params": [
+              "data"
+            ],
+            "param_count": 1,
+            "return_annotation": "\"LibraryStatus\""
+          }
+        ]
+      },
+      "status": "wontfix",
+      "note": "Polymorphic factory methods",
+      "first_seen": "2026-02-17T20:56:58+00:00",
+      "last_seen": "2026-02-17T21:26:49+00:00",
+      "resolved_at": "2026-02-17T21:29:33+00:00",
+      "reopen_count": 1,
+      "lang": "python",
+      "zone": "production"
+    },
+    "security::src/aula/auth/mitid_client.py::security::log_sensitive::src/aula/auth/mitid_client.py::67": {
+      "id": "security::src/aula/auth/mitid_client.py::security::log_sensitive::src/aula/auth/mitid_client.py::67",
+      "detector": "security",
+      "file": "src/aula/auth/mitid_client.py",
+      "tier": 2,
+      "confidence": "medium",
+      "summary": "Sensitive data may be logged",
+      "detail": {
+        "kind": "log_sensitive",
+        "severity": "medium",
+        "line": 67,
+        "content": "            print(client.access_token)",
+        "remediation": "Remove sensitive data from log statements"
+      },
+      "status": "fixed",
+      "note": null,
+      "first_seen": "2026-02-17T20:56:58+00:00",
+      "last_seen": "2026-02-17T20:56:58+00:00",
+      "resolved_at": "2026-02-17T20:58:38+00:00",
+      "reopen_count": 0,
+      "zone": "production",
+      "lang": "python"
+    },
+    "dict_keys::src/aula/api_client.py::phantom_read::data::data": {
+      "id": "dict_keys::src/aula/api_client.py::phantom_read::data::data",
+      "detector": "dict_keys",
+      "file": "src/aula/api_client.py",
+      "tier": 2,
+      "confidence": "high",
+      "summary": "Dict key \"data\" read at line 271 but never written to `data`",
+      "detail": {
+        "kind": "phantom_read",
+        "key": "data",
+        "line": 271,
+        "info": "Created at line 248 in get_calendar_events() \u2014 will raise KeyError or return None via .get()"
+      },
+      "status": "fixed",
+      "note": null,
+      "first_seen": "2026-02-17T20:56:59+00:00",
+      "last_seen": "2026-02-17T20:56:59+00:00",
+      "resolved_at": "2026-02-17T21:00:05+00:00",
+      "reopen_count": 0,
+      "lang": "python",
+      "zone": "production"
+    },
+    "subjective_review::src/aula/__init__.py::unreviewed": {
+      "id": "subjective_review::src/aula/__init__.py::unreviewed",
+      "detector": "subjective_review",
+      "file": "src/aula/__init__.py",
+      "tier": 4,
+      "confidence": "low",
+      "summary": "No design review on record \u2014 run `desloppify review --prepare`",
+      "detail": {
+        "reason": "unreviewed",
+        "loc": 38
+      },
+      "status": "open",
+      "note": null,
+      "first_seen": "2026-02-17T20:56:59+00:00",
+      "last_seen": "2026-02-17T21:26:49+00:00",
+      "resolved_at": null,
+      "reopen_count": 0,
+      "lang": "python",
+      "zone": "production"
+    },
+    "subjective_review::src/aula/api_client.py::unreviewed": {
+      "id": "subjective_review::src/aula/api_client.py::unreviewed",
+      "detector": "subjective_review",
+      "file": "src/aula/api_client.py",
+      "tier": 4,
+      "confidence": "low",
+      "summary": "No design review on record \u2014 run `desloppify review --prepare`",
+      "detail": {
+        "reason": "unreviewed",
+        "loc": 519
+      },
+      "status": "auto_resolved",
+      "note": "Disappeared from scan \u2014 likely fixed",
+      "first_seen": "2026-02-17T20:56:59+00:00",
+      "last_seen": "2026-02-17T21:08:46+00:00",
+      "resolved_at": "2026-02-17T21:26:49+00:00",
+      "reopen_count": 0,
+      "lang": "python",
+      "zone": "production"
+    },
+    "subjective_review::src/aula/auth/browser_client.py::unreviewed": {
+      "id": "subjective_review::src/aula/auth/browser_client.py::unreviewed",
+      "detector": "subjective_review",
+      "file": "src/aula/auth/browser_client.py",
+      "tier": 4,
+      "confidence": "low",
+      "summary": "No design review on record \u2014 run `desloppify review --prepare`",
+      "detail": {
+        "reason": "unreviewed",
+        "loc": 411
+      },
+      "status": "auto_resolved",
+      "note": "Disappeared from scan \u2014 likely fixed",
+      "first_seen": "2026-02-17T20:56:59+00:00",
+      "last_seen": "2026-02-17T21:08:46+00:00",
+      "resolved_at": "2026-02-17T21:26:49+00:00",
+      "reopen_count": 0,
+      "lang": "python",
+      "zone": "production"
+    },
+    "subjective_review::src/aula/auth/exceptions.py::unreviewed": {
+      "id": "subjective_review::src/aula/auth/exceptions.py::unreviewed",
+      "detector": "subjective_review",
+      "file": "src/aula/auth/exceptions.py",
+      "tier": 4,
+      "confidence": "low",
+      "summary": "No design review on record \u2014 run `desloppify review --prepare`",
+      "detail": {
+        "reason": "unreviewed",
+        "loc": 31
+      },
+      "status": "open",
+      "note": null,
+      "first_seen": "2026-02-17T20:56:59+00:00",
+      "last_seen": "2026-02-17T21:26:49+00:00",
+      "resolved_at": null,
+      "reopen_count": 0,
+      "lang": "python",
+      "zone": "production"
+    },
+    "subjective_review::src/aula/auth/mitid_client.py::unreviewed": {
+      "id": "subjective_review::src/aula/auth/mitid_client.py::unreviewed",
+      "detector": "subjective_review",
+      "file": "src/aula/auth/mitid_client.py",
+      "tier": 4,
+      "confidence": "low",
+      "summary": "No design review on record \u2014 run `desloppify review --prepare`",
+      "detail": {
+        "reason": "unreviewed",
+        "loc": 633
+      },
+      "status": "auto_resolved",
+      "note": "Disappeared from scan \u2014 likely fixed",
+      "first_seen": "2026-02-17T20:56:59+00:00",
+      "last_seen": "2026-02-17T21:08:46+00:00",
+      "resolved_at": "2026-02-17T21:26:49+00:00",
+      "reopen_count": 0,
+      "lang": "python",
+      "zone": "production"
+    },
+    "subjective_review::src/aula/auth/srp.py::unreviewed": {
+      "id": "subjective_review::src/aula/auth/srp.py::unreviewed",
+      "detector": "subjective_review",
+      "file": "src/aula/auth/srp.py",
+      "tier": 4,
+      "confidence": "low",
+      "summary": "No design review on record \u2014 run `desloppify review --prepare`",
+      "detail": {
+        "reason": "unreviewed",
+        "loc": 148
+      },
+      "status": "open",
+      "note": null,
+      "first_seen": "2026-02-17T20:56:59+00:00",
+      "last_seen": "2026-02-17T21:26:49+00:00",
+      "resolved_at": null,
+      "reopen_count": 0,
+      "lang": "python",
+      "zone": "production"
+    },
+    "subjective_review::src/aula/auth_flow.py::unreviewed": {
+      "id": "subjective_review::src/aula/auth_flow.py::unreviewed",
+      "detector": "subjective_review",
+      "file": "src/aula/auth_flow.py",
+      "tier": 4,
+      "confidence": "low",
+      "summary": "No design review on record \u2014 run `desloppify review --prepare`",
+      "detail": {
+        "reason": "unreviewed",
+        "loc": 99
+      },
+      "status": "open",
+      "note": null,
+      "first_seen": "2026-02-17T20:56:59+00:00",
+      "last_seen": "2026-02-17T21:26:49+00:00",
+      "resolved_at": null,
+      "reopen_count": 0,
+      "lang": "python",
+      "zone": "production"
+    },
+    "subjective_review::src/aula/cli.py::unreviewed": {
+      "id": "subjective_review::src/aula/cli.py::unreviewed",
+      "detector": "subjective_review",
+      "file": "src/aula/cli.py",
+      "tier": 4,
+      "confidence": "low",
+      "summary": "No design review on record \u2014 run `desloppify review --prepare`",
+      "detail": {
+        "reason": "unreviewed",
+        "loc": 717
+      },
+      "status": "auto_resolved",
+      "note": "Disappeared from scan \u2014 likely fixed",
+      "first_seen": "2026-02-17T20:56:59+00:00",
+      "last_seen": "2026-02-17T21:08:46+00:00",
+      "resolved_at": "2026-02-17T21:26:49+00:00",
+      "reopen_count": 0,
+      "lang": "python",
+      "zone": "production"
+    },
+    "subjective_review::src/aula/http.py::unreviewed": {
+      "id": "subjective_review::src/aula/http.py::unreviewed",
+      "detector": "subjective_review",
+      "file": "src/aula/http.py",
+      "tier": 4,
+      "confidence": "low",
+      "summary": "No design review on record \u2014 run `desloppify review --prepare`",
+      "detail": {
+        "reason": "unreviewed",
+        "loc": 61
+      },
+      "status": "open",
+      "note": null,
+      "first_seen": "2026-02-17T20:56:59+00:00",
+      "last_seen": "2026-02-17T21:26:49+00:00",
+      "resolved_at": null,
+      "reopen_count": 0,
+      "lang": "python",
+      "zone": "production"
+    },
+    "subjective_review::src/aula/http_httpx.py::unreviewed": {
+      "id": "subjective_review::src/aula/http_httpx.py::unreviewed",
+      "detector": "subjective_review",
+      "file": "src/aula/http_httpx.py",
+      "tier": 4,
+      "confidence": "low",
+      "summary": "No design review on record \u2014 run `desloppify review --prepare`",
+      "detail": {
+        "reason": "unreviewed",
+        "loc": 53
+      },
+      "status": "open",
+      "note": null,
+      "first_seen": "2026-02-17T20:56:59+00:00",
+      "last_seen": "2026-02-17T21:26:49+00:00",
+      "resolved_at": null,
+      "reopen_count": 0,
+      "lang": "python",
+      "zone": "production"
+    },
+    "subjective_review::src/aula/models/base.py::unreviewed": {
+      "id": "subjective_review::src/aula/models/base.py::unreviewed",
+      "detector": "subjective_review",
+      "file": "src/aula/models/base.py",
+      "tier": 4,
+      "confidence": "low",
+      "summary": "No design review on record \u2014 run `desloppify review --prepare`",
+      "detail": {
+        "reason": "unreviewed",
+        "loc": 21
+      },
+      "status": "open",
+      "note": null,
+      "first_seen": "2026-02-17T20:56:59+00:00",
+      "last_seen": "2026-02-17T21:26:49+00:00",
+      "resolved_at": null,
+      "reopen_count": 0,
+      "lang": "python",
+      "zone": "production"
+    },
+    "subjective_review::src/aula/models/child.py::unreviewed": {
+      "id": "subjective_review::src/aula/models/child.py::unreviewed",
+      "detector": "subjective_review",
+      "file": "src/aula/models/child.py",
+      "tier": 4,
+      "confidence": "low",
+      "summary": "No design review on record \u2014 run `desloppify review --prepare`",
+      "detail": {
+        "reason": "unreviewed",
+        "loc": 25
+      },
+      "status": "open",
+      "note": null,
+      "first_seen": "2026-02-17T20:56:59+00:00",
+      "last_seen": "2026-02-17T21:26:49+00:00",
+      "resolved_at": null,
+      "reopen_count": 0,
+      "lang": "python",
+      "zone": "production"
+    },
+    "subjective_review::src/aula/models/daily_overview.py::unreviewed": {
+      "id": "subjective_review::src/aula/models/daily_overview.py::unreviewed",
+      "detector": "subjective_review",
+      "file": "src/aula/models/daily_overview.py",
+      "tier": 4,
+      "confidence": "low",
+      "summary": "No design review on record \u2014 run `desloppify review --prepare`",
+      "detail": {
+        "reason": "unreviewed",
+        "loc": 59
+      },
+      "status": "open",
+      "note": null,
+      "first_seen": "2026-02-17T20:56:59+00:00",
+      "last_seen": "2026-02-17T21:26:49+00:00",
+      "resolved_at": null,
+      "reopen_count": 0,
+      "lang": "python",
+      "zone": "production"
+    },
+    "subjective_review::src/aula/models/institution_profile.py::unreviewed": {
+      "id": "subjective_review::src/aula/models/institution_profile.py::unreviewed",
+      "detector": "subjective_review",
+      "file": "src/aula/models/institution_profile.py",
+      "tier": 4,
+      "confidence": "low",
+      "summary": "No design review on record \u2014 run `desloppify review --prepare`",
+      "detail": {
+        "reason": "unreviewed",
+        "loc": 36
+      },
+      "status": "open",
+      "note": null,
+      "first_seen": "2026-02-17T20:56:59+00:00",
+      "last_seen": "2026-02-17T21:26:49+00:00",
+      "resolved_at": null,
+      "reopen_count": 0,
+      "lang": "python",
+      "zone": "production"
+    },
+    "subjective_review::src/aula/models/library.py::unreviewed": {
+      "id": "subjective_review::src/aula/models/library.py::unreviewed",
+      "detector": "subjective_review",
+      "file": "src/aula/models/library.py",
+      "tier": 4,
+      "confidence": "low",
+      "summary": "No design review on record \u2014 run `desloppify review --prepare`",
+      "detail": {
+        "reason": "unreviewed",
+        "loc": 48
+      },
+      "status": "open",
+      "note": null,
+      "first_seen": "2026-02-17T20:56:59+00:00",
+      "last_seen": "2026-02-17T21:26:49+00:00",
+      "resolved_at": null,
+      "reopen_count": 0,
+      "lang": "python",
+      "zone": "production"
+    },
+    "subjective_review::src/aula/models/main_group.py::unreviewed": {
+      "id": "subjective_review::src/aula/models/main_group.py::unreviewed",
+      "detector": "subjective_review",
+      "file": "src/aula/models/main_group.py",
+      "tier": 4,
+      "confidence": "low",
+      "summary": "No design review on record \u2014 run `desloppify review --prepare`",
+      "detail": {
+        "reason": "unreviewed",
+        "loc": 26
+      },
+      "status": "open",
+      "note": null,
+      "first_seen": "2026-02-17T20:56:59+00:00",
+      "last_seen": "2026-02-17T21:26:49+00:00",
+      "resolved_at": null,
+      "reopen_count": 0,
+      "lang": "python",
+      "zone": "production"
+    },
+    "subjective_review::src/aula/models/message.py::unreviewed": {
+      "id": "subjective_review::src/aula/models/message.py::unreviewed",
+      "detector": "subjective_review",
+      "file": "src/aula/models/message.py",
+      "tier": 4,
+      "confidence": "low",
+      "summary": "No design review on record \u2014 run `desloppify review --prepare`",
+      "detail": {
+        "reason": "unreviewed",
+        "loc": 21
+      },
+      "status": "open",
+      "note": null,
+      "first_seen": "2026-02-17T20:56:59+00:00",
+      "last_seen": "2026-02-17T21:26:49+00:00",
+      "resolved_at": null,
+      "reopen_count": 0,
+      "lang": "python",
+      "zone": "production"
+    },
+    "subjective_review::src/aula/models/mu_task.py::unreviewed": {
+      "id": "subjective_review::src/aula/models/mu_task.py::unreviewed",
+      "detector": "subjective_review",
+      "file": "src/aula/models/mu_task.py",
+      "tier": 4,
+      "confidence": "low",
+      "summary": "No design review on record \u2014 run `desloppify review --prepare`",
+      "detail": {
+        "reason": "unreviewed",
+        "loc": 103
+      },
+      "status": "open",
+      "note": null,
+      "first_seen": "2026-02-17T20:56:59+00:00",
+      "last_seen": "2026-02-17T21:26:49+00:00",
+      "resolved_at": null,
+      "reopen_count": 0,
+      "lang": "python",
+      "zone": "production"
+    },
+    "subjective_review::src/aula/models/mu_weekly_letter.py::unreviewed": {
+      "id": "subjective_review::src/aula/models/mu_weekly_letter.py::unreviewed",
+      "detector": "subjective_review",
+      "file": "src/aula/models/mu_weekly_letter.py",
+      "tier": 4,
+      "confidence": "low",
+      "summary": "No design review on record \u2014 run `desloppify review --prepare`",
+      "detail": {
+        "reason": "unreviewed",
+        "loc": 61
+      },
+      "status": "open",
+      "note": null,
+      "first_seen": "2026-02-17T20:56:59+00:00",
+      "last_seen": "2026-02-17T21:26:49+00:00",
+      "resolved_at": null,
+      "reopen_count": 0,
+      "lang": "python",
+      "zone": "production"
+    },
+    "subjective_review::src/aula/models/post.py::unreviewed": {
+      "id": "subjective_review::src/aula/models/post.py::unreviewed",
+      "detector": "subjective_review",
+      "file": "src/aula/models/post.py",
+      "tier": 4,
+      "confidence": "low",
+      "summary": "No design review on record \u2014 run `desloppify review --prepare`",
+      "detail": {
+        "reason": "unreviewed",
+        "loc": 83
+      },
+      "status": "open",
+      "note": null,
+      "first_seen": "2026-02-17T20:56:59+00:00",
+      "last_seen": "2026-02-17T21:26:49+00:00",
+      "resolved_at": null,
+      "reopen_count": 0,
+      "lang": "python",
+      "zone": "production"
+    },
+    "subjective_review::src/aula/models/presence.py::unreviewed": {
+      "id": "subjective_review::src/aula/models/presence.py::unreviewed",
+      "detector": "subjective_review",
+      "file": "src/aula/models/presence.py",
+      "tier": 4,
+      "confidence": "low",
+      "summary": "No design review on record \u2014 run `desloppify review --prepare`",
+      "detail": {
+        "reason": "unreviewed",
+        "loc": 23
+      },
+      "status": "open",
+      "note": null,
+      "first_seen": "2026-02-17T20:56:59+00:00",
+      "last_seen": "2026-02-17T21:26:49+00:00",
+      "resolved_at": null,
+      "reopen_count": 0,
+      "lang": "python",
+      "zone": "production"
+    },
+    "subjective_review::src/aula/models/profile_reference.py::unreviewed": {
+      "id": "subjective_review::src/aula/models/profile_reference.py::unreviewed",
+      "detector": "subjective_review",
+      "file": "src/aula/models/profile_reference.py",
+      "tier": 4,
+      "confidence": "low",
+      "summary": "No design review on record \u2014 run `desloppify review --prepare`",
+      "detail": {
+        "reason": "unreviewed",
+        "loc": 35
+      },
+      "status": "open",
+      "note": null,
+      "first_seen": "2026-02-17T20:56:59+00:00",
+      "last_seen": "2026-02-17T21:26:49+00:00",
+      "resolved_at": null,
+      "reopen_count": 0,
+      "lang": "python",
+      "zone": "production"
+    },
+    "subjective_review::src/aula/token_storage.py::unreviewed": {
+      "id": "subjective_review::src/aula/token_storage.py::unreviewed",
+      "detector": "subjective_review",
+      "file": "src/aula/token_storage.py",
+      "tier": 4,
+      "confidence": "low",
+      "summary": "No design review on record \u2014 run `desloppify review --prepare`",
+      "detail": {
+        "reason": "unreviewed",
+        "loc": 72
+      },
+      "status": "auto_resolved",
+      "note": "Disappeared from scan \u2014 likely fixed",
+      "first_seen": "2026-02-17T20:56:59+00:00",
+      "last_seen": "2026-02-17T21:08:46+00:00",
+      "resolved_at": "2026-02-17T21:26:49+00:00",
+      "reopen_count": 0,
+      "lang": "python",
+      "zone": "production"
+    },
+    "subjective_review::src/aula/utils/html.py::unreviewed": {
+      "id": "subjective_review::src/aula/utils/html.py::unreviewed",
+      "detector": "subjective_review",
+      "file": "src/aula/utils/html.py",
+      "tier": 4,
+      "confidence": "low",
+      "summary": "No design review on record \u2014 run `desloppify review --prepare`",
+      "detail": {
+        "reason": "unreviewed",
+        "loc": 39
+      },
+      "status": "open",
+      "note": null,
+      "first_seen": "2026-02-17T20:56:59+00:00",
+      "last_seen": "2026-02-17T21:26:49+00:00",
+      "resolved_at": null,
+      "reopen_count": 0,
+      "lang": "python",
+      "zone": "production"
+    },
+    "subjective_review::src/aula/utils/table.py::unreviewed": {
+      "id": "subjective_review::src/aula/utils/table.py::unreviewed",
+      "detector": "subjective_review",
+      "file": "src/aula/utils/table.py",
+      "tier": 4,
+      "confidence": "low",
+      "summary": "No design review on record \u2014 run `desloppify review --prepare`",
+      "detail": {
+        "reason": "unreviewed",
+        "loc": 78
+      },
+      "status": "open",
+      "note": null,
+      "first_seen": "2026-02-17T20:56:59+00:00",
+      "last_seen": "2026-02-17T21:26:49+00:00",
+      "resolved_at": null,
+      "reopen_count": 0,
+      "lang": "python",
+      "zone": "production"
+    },
+    "subjective_review::.::holistic_unreviewed": {
+      "id": "subjective_review::.::holistic_unreviewed",
+      "detector": "subjective_review",
+      "file": ".",
+      "tier": 4,
+      "confidence": "low",
+      "summary": "No holistic codebase review on record \u2014 run `desloppify review --prepare --holistic`",
+      "detail": {
+        "reason": "unreviewed"
+      },
+      "status": "open",
+      "note": null,
+      "first_seen": "2026-02-17T20:56:59+00:00",
+      "last_seen": "2026-02-17T21:26:49+00:00",
+      "resolved_at": null,
+      "reopen_count": 0,
+      "lang": "python",
+      "zone": "production"
+    },
+    "test_coverage::src/aula/models/mu_weekly_letter.py::untested_module": {
+      "id": "test_coverage::src/aula/models/mu_weekly_letter.py::untested_module",
+      "detector": "test_coverage",
+      "file": "src/aula/models/mu_weekly_letter.py",
+      "tier": 3,
+      "confidence": "high",
+      "summary": "Untested module (61 LOC, 1 importers)",
+      "detail": {
+        "kind": "untested_module",
+        "loc": 61,
+        "importer_count": 1,
+        "loc_weight": 7.810249675906654
+      },
+      "status": "fixed",
+      "note": null,
+      "first_seen": "2026-02-17T21:08:45+00:00",
+      "last_seen": "2026-02-17T21:26:49+00:00",
+      "resolved_at": "2026-02-17T21:28:24+00:00",
+      "reopen_count": 1,
+      "lang": "python",
+      "zone": "production"
+    },
+    "test_coverage::src/aula/utils/html.py::untested_module": {
+      "id": "test_coverage::src/aula/utils/html.py::untested_module",
+      "detector": "test_coverage",
+      "file": "src/aula/utils/html.py",
+      "tier": 3,
+      "confidence": "high",
+      "summary": "Untested module (39 LOC, 3 importers)",
+      "detail": {
+        "kind": "untested_module",
+        "loc": 39,
+        "importer_count": 3,
+        "loc_weight": 6.244997998398398
+      },
+      "status": "fixed",
+      "note": null,
+      "first_seen": "2026-02-17T21:08:45+00:00",
+      "last_seen": "2026-02-17T21:26:49+00:00",
+      "resolved_at": "2026-02-17T21:28:59+00:00",
+      "reopen_count": 1,
+      "lang": "python",
+      "zone": "production"
+    },
+    "test_coverage::src/aula/models/child.py::untested_module": {
+      "id": "test_coverage::src/aula/models/child.py::untested_module",
+      "detector": "test_coverage",
+      "file": "src/aula/models/child.py",
+      "tier": 3,
+      "confidence": "high",
+      "summary": "Untested module (25 LOC, 2 importers)",
+      "detail": {
+        "kind": "untested_module",
+        "loc": 25,
+        "importer_count": 2,
+        "loc_weight": 5.0
+      },
+      "status": "fixed",
+      "note": null,
+      "first_seen": "2026-02-17T21:08:45+00:00",
+      "last_seen": "2026-02-17T21:26:49+00:00",
+      "resolved_at": "2026-02-17T21:28:22+00:00",
+      "reopen_count": 1,
+      "lang": "python",
+      "zone": "production"
+    },
+    "test_coverage::src/aula/models/message.py::untested_module": {
+      "id": "test_coverage::src/aula/models/message.py::untested_module",
+      "detector": "test_coverage",
+      "file": "src/aula/models/message.py",
+      "tier": 3,
+      "confidence": "high",
+      "summary": "Untested module (21 LOC, 1 importers)",
+      "detail": {
+        "kind": "untested_module",
+        "loc": 21,
+        "importer_count": 1,
+        "loc_weight": 4.58257569495584
+      },
+      "status": "fixed",
+      "note": null,
+      "first_seen": "2026-02-17T21:08:45+00:00",
+      "last_seen": "2026-02-17T21:26:49+00:00",
+      "resolved_at": "2026-02-17T21:28:24+00:00",
+      "reopen_count": 1,
+      "lang": "python",
+      "zone": "production"
+    },
+    "test_coverage::src/aula/api_client.py::untested_module": {
+      "id": "test_coverage::src/aula/api_client.py::untested_module",
+      "detector": "test_coverage",
+      "file": "src/aula/api_client.py",
+      "tier": 3,
+      "confidence": "high",
+      "summary": "Untested module (518 LOC, 3 importers)",
+      "detail": {
+        "kind": "untested_module",
+        "loc": 518,
+        "importer_count": 3,
+        "loc_weight": 22.759613353482084
+      },
+      "status": "wontfix",
+      "note": "Requires live HTTP sessions",
+      "first_seen": "2026-02-17T21:08:45+00:00",
+      "last_seen": "2026-02-17T21:26:49+00:00",
+      "resolved_at": "2026-02-17T21:27:58+00:00",
+      "reopen_count": 1,
+      "lang": "python",
+      "zone": "production"
+    },
+    "test_coverage::src/aula/models/mu_task.py::untested_module": {
+      "id": "test_coverage::src/aula/models/mu_task.py::untested_module",
+      "detector": "test_coverage",
+      "file": "src/aula/models/mu_task.py",
+      "tier": 3,
+      "confidence": "high",
+      "summary": "Untested module (103 LOC, 1 importers)",
+      "detail": {
+        "kind": "untested_module",
+        "loc": 103,
+        "importer_count": 1,
+        "loc_weight": 10.14889156509222
+      },
+      "status": "fixed",
+      "note": null,
+      "first_seen": "2026-02-17T21:08:45+00:00",
+      "last_seen": "2026-02-17T21:26:49+00:00",
+      "resolved_at": "2026-02-17T21:28:24+00:00",
+      "reopen_count": 1,
+      "lang": "python",
+      "zone": "production"
+    },
+    "test_coverage::src/aula/cli.py::untested_module": {
+      "id": "test_coverage::src/aula/cli.py::untested_module",
+      "detector": "test_coverage",
+      "file": "src/aula/cli.py",
+      "tier": 3,
+      "confidence": "high",
+      "summary": "Untested module (697 LOC, 1 importers)",
+      "detail": {
+        "kind": "untested_module",
+        "loc": 697,
+        "importer_count": 1,
+        "loc_weight": 26.40075756488817
+      },
+      "status": "wontfix",
+      "note": "CLI needs full stack integration",
+      "first_seen": "2026-02-17T21:08:45+00:00",
+      "last_seen": "2026-02-17T21:26:49+00:00",
+      "resolved_at": "2026-02-17T21:27:59+00:00",
+      "reopen_count": 1,
+      "lang": "python",
+      "zone": "production"
+    },
+    "test_coverage::src/aula/models/main_group.py::untested_module": {
+      "id": "test_coverage::src/aula/models/main_group.py::untested_module",
+      "detector": "test_coverage",
+      "file": "src/aula/models/main_group.py",
+      "tier": 3,
+      "confidence": "high",
+      "summary": "Untested module (26 LOC, 1 importers)",
+      "detail": {
+        "kind": "untested_module",
+        "loc": 26,
+        "importer_count": 1,
+        "loc_weight": 5.0990195135927845
+      },
+      "status": "fixed",
+      "note": null,
+      "first_seen": "2026-02-17T21:08:45+00:00",
+      "last_seen": "2026-02-17T21:26:49+00:00",
+      "resolved_at": "2026-02-17T21:28:23+00:00",
+      "reopen_count": 1,
+      "lang": "python",
+      "zone": "production"
+    },
+    "test_coverage::src/aula/models/daily_overview.py::untested_module": {
+      "id": "test_coverage::src/aula/models/daily_overview.py::untested_module",
+      "detector": "test_coverage",
+      "file": "src/aula/models/daily_overview.py",
+      "tier": 3,
+      "confidence": "high",
+      "summary": "Untested module (59 LOC, 1 importers)",
+      "detail": {
+        "kind": "untested_module",
+        "loc": 59,
+        "importer_count": 1,
+        "loc_weight": 7.681145747868608
+      },
+      "status": "fixed",
+      "note": null,
+      "first_seen": "2026-02-17T21:08:45+00:00",
+      "last_seen": "2026-02-17T21:26:49+00:00",
+      "resolved_at": "2026-02-17T21:28:22+00:00",
+      "reopen_count": 1,
+      "lang": "python",
+      "zone": "production"
+    },
+    "test_coverage::src/aula/auth/srp.py::untested_module": {
+      "id": "test_coverage::src/aula/auth/srp.py::untested_module",
+      "detector": "test_coverage",
+      "file": "src/aula/auth/srp.py",
+      "tier": 3,
+      "confidence": "high",
+      "summary": "Untested module (148 LOC, 1 importers)",
+      "detail": {
+        "kind": "untested_module",
+        "loc": 148,
+        "importer_count": 1,
+        "loc_weight": 12.165525060596439
+      },
+      "status": "wontfix",
+      "note": "Needs crypto test vectors",
+      "first_seen": "2026-02-17T21:08:45+00:00",
+      "last_seen": "2026-02-17T21:26:49+00:00",
+      "resolved_at": "2026-02-17T21:27:59+00:00",
+      "reopen_count": 1,
+      "lang": "python",
+      "zone": "production"
+    },
+    "test_coverage::src/aula/auth/browser_client.py::untested_module": {
+      "id": "test_coverage::src/aula/auth/browser_client.py::untested_module",
+      "detector": "test_coverage",
+      "file": "src/aula/auth/browser_client.py",
+      "tier": 3,
+      "confidence": "high",
+      "summary": "Untested module (417 LOC, 1 importers)",
+      "detail": {
+        "kind": "untested_module",
+        "loc": 417,
+        "importer_count": 1,
+        "loc_weight": 20.42057785666214
+      },
+      "status": "wontfix",
+      "note": "MitID external service",
+      "first_seen": "2026-02-17T21:08:45+00:00",
+      "last_seen": "2026-02-17T21:26:49+00:00",
+      "resolved_at": "2026-02-17T21:27:58+00:00",
+      "reopen_count": 1,
+      "lang": "python",
+      "zone": "production"
+    },
+    "test_coverage::src/aula/http_httpx.py::untested_module": {
+      "id": "test_coverage::src/aula/http_httpx.py::untested_module",
+      "detector": "test_coverage",
+      "file": "src/aula/http_httpx.py",
+      "tier": 3,
+      "confidence": "high",
+      "summary": "Untested module (53 LOC, 2 importers)",
+      "detail": {
+        "kind": "untested_module",
+        "loc": 53,
+        "importer_count": 2,
+        "loc_weight": 7.280109889280518
+      },
+      "status": "wontfix",
+      "note": "httpx transport needs mocking infra",
+      "first_seen": "2026-02-17T21:08:45+00:00",
+      "last_seen": "2026-02-17T21:26:49+00:00",
+      "resolved_at": "2026-02-17T21:28:00+00:00",
+      "reopen_count": 1,
+      "lang": "python",
+      "zone": "production"
+    },
+    "test_coverage::src/aula/models/institution_profile.py::untested_module": {
+      "id": "test_coverage::src/aula/models/institution_profile.py::untested_module",
+      "detector": "test_coverage",
+      "file": "src/aula/models/institution_profile.py",
+      "tier": 3,
+      "confidence": "high",
+      "summary": "Untested module (36 LOC, 1 importers)",
+      "detail": {
+        "kind": "untested_module",
+        "loc": 36,
+        "importer_count": 1,
+        "loc_weight": 6.0
+      },
+      "status": "fixed",
+      "note": null,
+      "first_seen": "2026-02-17T21:08:45+00:00",
+      "last_seen": "2026-02-17T21:26:49+00:00",
+      "resolved_at": "2026-02-17T21:28:23+00:00",
+      "reopen_count": 1,
+      "lang": "python",
+      "zone": "production"
+    },
+    "test_coverage::src/aula/models/post.py::untested_module": {
+      "id": "test_coverage::src/aula/models/post.py::untested_module",
+      "detector": "test_coverage",
+      "file": "src/aula/models/post.py",
+      "tier": 3,
+      "confidence": "high",
+      "summary": "Untested module (83 LOC, 1 importers)",
+      "detail": {
+        "kind": "untested_module",
+        "loc": 83,
+        "importer_count": 1,
+        "loc_weight": 9.1104335791443
+      },
+      "status": "fixed",
+      "note": null,
+      "first_seen": "2026-02-17T21:08:45+00:00",
+      "last_seen": "2026-02-17T21:26:49+00:00",
+      "resolved_at": "2026-02-17T21:28:25+00:00",
+      "reopen_count": 1,
+      "lang": "python",
+      "zone": "production"
+    },
+    "test_coverage::src/aula/models/profile_reference.py::untested_module": {
+      "id": "test_coverage::src/aula/models/profile_reference.py::untested_module",
+      "detector": "test_coverage",
+      "file": "src/aula/models/profile_reference.py",
+      "tier": 3,
+      "confidence": "high",
+      "summary": "Untested module (35 LOC, 1 importers)",
+      "detail": {
+        "kind": "untested_module",
+        "loc": 35,
+        "importer_count": 1,
+        "loc_weight": 5.916079783099616
+      },
+      "status": "fixed",
+      "note": null,
+      "first_seen": "2026-02-17T21:08:45+00:00",
+      "last_seen": "2026-02-17T21:26:49+00:00",
+      "resolved_at": "2026-02-17T21:28:59+00:00",
+      "reopen_count": 1,
+      "lang": "python",
+      "zone": "production"
+    },
+    "test_coverage::src/aula/auth_flow.py::untested_module": {
+      "id": "test_coverage::src/aula/auth_flow.py::untested_module",
+      "detector": "test_coverage",
+      "file": "src/aula/auth_flow.py",
+      "tier": 3,
+      "confidence": "high",
+      "summary": "Untested module (99 LOC, 1 importers)",
+      "detail": {
+        "kind": "untested_module",
+        "loc": 99,
+        "importer_count": 1,
+        "loc_weight": 9.9498743710662
+      },
+      "status": "wontfix",
+      "note": "Auth orchestrator needs integration tests",
+      "first_seen": "2026-02-17T21:08:45+00:00",
+      "last_seen": "2026-02-17T21:26:49+00:00",
+      "resolved_at": "2026-02-17T21:27:59+00:00",
+      "reopen_count": 1,
+      "lang": "python",
+      "zone": "production"
+    },
+    "test_coverage::src/aula/models/library.py::untested_module": {
+      "id": "test_coverage::src/aula/models/library.py::untested_module",
+      "detector": "test_coverage",
+      "file": "src/aula/models/library.py",
+      "tier": 3,
+      "confidence": "high",
+      "summary": "Untested module (48 LOC, 1 importers)",
+      "detail": {
+        "kind": "untested_module",
+        "loc": 48,
+        "importer_count": 1,
+        "loc_weight": 6.928203230275509
+      },
+      "status": "fixed",
+      "note": null,
+      "first_seen": "2026-02-17T21:08:45+00:00",
+      "last_seen": "2026-02-17T21:26:49+00:00",
+      "resolved_at": "2026-02-17T21:28:23+00:00",
+      "reopen_count": 1,
+      "lang": "python",
+      "zone": "production"
+    },
+    "test_coverage::src/aula/models/presence.py::untested_module": {
+      "id": "test_coverage::src/aula/models/presence.py::untested_module",
+      "detector": "test_coverage",
+      "file": "src/aula/models/presence.py",
+      "tier": 3,
+      "confidence": "high",
+      "summary": "Untested module (23 LOC, 1 importers)",
+      "detail": {
+        "kind": "untested_module",
+        "loc": 23,
+        "importer_count": 1,
+        "loc_weight": 4.795831523312719
+      },
+      "status": "fixed",
+      "note": null,
+      "first_seen": "2026-02-17T21:08:45+00:00",
+      "last_seen": "2026-02-17T21:26:49+00:00",
+      "resolved_at": "2026-02-17T21:28:25+00:00",
+      "reopen_count": 1,
+      "lang": "python",
+      "zone": "production"
+    },
+    "test_coverage::src/aula/auth/_utils.py::untested_module": {
+      "id": "test_coverage::src/aula/auth/_utils.py::untested_module",
+      "detector": "test_coverage",
+      "file": "src/aula/auth/_utils.py",
+      "tier": 3,
+      "confidence": "high",
+      "summary": "Untested module (18 LOC, 2 importers)",
+      "detail": {
+        "kind": "untested_module",
+        "loc": 18,
+        "importer_count": 2,
+        "loc_weight": 4.242640687119285
+      },
+      "status": "fixed",
+      "note": null,
+      "first_seen": "2026-02-17T21:08:45+00:00",
+      "last_seen": "2026-02-17T21:26:49+00:00",
+      "resolved_at": "2026-02-17T21:27:58+00:00",
+      "reopen_count": 1,
+      "lang": "python",
+      "zone": "production"
+    },
+    "test_coverage::src/aula/auth/mitid_client.py::untested_module": {
+      "id": "test_coverage::src/aula/auth/mitid_client.py::untested_module",
+      "detector": "test_coverage",
+      "file": "src/aula/auth/mitid_client.py",
+      "tier": 3,
+      "confidence": "high",
+      "summary": "Untested module (629 LOC, 1 importers)",
+      "detail": {
+        "kind": "untested_module",
+        "loc": 629,
+        "importer_count": 1,
+        "loc_weight": 25.079872407968907
+      },
+      "status": "wontfix",
+      "note": "OAuth/SAML external flow",
+      "first_seen": "2026-02-17T21:08:45+00:00",
+      "last_seen": "2026-02-17T21:26:49+00:00",
+      "resolved_at": "2026-02-17T21:27:58+00:00",
+      "reopen_count": 1,
+      "lang": "python",
+      "zone": "production"
+    },
+    "test_coverage::src/aula/utils/table.py::untested_module": {
+      "id": "test_coverage::src/aula/utils/table.py::untested_module",
+      "detector": "test_coverage",
+      "file": "src/aula/utils/table.py",
+      "tier": 3,
+      "confidence": "high",
+      "summary": "Untested module (78 LOC, 1 importers)",
+      "detail": {
+        "kind": "untested_module",
+        "loc": 78,
+        "importer_count": 1,
+        "loc_weight": 8.831760866327848
+      },
+      "status": "wontfix",
+      "note": "Table rendering depends on optional rich library",
+      "first_seen": "2026-02-17T21:08:45+00:00",
+      "last_seen": "2026-02-17T21:26:49+00:00",
+      "resolved_at": "2026-02-17T21:28:59+00:00",
+      "reopen_count": 1,
+      "lang": "python",
+      "zone": "production"
+    },
+    "test_coverage::src/aula/models/base.py::untested_critical": {
+      "id": "test_coverage::src/aula/models/base.py::untested_critical",
+      "detector": "test_coverage",
+      "file": "src/aula/models/base.py",
+      "tier": 2,
+      "confidence": "high",
+      "summary": "Untested critical module (21 LOC, 15 importers) \u2014 high blast radius",
+      "detail": {
+        "kind": "untested_critical",
+        "loc": 21,
+        "importer_count": 15,
+        "loc_weight": 4.58257569495584
+      },
+      "status": "fixed",
+      "note": null,
+      "first_seen": "2026-02-17T21:08:45+00:00",
+      "last_seen": "2026-02-17T21:26:49+00:00",
+      "resolved_at": "2026-02-17T21:27:57+00:00",
+      "reopen_count": 1,
+      "lang": "python",
+      "zone": "production"
+    },
+    "smells::src/aula/token_storage.py::broad_except": {
+      "id": "smells::src/aula/token_storage.py::broad_except",
+      "detector": "smells",
+      "file": "src/aula/token_storage.py",
+      "tier": 3,
+      "confidence": "medium",
+      "summary": "1x Broad except \u2014 check library exceptions before narrowing",
+      "detail": {
+        "smell_id": "broad_except",
+        "severity": "medium",
+        "count": 1,
+        "lines": [
+          69
+        ]
+      },
+      "status": "fixed",
+      "note": null,
+      "first_seen": "2026-02-17T21:08:45+00:00",
+      "last_seen": "2026-02-17T21:08:45+00:00",
+      "resolved_at": "2026-02-17T21:09:28+00:00",
+      "reopen_count": 0,
+      "lang": "python",
+      "zone": "production"
+    },
+    "smells::tests/test_models.py::hardcoded_url": {
+      "id": "smells::tests/test_models.py::hardcoded_url",
+      "detector": "smells",
+      "file": "tests/test_models.py",
+      "tier": 3,
+      "confidence": "low",
+      "summary": "2x Hardcoded URL in source code",
+      "detail": {
+        "smell_id": "hardcoded_url",
+        "severity": "medium",
+        "count": 2,
+        "lines": [
+          14,
+          21
+        ]
+      },
+      "status": "false_positive",
+      "note": null,
+      "first_seen": "2026-02-17T21:08:45+00:00",
+      "last_seen": "2026-02-17T21:26:49+00:00",
+      "resolved_at": "2026-02-17T21:09:40+00:00",
+      "reopen_count": 0,
+      "lang": "python",
+      "zone": "test"
+    },
+    "smells::tests/test_config.py::unsafe_file_write": {
+      "id": "smells::tests/test_config.py::unsafe_file_write",
+      "detector": "smells",
+      "file": "tests/test_config.py",
+      "tier": 3,
+      "confidence": "low",
+      "summary": "2x Non-atomic file write (use temp+rename for safety)",
+      "detail": {
+        "smell_id": "unsafe_file_write",
+        "severity": "medium",
+        "count": 2,
+        "lines": [
+          20,
+          30
+        ]
+      },
+      "status": "false_positive",
+      "note": null,
+      "first_seen": "2026-02-17T21:08:45+00:00",
+      "last_seen": "2026-02-17T21:26:49+00:00",
+      "resolved_at": "2026-02-17T21:09:39+00:00",
+      "reopen_count": 0,
+      "lang": "python",
+      "zone": "test"
+    },
+    "smells::tests/test_token_storage.py::unsafe_file_write": {
+      "id": "smells::tests/test_token_storage.py::unsafe_file_write",
+      "detector": "smells",
+      "file": "tests/test_token_storage.py",
+      "tier": 3,
+      "confidence": "low",
+      "summary": "2x Non-atomic file write (use temp+rename for safety)",
+      "detail": {
+        "smell_id": "unsafe_file_write",
+        "severity": "medium",
+        "count": 2,
+        "lines": [
+          41,
+          49
+        ]
+      },
+      "status": "false_positive",
+      "note": null,
+      "first_seen": "2026-02-17T21:08:45+00:00",
+      "last_seen": "2026-02-17T21:26:49+00:00",
+      "resolved_at": "2026-02-17T21:09:39+00:00",
+      "reopen_count": 0,
+      "lang": "python",
+      "zone": "test"
+    },
+    "smells::tests/test_models_base.py::inline_class": {
+      "id": "smells::tests/test_models_base.py::inline_class",
+      "detector": "smells",
+      "file": "tests/test_models_base.py",
+      "tier": 3,
+      "confidence": "low",
+      "summary": "1x Class defined inside a function",
+      "detail": {
+        "smell_id": "inline_class",
+        "severity": "medium",
+        "count": 1,
+        "lines": [
+          50
+        ]
+      },
+      "status": "false_positive",
+      "note": null,
+      "first_seen": "2026-02-17T21:08:45+00:00",
+      "last_seen": "2026-02-17T21:26:49+00:00",
+      "resolved_at": "2026-02-17T21:09:40+00:00",
+      "reopen_count": 0,
+      "lang": "python",
+      "zone": "test"
+    },
+    "review::src/aula/cli.py::logic_clarity::mu_tasks, mu_ugeplan, library_status::302c0637": {
+      "id": "review::src/aula/cli.py::logic_clarity::mu_tasks, mu_ugeplan, library_status::302c0637",
+      "detector": "review",
+      "file": "src/aula/cli.py",
+      "tier": 3,
+      "confidence": "high",
+      "summary": "Duplicated child/institution filter extraction logic across three CLI commands",
+      "detail": {
+        "dimension": "logic_clarity",
+        "evidence": [
+          "The same block extracting child_filter from prof.children._raw['userId'] and institution_filter from institutionCode appears identically in mu_tasks (lines 490-504), mu_ugeplan (lines 572-586), and library_status (lines 643-657)"
+        ],
+        "suggestion": "Extract a helper like _get_widget_context(client, prof) -> tuple[list[str], list[str], str] that returns (child_filter, institution_filter, session_uuid) to DRY up the three commands.",
+        "reasoning": "This repeated block is ~15 lines copied verbatim three times. It combines profile traversal, raw dict access, and profile context fetching. Any bug fix or change to the extraction logic would need to be applied in three places, which is a maintenance risk.",
+        "evidence_lines": [
+          490,
+          572,
+          643
+        ]
+      },
+      "status": "fixed",
+      "note": "Extracted _get_widget_context() helper to DRY up three CLI commands",
+      "first_seen": "2026-02-17T21:18:41+00:00",
+      "last_seen": "2026-02-17T21:18:41+00:00",
+      "resolved_at": "2026-02-17T21:25:44+00:00",
+      "reopen_count": 0,
+      "lang": "python"
+    },
+    "review::src/aula/cli.py::contract_coherence::_get_client::249199d0": {
+      "id": "review::src/aula/cli.py::contract_coherence::_get_client::249199d0",
+      "detector": "review",
+      "file": "src/aula/cli.py",
+      "tier": 3,
+      "confidence": "high",
+      "summary": "_get_client has no return type annotation and returns an unannotated coroutine result",
+      "detail": {
+        "dimension": "contract_coherence",
+        "evidence": [
+          "async def _get_client(ctx: click.Context): has no -> return type annotation. The returned object is used as an async context manager everywhere but the type is invisible to readers and type checkers."
+        ],
+        "suggestion": "Add a return type annotation: async def _get_client(ctx: click.Context) -> AulaApiClient: and import AulaApiClient.",
+        "reasoning": "Every CLI command uses _get_client and depends on knowing it returns an AulaApiClient. The missing annotation breaks the type chain from CLI to API client, which matters because AulaApiClient is the central interface.",
+        "evidence_lines": [
+          148,
+          152
+        ]
+      },
+      "status": "fixed",
+      "note": "Added -> AulaApiClient return type annotation",
+      "first_seen": "2026-02-17T21:18:41+00:00",
+      "last_seen": "2026-02-17T21:18:41+00:00",
+      "resolved_at": "2026-02-17T21:25:43+00:00",
+      "reopen_count": 0,
+      "lang": "python"
+    },
+    "review::src/aula/api_client.py::error_consistency::get_daily_overview vs get_message_threads::cbb86334": {
+      "id": "review::src/aula/api_client.py::error_consistency::get_daily_overview vs get_message_threads::cbb86334",
+      "detector": "review",
+      "file": "src/aula/api_client.py",
+      "tier": 3,
+      "confidence": "high",
+      "summary": "Mixed error conventions: some methods return None on failure, others raise on the same conditions",
+      "detail": {
+        "dimension": "error_consistency",
+        "evidence": [
+          "get_daily_overview returns None on non-200 status (line 182-187), while get_message_threads calls raise_for_status() and lets exceptions propagate (line 199). get_posts also raises. This inconsistency forces callers to handle two different error patterns."
+        ],
+        "suggestion": "Choose one convention: either all endpoint methods raise on HTTP errors (preferred for an API client) or all return Optional. Document the chosen convention in the class docstring.",
+        "reasoning": "Callers in cli.py already handle both patterns inconsistently. Some wrap in try/except, some check for None. A uniform error strategy would simplify all call sites.",
+        "evidence_lines": [
+          172,
+          194
+        ]
+      },
+      "status": "fixed",
+      "note": "Unified to raise_for_status() pattern like other endpoints",
+      "first_seen": "2026-02-17T21:18:41+00:00",
+      "last_seen": "2026-02-17T21:18:41+00:00",
+      "resolved_at": "2026-02-17T21:25:13+00:00",
+      "reopen_count": 0,
+      "lang": "python"
+    },
+    "review::src/aula/api_client.py::type_safety::_request_with_version_retry::ab30f372": {
+      "id": "review::src/aula/api_client.py::type_safety::_request_with_version_retry::ab30f372",
+      "detector": "review",
+      "file": "src/aula/api_client.py",
+      "tier": 3,
+      "confidence": "high",
+      "summary": "params typed as dict but mutated with string assignment when it could be a list[tuple]",
+      "detail": {
+        "dimension": "type_safety",
+        "evidence": [
+          "params is typed as dict | list[tuple[str, str]] | None, but line 81 does params['access_token'] = self._access_token which would fail at runtime if params is a list[tuple]. get_mu_tasks (line 371) passes params as list[tuple[str, str]]."
+        ],
+        "suggestion": "Convert the access_token injection to handle both types: if isinstance(params, list), append a tuple; if dict, set the key. Or normalize params to always be a dict before this point.",
+        "reasoning": "This is a latent bug: any caller passing params as list[tuple] to an Aula API URL will hit a TypeError at runtime on the dict assignment. Currently get_mu_tasks avoids it because MIN_UDDANNELSE_API doesn't start with API_URL, but the contract is fragile.",
+        "evidence_lines": [
+          71,
+          81
+        ]
+      },
+      "status": "fixed",
+      "note": "Added isinstance check to convert list params to dict before key assignment",
+      "first_seen": "2026-02-17T21:18:41+00:00",
+      "last_seen": "2026-02-17T21:18:41+00:00",
+      "resolved_at": "2026-02-17T21:25:18+00:00",
+      "reopen_count": 0,
+      "lang": "python"
+    },
+    "review::src/aula/auth/mitid_client.py::ai_generated_debt::authenticate::f348bb7c": {
+      "id": "review::src/aula/auth/mitid_client.py::ai_generated_debt::authenticate::f348bb7c",
+      "detector": "review",
+      "file": "src/aula/auth/mitid_client.py",
+      "tier": 3,
+      "confidence": "medium",
+      "summary": "Decorative logging with banner separators adds noise without diagnostic value",
+      "detail": {
+        "dimension": "ai_generated_debt",
+        "evidence": [
+          "_LOGGER.info('=' * 60) repeated as a visual banner before and after authentication. This is a hallmark of AI-generated code that prioritizes visual appearance in logs over structured, searchable log entries."
+        ],
+        "suggestion": "Replace the banner-style logging with single structured log lines: _LOGGER.info('Authentication flow started') and _LOGGER.info('Authentication flow completed'). The visual separators belong in CLI output (click.echo), not in library logging.",
+        "reasoning": "Library code should emit clean, grep-friendly log lines. Banner separators with '=' * 60 are presentation concerns that belong at the CLI layer, not in reusable auth logic.",
+        "evidence_lines": [
+          127,
+          128,
+          129,
+          142,
+          143,
+          144
+        ]
+      },
+      "status": "fixed",
+      "note": "Replaced banner logging with clean single-line log messages",
+      "first_seen": "2026-02-17T21:18:41+00:00",
+      "last_seen": "2026-02-17T21:18:41+00:00",
+      "resolved_at": "2026-02-17T21:25:44+00:00",
+      "reopen_count": 0,
+      "lang": "python"
+    },
+    "review::src/aula/cli.py::contract_coherence::messages command::94e835ff": {
+      "id": "review::src/aula/cli.py::contract_coherence::messages command::94e835ff",
+      "detector": "review",
+      "file": "src/aula/cli.py",
+      "tier": 3,
+      "confidence": "high",
+      "summary": "CLI messages command reaches into _raw dict for participants and sender, bypassing the model layer",
+      "detail": {
+        "dimension": "contract_coherence",
+        "evidence": [
+          "thread._raw['participants'] and msg._raw['sender']['fullName'] are accessed directly rather than through model properties. The MessageThread and Message models don't expose these fields, so the CLI has to break encapsulation."
+        ],
+        "suggestion": "Add 'participants' and 'last_updated' fields to MessageThread, and 'sender_name' and 'send_datetime' to Message. This keeps raw dict access inside from_dict() where it belongs.",
+        "reasoning": "The _raw field is documented as being for debugging/extensibility, but here it's used as the primary data access path. This couples the CLI directly to the API JSON structure, defeating the purpose of having model classes.",
+        "evidence_lines": [
+          300,
+          301,
+          324,
+          325
+        ]
+      },
+      "status": "auto_resolved",
+      "note": "Fixed despite wontfix \u2014 disappeared from scan (was wontfix)",
+      "first_seen": "2026-02-17T21:18:41+00:00",
+      "last_seen": "2026-02-17T21:18:41+00:00",
+      "resolved_at": "2026-02-17T21:26:49+00:00",
+      "reopen_count": 0,
+      "lang": "python"
+    },
+    "review::src/aula/auth/browser_client.py::logic_clarity::_poll_for_app_confirmation::174a7625": {
+      "id": "review::src/aula/auth/browser_client.py::logic_clarity::_poll_for_app_confirmation::174a7625",
+      "detector": "review",
+      "file": "src/aula/auth/browser_client.py",
+      "tier": 3,
+      "confidence": "high",
+      "summary": "Confusing double-negation condition in poll success check",
+      "detail": {
+        "dimension": "logic_clarity",
+        "evidence": [
+          "Line 223: 'if not r.is_success or (data[\"status\"] == \"OK\" and data[\"confirmation\"] is True)' followed by line 224: 'if not r.is_success or data[\"status\"] != \"OK\"'. The first condition enters the block on either failure OR success, then the inner check re-tests failure. This is logically equivalent to a simpler structure."
+        ],
+        "suggestion": "Restructure as: if not r.is_success: raise MitIDError(...); if data['status'] == 'OK' and data['confirmation'] is True: return ...; Then handle individual statuses below.",
+        "reasoning": "The nested negation makes it hard to verify correctness. A reader has to mentally trace four boolean combinations to confirm the logic is right. The flat if/elif structure would be immediately obvious.",
+        "evidence_lines": [
+          223,
+          224
+        ]
+      },
+      "status": "fixed",
+      "note": "Restructured to flat if/elif - check failure first then success",
+      "first_seen": "2026-02-17T21:18:41+00:00",
+      "last_seen": "2026-02-17T21:18:41+00:00",
+      "resolved_at": "2026-02-17T21:25:22+00:00",
+      "reopen_count": 0,
+      "lang": "python"
+    },
+    "review::src/aula/auth/browser_client.py::type_safety::_compute_flow_value_proof::661b64c2": {
+      "id": "review::src/aula/auth/browser_client.py::type_safety::_compute_flow_value_proof::661b64c2",
+      "detector": "review",
+      "file": "src/aula/auth/browser_client.py",
+      "tier": 3,
+      "confidence": "high",
+      "summary": "Seven bare assert statements used for runtime type narrowing instead of proper guards",
+      "detail": {
+        "dimension": "type_safety",
+        "evidence": [
+          "Lines 359-365 use 'assert self._authenticator_session_id is not None' etc. for seven fields. Asserts are stripped when Python runs with -O, silently turning these into no-ops and allowing None to propagate."
+        ],
+        "suggestion": "Replace with explicit checks: if self._authenticator_session_id is None: raise MitIDError('authenticator_session_id not set - complete authentication step first'). This is consistent with the MitIDError pattern used elsewhere in the module.",
+        "reasoning": "The auth module runs security-sensitive code where silent failures are dangerous. Using assert for runtime state validation is an anti-pattern because it can be disabled, unlike proper exception guards.",
+        "evidence_lines": [
+          359,
+          360,
+          361,
+          362,
+          363,
+          364,
+          365
+        ]
+      },
+      "status": "fixed",
+      "note": "Replaced 7 assert statements with explicit MitIDError guard checking all required fields",
+      "first_seen": "2026-02-17T21:18:41+00:00",
+      "last_seen": "2026-02-17T21:18:41+00:00",
+      "resolved_at": "2026-02-17T21:25:27+00:00",
+      "reopen_count": 0,
+      "lang": "python"
+    },
+    "review::src/aula/api_client.py::naming_quality::_find_participant_by_role::4c5c8230": {
+      "id": "review::src/aula/api_client.py::naming_quality::_find_participant_by_role::4c5c8230",
+      "detector": "review",
+      "file": "src/aula/api_client.py",
+      "tier": 3,
+      "confidence": "medium",
+      "summary": "Missing return type annotation; returns dict but could return empty dict silently",
+      "detail": {
+        "dimension": "naming_quality",
+        "evidence": [
+          "def _find_participant_by_role(self, lesson: dict, role: str) has no return type. It returns {} as default from next(), making the caller do teacher.get('teacherName', '') without knowing the type."
+        ],
+        "suggestion": "Add return type -> dict[str, Any] and consider returning None instead of {} to make the absence of a participant explicit, or define a small dataclass/TypedDict for participant data.",
+        "reasoning": "Returning an empty dict as a sentinel is a subtle contract that callers must know about. The method name suggests it finds a participant but silently returns nothing, leading to empty strings propagating through CalendarEvent fields.",
+        "evidence_lines": [
+          503,
+          506
+        ]
+      },
+      "status": "fixed",
+      "note": "Added dict[str, Any] return type annotation",
+      "first_seen": "2026-02-17T21:18:41+00:00",
+      "last_seen": "2026-02-17T21:18:41+00:00",
+      "resolved_at": "2026-02-17T21:25:44+00:00",
+      "reopen_count": 0,
+      "lang": "python"
+    },
+    "review::src/aula/token_storage.py::abstraction_fitness::FileTokenStorage.load, FileTokenStorage.save::e43cddde": {
+      "id": "review::src/aula/token_storage.py::abstraction_fitness::FileTokenStorage.load, FileTokenStorage.save::e43cddde",
+      "detector": "review",
+      "file": "src/aula/token_storage.py",
+      "tier": 3,
+      "confidence": "low",
+      "summary": "Async methods that perform only synchronous I/O; no await in either method body",
+      "detail": {
+        "dimension": "abstraction_fitness",
+        "evidence": [
+          "load() uses self._path.read_text() (sync) and save() uses os.fdopen/os.replace (sync). Neither method contains an await expression despite being declared async def."
+        ],
+        "suggestion": "This is acceptable if the ABC contract requires async for future backends (e.g., aiohttp token store), but add a brief comment in the ABC explaining why async is required even for sync implementations. Alternatively, use anyio.Path or aiofiles for truly async file I/O.",
+        "reasoning": "Async-without-await is flagged as a code smell. Here it's justified by the protocol design (TokenStorage ABC), but without a comment explaining this, readers may wonder if it's an oversight.",
+        "evidence_lines": [
+          41,
+          58
+        ]
+      },
+      "status": "fixed",
+      "note": "Added docstring to ABC explaining async contract for future backends",
+      "first_seen": "2026-02-17T21:18:41+00:00",
+      "last_seen": "2026-02-17T21:18:41+00:00",
+      "resolved_at": "2026-02-17T21:25:45+00:00",
+      "reopen_count": 0,
+      "lang": "python"
+    },
+    "smells::tests/test_models_extended.py::hardcoded_url": {
+      "id": "smells::tests/test_models_extended.py::hardcoded_url",
+      "detector": "smells",
+      "file": "tests/test_models_extended.py",
+      "tier": 3,
+      "confidence": "low",
+      "summary": "2x Hardcoded URL in source code",
+      "detail": {
+        "smell_id": "hardcoded_url",
+        "severity": "medium",
+        "count": 2,
+        "lines": [
+          30,
+          31
+        ]
+      },
+      "status": "false_positive",
+      "note": null,
+      "first_seen": "2026-02-17T21:26:48+00:00",
+      "last_seen": "2026-02-17T21:26:48+00:00",
+      "resolved_at": "2026-02-17T21:29:57+00:00",
+      "reopen_count": 0,
+      "lang": "python",
+      "zone": "test"
+    },
+    "smells::tests/test_models_extended.py::magic_number": {
+      "id": "smells::tests/test_models_extended.py::magic_number",
+      "detector": "smells",
+      "file": "tests/test_models_extended.py",
+      "tier": 3,
+      "confidence": "low",
+      "summary": "1x Magic numbers (>1000 in logic)",
+      "detail": {
+        "smell_id": "magic_number",
+        "severity": "low",
+        "count": 1,
+        "lines": [
+          118
+        ]
+      },
+      "status": "open",
+      "note": null,
+      "first_seen": "2026-02-17T21:26:48+00:00",
+      "last_seen": "2026-02-17T21:26:48+00:00",
+      "resolved_at": null,
+      "reopen_count": 0,
+      "lang": "python",
+      "zone": "test"
+    },
+    "subjective_review::src/aula/api_client.py::changed": {
+      "id": "subjective_review::src/aula/api_client.py::changed",
+      "detector": "subjective_review",
+      "file": "src/aula/api_client.py",
+      "tier": 4,
+      "confidence": "medium",
+      "summary": "File changed since last review \u2014 re-review recommended",
+      "detail": {
+        "reason": "changed",
+        "loc": 518
+      },
+      "status": "open",
+      "note": null,
+      "first_seen": "2026-02-17T21:26:48+00:00",
+      "last_seen": "2026-02-17T21:26:48+00:00",
+      "resolved_at": null,
+      "reopen_count": 0,
+      "lang": "python",
+      "zone": "production"
+    },
+    "subjective_review::src/aula/auth/browser_client.py::changed": {
+      "id": "subjective_review::src/aula/auth/browser_client.py::changed",
+      "detector": "subjective_review",
+      "file": "src/aula/auth/browser_client.py",
+      "tier": 4,
+      "confidence": "medium",
+      "summary": "File changed since last review \u2014 re-review recommended",
+      "detail": {
+        "reason": "changed",
+        "loc": 417
+      },
+      "status": "open",
+      "note": null,
+      "first_seen": "2026-02-17T21:26:48+00:00",
+      "last_seen": "2026-02-17T21:26:48+00:00",
+      "resolved_at": null,
+      "reopen_count": 0,
+      "lang": "python",
+      "zone": "production"
+    },
+    "subjective_review::src/aula/auth/mitid_client.py::changed": {
+      "id": "subjective_review::src/aula/auth/mitid_client.py::changed",
+      "detector": "subjective_review",
+      "file": "src/aula/auth/mitid_client.py",
+      "tier": 4,
+      "confidence": "medium",
+      "summary": "File changed since last review \u2014 re-review recommended",
+      "detail": {
+        "reason": "changed",
+        "loc": 629
+      },
+      "status": "open",
+      "note": null,
+      "first_seen": "2026-02-17T21:26:48+00:00",
+      "last_seen": "2026-02-17T21:26:48+00:00",
+      "resolved_at": null,
+      "reopen_count": 0,
+      "lang": "python",
+      "zone": "production"
+    },
+    "subjective_review::src/aula/cli.py::changed": {
+      "id": "subjective_review::src/aula/cli.py::changed",
+      "detector": "subjective_review",
+      "file": "src/aula/cli.py",
+      "tier": 4,
+      "confidence": "medium",
+      "summary": "File changed since last review \u2014 re-review recommended",
+      "detail": {
+        "reason": "changed",
+        "loc": 697
+      },
+      "status": "open",
+      "note": null,
+      "first_seen": "2026-02-17T21:26:48+00:00",
+      "last_seen": "2026-02-17T21:26:48+00:00",
+      "resolved_at": null,
+      "reopen_count": 0,
+      "lang": "python",
+      "zone": "production"
+    },
+    "subjective_review::src/aula/token_storage.py::changed": {
+      "id": "subjective_review::src/aula/token_storage.py::changed",
+      "detector": "subjective_review",
+      "file": "src/aula/token_storage.py",
+      "tier": 4,
+      "confidence": "medium",
+      "summary": "File changed since last review \u2014 re-review recommended",
+      "detail": {
+        "reason": "changed",
+        "loc": 76
+      },
+      "status": "open",
+      "note": null,
+      "first_seen": "2026-02-17T21:26:48+00:00",
+      "last_seen": "2026-02-17T21:26:48+00:00",
+      "resolved_at": null,
+      "reopen_count": 0,
+      "lang": "python",
+      "zone": "production"
+    }
+  },
+  "subjective_assessments": {
+    "naming_quality": {
+      "score": 78,
+      "source": "per_file",
+      "assessed_at": "2026-02-17T21:18:41+00:00"
+    },
+    "error_consistency": {
+      "score": 65,
+      "source": "per_file",
+      "assessed_at": "2026-02-17T21:18:41+00:00"
+    },
+    "abstraction_fitness": {
+      "score": 76,
+      "source": "per_file",
+      "assessed_at": "2026-02-17T21:18:41+00:00"
+    },
+    "logic_clarity": {
+      "score": 72,
+      "source": "per_file",
+      "assessed_at": "2026-02-17T21:18:41+00:00"
+    },
+    "ai_generated_debt": {
+      "score": 68,
+      "source": "per_file",
+      "assessed_at": "2026-02-17T21:18:41+00:00"
+    },
+    "type_safety": {
+      "score": 70,
+      "source": "per_file",
+      "assessed_at": "2026-02-17T21:18:41+00:00"
+    },
+    "contract_coherence": {
+      "score": 72,
+      "source": "per_file",
+      "assessed_at": "2026-02-17T21:18:41+00:00"
+    }
+  },
+  "lang_capabilities": {
+    "python": {
+      "fixers": [],
+      "typecheck_cmd": ""
+    }
+  },
+  "zone_distribution": {
+    "production": 35,
+    "script": 1,
+    "config": 1,
+    "test": 9
+  },
+  "tool_hash": "e4a884a7dce4",
+  "potentials": {
+    "python": {
+      "unused": 36,
+      "structural": 36,
+      "flat_dirs": 5,
+      "props": 0,
+      "single_use": 12,
+      "cycles": 36,
+      "orphaned": 36,
+      "facade": 36,
+      "test_coverage": 238,
+      "smells": 36,
+      "global_mutable_config": 36,
+      "security": 36,
+      "private_imports": 36,
+      "layer_violation": 46,
+      "dict_keys": 36,
+      "subjective_review": 25,
+      "dupes": 105
+    }
+  },
+  "codebase_metrics": {
+    "python": {
+      "total_files": 46,
+      "total_loc": 4043,
+      "total_directories": 5
+    }
+  },
+  "scan_completeness": {
+    "python": "full"
+  },
+  "scan_path": ".",
+  "ignore_integrity": {
+    "ignored": 0,
+    "raw_findings": 78,
+    "suppressed_pct": 0.0,
+    "ignore_patterns": 0,
+    "ignored_by_detector": {},
+    "ignored_by_tier": {},
+    "ignored_findings": [],
+    "updated_at": "2026-02-17T21:26:49+00:00"
+  },
+  "dimension_scores": {
+    "File health": {
+      "score": 100.0,
+      "strict": 92.2,
+      "checks": 36,
+      "issues": 0,
+      "tier": 3,
+      "detectors": {
+        "structural": {
+          "potential": 36,
+          "pass_rate": 1.0,
+          "issues": 0,
+          "weighted_failures": 0.0
+        }
+      }
+    },
+    "Code quality": {
+      "score": 100.0,
+      "strict": 98.5,
+      "checks": 315,
+      "issues": 0,
+      "tier": 3,
+      "detectors": {
+        "unused": {
+          "potential": 36,
+          "pass_rate": 1.0,
+          "issues": 0,
+          "weighted_failures": 0.0
+        },
+        "smells": {
+          "potential": 36,
+          "pass_rate": 1.0,
+          "issues": 0,
+          "weighted_failures": 0.0
+        },
+        "dict_keys": {
+          "potential": 36,
+          "pass_rate": 1.0,
+          "issues": 0,
+          "weighted_failures": 0.0
+        },
+        "global_mutable_config": {
+          "potential": 36,
+          "pass_rate": 1.0,
+          "issues": 0,
+          "weighted_failures": 0.0
+        },
+        "orphaned": {
+          "potential": 36,
+          "pass_rate": 1.0,
+          "issues": 0,
+          "weighted_failures": 0.0
+        },
+        "flat_dirs": {
+          "potential": 5,
+          "pass_rate": 1.0,
+          "issues": 0,
+          "weighted_failures": 0.0
+        },
+        "facade": {
+          "potential": 36,
+          "pass_rate": 1.0,
+          "issues": 0,
+          "weighted_failures": 0.0
+        },
+        "single_use": {
+          "potential": 12,
+          "pass_rate": 1.0,
+          "issues": 0,
+          "weighted_failures": 0.0
+        },
+        "private_imports": {
+          "potential": 36,
+          "pass_rate": 1.0,
+          "issues": 0,
+          "weighted_failures": 0.0
+        },
+        "layer_violation": {
+          "potential": 46,
+          "pass_rate": 1.0,
+          "issues": 0,
+          "weighted_failures": 0.0
+        }
+      }
+    },
+    "Duplication": {
+      "score": 100.0,
+      "strict": 100.0,
+      "checks": 105,
+      "issues": 0,
+      "tier": 3,
+      "detectors": {
+        "dupes": {
+          "potential": 105,
+          "pass_rate": 1.0,
+          "issues": 0,
+          "weighted_failures": 0.0
+        }
+      }
+    },
+    "Test health": {
+      "score": 96.3,
+      "strict": 45.7,
+      "checks": 263,
+      "issues": 26,
+      "tier": 4,
+      "detectors": {
+        "test_coverage": {
+          "potential": 238,
+          "pass_rate": 1.0,
+          "issues": 0,
+          "weighted_failures": 0.0
+        },
+        "subjective_review": {
+          "potential": 25,
+          "pass_rate": 0.6080000000000001,
+          "issues": 26,
+          "weighted_failures": 9.799999999999997
+        }
+      }
+    },
+    "Security": {
+      "score": 100.0,
+      "strict": 100.0,
+      "checks": 72,
+      "issues": 0,
+      "tier": 4,
+      "detectors": {
+        "security": {
+          "potential": 36,
+          "pass_rate": 1.0,
+          "issues": 0,
+          "weighted_failures": 0.0
+        },
+        "cycles": {
+          "potential": 36,
+          "pass_rate": 1.0,
+          "issues": 0,
+          "weighted_failures": 0.0
+        }
+      }
+    },
+    "Naming Quality": {
+      "score": 78.0,
+      "strict": 78.0,
+      "checks": 10,
+      "issues": 0,
+      "tier": 4,
+      "detectors": {
+        "subjective_assessment": {
+          "potential": 10,
+          "pass_rate": 0.78,
+          "issues": 0,
+          "weighted_failures": 2.2
+        }
+      }
+    },
+    "Error Consistency": {
+      "score": 65.0,
+      "strict": 65.0,
+      "checks": 10,
+      "issues": 0,
+      "tier": 4,
+      "detectors": {
+        "subjective_assessment": {
+          "potential": 10,
+          "pass_rate": 0.65,
+          "issues": 0,
+          "weighted_failures": 3.5
+        }
+      }
+    },
+    "Abstraction Fit": {
+      "score": 76.0,
+      "strict": 76.0,
+      "checks": 10,
+      "issues": 0,
+      "tier": 4,
+      "detectors": {
+        "subjective_assessment": {
+          "potential": 10,
+          "pass_rate": 0.76,
+          "issues": 0,
+          "weighted_failures": 2.4
+        }
+      }
+    },
+    "Logic Clarity": {
+      "score": 72.0,
+      "strict": 72.0,
+      "checks": 10,
+      "issues": 0,
+      "tier": 4,
+      "detectors": {
+        "subjective_assessment": {
+          "potential": 10,
+          "pass_rate": 0.72,
+          "issues": 0,
+          "weighted_failures": 2.8
+        }
+      }
+    },
+    "AI Generated Debt": {
+      "score": 68.0,
+      "strict": 68.0,
+      "checks": 10,
+      "issues": 0,
+      "tier": 4,
+      "detectors": {
+        "subjective_assessment": {
+          "potential": 10,
+          "pass_rate": 0.68,
+          "issues": 0,
+          "weighted_failures": 3.2
+        }
+      }
+    },
+    "Type Safety": {
+      "score": 70.0,
+      "strict": 70.0,
+      "checks": 10,
+      "issues": 0,
+      "tier": 4,
+      "detectors": {
+        "subjective_assessment": {
+          "potential": 10,
+          "pass_rate": 0.7,
+          "issues": 0,
+          "weighted_failures": 3.0
+        }
+      }
+    },
+    "Contract Coherence": {
+      "score": 72.0,
+      "strict": 72.0,
+      "checks": 10,
+      "issues": 0,
+      "tier": 4,
+      "detectors": {
+        "subjective_assessment": {
+          "potential": 10,
+          "pass_rate": 0.72,
+          "issues": 0,
+          "weighted_failures": 2.8
+        }
+      }
+    }
+  },
+  "score_integrity": {},
+  "scan_history": [
+    {
+      "timestamp": "2026-02-17T20:56:59+00:00",
+      "lang": "python",
+      "tool_hash": "e4a884a7dce4",
+      "strict_score": 47.2,
+      "objective_score": 62.9,
+      "overall_score": 47.2,
+      "open": 83,
+      "diff_new": 83,
+      "diff_resolved": 0,
+      "ignored": 0,
+      "ignored_by_detector": {},
+      "ignored_by_tier": {},
+      "raw_findings": 83,
+      "suppressed_pct": 0.0,
+      "ignore_patterns": 0,
+      "dimension_scores": {
+        "File health": {
+          "score": 92.2,
+          "strict": 92.2
+        },
+        "Code quality": {
+          "score": 96.0,
+          "strict": 96.0
+        },
+        "Duplication": {
+          "score": 100.0,
+          "strict": 100.0
+        },
+        "Test health": {
+          "score": 6.6,
+          "strict": 6.6
+        },
+        "Security": {
+          "score": 99.0,
+          "strict": 99.0
+        },
+        "Naming Quality": {
+          "score": 0.0,
+          "strict": 0.0
+        },
+        "Error Consistency": {
+          "score": 0.0,
+          "strict": 0.0
+        },
+        "Abstraction Fit": {
+          "score": 0.0,
+          "strict": 0.0
+        },
+        "Logic Clarity": {
+          "score": 0.0,
+          "strict": 0.0
+        },
+        "AI Generated Debt": {
+          "score": 0.0,
+          "strict": 0.0
+        },
+        "Type Safety": {
+          "score": 0.0,
+          "strict": 0.0
+        },
+        "Contract Coherence": {
+          "score": 0.0,
+          "strict": 0.0
+        }
+      }
+    },
+    {
+      "timestamp": "2026-02-17T21:08:46+00:00",
+      "lang": "python",
+      "tool_hash": "e4a884a7dce4",
+      "strict_score": 49.5,
+      "objective_score": 66.8,
+      "overall_score": 50.1,
+      "open": 54,
+      "diff_new": 27,
+      "diff_resolved": 24,
+      "ignored": 0,
+      "ignored_by_detector": {},
+      "ignored_by_tier": {},
+      "raw_findings": 77,
+      "suppressed_pct": 0.0,
+      "ignore_patterns": 0,
+      "dimension_scores": {
+        "File health": {
+          "score": 100.0,
+          "strict": 92.2
+        },
+        "Code quality": {
+          "score": 99.6,
+          "strict": 98.3
+        },
+        "Duplication": {
+          "score": 100.0,
+          "strict": 100.0
+        },
+        "Test health": {
+          "score": 12.9,
+          "strict": 12.9
+        },
+        "Security": {
+          "score": 100.0,
+          "strict": 100.0
+        },
+        "Naming Quality": {
+          "score": 0.0,
+          "strict": 0.0
+        },
+        "Error Consistency": {
+          "score": 0.0,
+          "strict": 0.0
+        },
+        "Abstraction Fit": {
+          "score": 0.0,
+          "strict": 0.0
+        },
+        "Logic Clarity": {
+          "score": 0.0,
+          "strict": 0.0
+        },
+        "AI Generated Debt": {
+          "score": 0.0,
+          "strict": 0.0
+        },
+        "Type Safety": {
+          "score": 0.0,
+          "strict": 0.0
+        },
+        "Contract Coherence": {
+          "score": 0.0,
+          "strict": 0.0
+        }
+      }
+    },
+    {
+      "timestamp": "2026-02-17T21:18:41+00:00",
+      "lang": "python",
+      "tool_hash": "e4a884a7dce4",
+      "strict_score": 92.0,
+      "objective_score": 98.9,
+      "overall_score": 92.0,
+      "open": 36,
+      "diff_new": 10,
+      "diff_resolved": 22,
+      "ignored": 0,
+      "ignored_by_detector": {},
+      "ignored_by_tier": {},
+      "raw_findings": 10,
+      "suppressed_pct": 0.0,
+      "ignore_patterns": 0,
+      "dimension_scores": {
+        "File health": {
+          "score": 100.0,
+          "strict": 100.0
+        },
+        "Code quality": {
+          "score": 100.0,
+          "strict": 100.0
+        },
+        "Duplication": {
+          "score": 100.0,
+          "strict": 100.0
+        },
+        "Test health": {
+          "score": 97.0,
+          "strict": 97.0
+        },
+        "Security": {
+          "score": 100.0,
+          "strict": 100.0
+        },
+        "Naming Quality": {
+          "score": 78.0,
+          "strict": 78.0
+        },
+        "Error Consistency": {
+          "score": 65.0,
+          "strict": 65.0
+        },
+        "Abstraction Fit": {
+          "score": 76.0,
+          "strict": 76.0
+        },
+        "Logic Clarity": {
+          "score": 72.0,
+          "strict": 72.0
+        },
+        "AI Generated Debt": {
+          "score": 68.0,
+          "strict": 68.0
+        },
+        "Type Safety": {
+          "score": 70.0,
+          "strict": 70.0
+        },
+        "Contract Coherence": {
+          "score": 72.0,
+          "strict": 72.0
+        }
+      }
+    },
+    {
+      "timestamp": "2026-02-17T21:26:49+00:00",
+      "lang": "python",
+      "tool_hash": "e4a884a7dce4",
+      "strict_score": 67.3,
+      "objective_score": 65.9,
+      "overall_score": 67.3,
+      "open": 64,
+      "diff_new": 7,
+      "diff_resolved": 6,
+      "ignored": 0,
+      "ignored_by_detector": {},
+      "ignored_by_tier": {},
+      "raw_findings": 78,
+      "suppressed_pct": 0.0,
+      "ignore_patterns": 0,
+      "dimension_scores": {
+        "File health": {
+          "score": 92.2,
+          "strict": 92.2
+        },
+        "Code quality": {
+          "score": 98.5,
+          "strict": 98.5
+        },
+        "Duplication": {
+          "score": 100.0,
+          "strict": 100.0
+        },
+        "Test health": {
+          "score": 12.2,
+          "strict": 12.2
+        },
+        "Security": {
+          "score": 100.0,
+          "strict": 100.0
+        },
+        "Naming Quality": {
+          "score": 78.0,
+          "strict": 78.0
+        },
+        "Error Consistency": {
+          "score": 65.0,
+          "strict": 65.0
+        },
+        "Abstraction Fit": {
+          "score": 76.0,
+          "strict": 76.0
+        },
+        "Logic Clarity": {
+          "score": 72.0,
+          "strict": 72.0
+        },
+        "AI Generated Debt": {
+          "score": 68.0,
+          "strict": 68.0
+        },
+        "Type Safety": {
+          "score": 70.0,
+          "strict": 70.0
+        },
+        "Contract Coherence": {
+          "score": 72.0,
+          "strict": 72.0
+        }
+      }
+    }
+  ],
+  "reminder_history": {
+    "report_scores": 3,
+    "zone_classification": 3,
+    "fp_calibration_smells_production": 2,
+    "feedback_nudge": 2,
+    "fp_calibration_smells_test": 1,
+    "stagnant_nudge": 1
+  },
+  "review_cache": {
+    "files": {
+      "src/aula/auth/browser_client.py": {
+        "content_hash": "b384a4c8defdaa4f",
+        "reviewed_at": "2026-02-17T21:18:41+00:00",
+        "finding_count": 2
+      },
+      "src/aula/cli.py": {
+        "content_hash": "c9a7d556fd526093",
+        "reviewed_at": "2026-02-17T21:18:41+00:00",
+        "finding_count": 3
+      },
+      "src/aula/api_client.py": {
+        "content_hash": "782d220bcc344ec0",
+        "reviewed_at": "2026-02-17T21:18:41+00:00",
+        "finding_count": 3
+      },
+      "src/aula/token_storage.py": {
+        "content_hash": "2061ba4aab490455",
+        "reviewed_at": "2026-02-17T21:18:41+00:00",
+        "finding_count": 1
+      },
+      "src/aula/auth/mitid_client.py": {
+        "content_hash": "57c17d4f4ec5c957",
+        "reviewed_at": "2026-02-17T21:18:41+00:00",
+        "finding_count": 1
+      }
+    }
+  }
+}

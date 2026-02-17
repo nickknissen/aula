@@ -1,0 +1,619 @@
+{
+  "command": "status",
+  "overall_score": 91.8,
+  "objective_score": 98.6,
+  "strict_score": 76.8,
+  "strict_all_detected": 76.8,
+  "dimension_scores": {
+    "File health": {
+      "score": 100.0,
+      "strict": 92.2,
+      "checks": 36,
+      "issues": 0,
+      "tier": 3,
+      "detectors": {
+        "structural": {
+          "potential": 36,
+          "pass_rate": 1.0,
+          "issues": 0,
+          "weighted_failures": 0.0
+        }
+      }
+    },
+    "Code quality": {
+      "score": 100.0,
+      "strict": 98.5,
+      "checks": 315,
+      "issues": 0,
+      "tier": 3,
+      "detectors": {
+        "unused": {
+          "potential": 36,
+          "pass_rate": 1.0,
+          "issues": 0,
+          "weighted_failures": 0.0
+        },
+        "smells": {
+          "potential": 36,
+          "pass_rate": 1.0,
+          "issues": 0,
+          "weighted_failures": 0.0
+        },
+        "dict_keys": {
+          "potential": 36,
+          "pass_rate": 1.0,
+          "issues": 0,
+          "weighted_failures": 0.0
+        },
+        "global_mutable_config": {
+          "potential": 36,
+          "pass_rate": 1.0,
+          "issues": 0,
+          "weighted_failures": 0.0
+        },
+        "orphaned": {
+          "potential": 36,
+          "pass_rate": 1.0,
+          "issues": 0,
+          "weighted_failures": 0.0
+        },
+        "flat_dirs": {
+          "potential": 5,
+          "pass_rate": 1.0,
+          "issues": 0,
+          "weighted_failures": 0.0
+        },
+        "facade": {
+          "potential": 36,
+          "pass_rate": 1.0,
+          "issues": 0,
+          "weighted_failures": 0.0
+        },
+        "single_use": {
+          "potential": 12,
+          "pass_rate": 1.0,
+          "issues": 0,
+          "weighted_failures": 0.0
+        },
+        "private_imports": {
+          "potential": 36,
+          "pass_rate": 1.0,
+          "issues": 0,
+          "weighted_failures": 0.0
+        },
+        "layer_violation": {
+          "potential": 46,
+          "pass_rate": 1.0,
+          "issues": 0,
+          "weighted_failures": 0.0
+        }
+      }
+    },
+    "Duplication": {
+      "score": 100.0,
+      "strict": 100.0,
+      "checks": 105,
+      "issues": 0,
+      "tier": 3,
+      "detectors": {
+        "dupes": {
+          "potential": 105,
+          "pass_rate": 1.0,
+          "issues": 0,
+          "weighted_failures": 0.0
+        }
+      }
+    },
+    "Test health": {
+      "score": 96.3,
+      "strict": 45.7,
+      "checks": 263,
+      "issues": 26,
+      "tier": 4,
+      "detectors": {
+        "test_coverage": {
+          "potential": 238,
+          "pass_rate": 1.0,
+          "issues": 0,
+          "weighted_failures": 0.0
+        },
+        "subjective_review": {
+          "potential": 25,
+          "pass_rate": 0.6080000000000001,
+          "issues": 26,
+          "weighted_failures": 9.799999999999997
+        }
+      }
+    },
+    "Security": {
+      "score": 100.0,
+      "strict": 100.0,
+      "checks": 72,
+      "issues": 0,
+      "tier": 4,
+      "detectors": {
+        "security": {
+          "potential": 36,
+          "pass_rate": 1.0,
+          "issues": 0,
+          "weighted_failures": 0.0
+        },
+        "cycles": {
+          "potential": 36,
+          "pass_rate": 1.0,
+          "issues": 0,
+          "weighted_failures": 0.0
+        }
+      }
+    },
+    "Naming Quality": {
+      "score": 78.0,
+      "strict": 78.0,
+      "checks": 10,
+      "issues": 0,
+      "tier": 4,
+      "detectors": {
+        "subjective_assessment": {
+          "potential": 10,
+          "pass_rate": 0.78,
+          "issues": 0,
+          "weighted_failures": 2.2
+        }
+      }
+    },
+    "Error Consistency": {
+      "score": 65.0,
+      "strict": 65.0,
+      "checks": 10,
+      "issues": 0,
+      "tier": 4,
+      "detectors": {
+        "subjective_assessment": {
+          "potential": 10,
+          "pass_rate": 0.65,
+          "issues": 0,
+          "weighted_failures": 3.5
+        }
+      }
+    },
+    "Abstraction Fit": {
+      "score": 76.0,
+      "strict": 76.0,
+      "checks": 10,
+      "issues": 0,
+      "tier": 4,
+      "detectors": {
+        "subjective_assessment": {
+          "potential": 10,
+          "pass_rate": 0.76,
+          "issues": 0,
+          "weighted_failures": 2.4
+        }
+      }
+    },
+    "Logic Clarity": {
+      "score": 72.0,
+      "strict": 72.0,
+      "checks": 10,
+      "issues": 0,
+      "tier": 4,
+      "detectors": {
+        "subjective_assessment": {
+          "potential": 10,
+          "pass_rate": 0.72,
+          "issues": 0,
+          "weighted_failures": 2.8
+        }
+      }
+    },
+    "AI Generated Debt": {
+      "score": 68.0,
+      "strict": 68.0,
+      "checks": 10,
+      "issues": 0,
+      "tier": 4,
+      "detectors": {
+        "subjective_assessment": {
+          "potential": 10,
+          "pass_rate": 0.68,
+          "issues": 0,
+          "weighted_failures": 3.2
+        }
+      }
+    },
+    "Type Safety": {
+      "score": 70.0,
+      "strict": 70.0,
+      "checks": 10,
+      "issues": 0,
+      "tier": 4,
+      "detectors": {
+        "subjective_assessment": {
+          "potential": 10,
+          "pass_rate": 0.7,
+          "issues": 0,
+          "weighted_failures": 3.0
+        }
+      }
+    },
+    "Contract Coherence": {
+      "score": 72.0,
+      "strict": 72.0,
+      "checks": 10,
+      "issues": 0,
+      "tier": 4,
+      "detectors": {
+        "subjective_assessment": {
+          "potential": 10,
+          "pass_rate": 0.72,
+          "issues": 0,
+          "weighted_failures": 2.8
+        }
+      }
+    }
+  },
+  "stats": {
+    "total": 127,
+    "open": 26,
+    "fixed": 33,
+    "auto_resolved": 30,
+    "wontfix": 22,
+    "false_positive": 16,
+    "by_tier": {
+      "2": {
+        "open": 0,
+        "fixed": 5,
+        "auto_resolved": 1,
+        "wontfix": 1,
+        "false_positive": 0
+      },
+      "3": {
+        "open": 0,
+        "fixed": 28,
+        "auto_resolved": 24,
+        "wontfix": 21,
+        "false_positive": 16
+      },
+      "4": {
+        "open": 26,
+        "fixed": 0,
+        "auto_resolved": 5,
+        "wontfix": 0,
+        "false_positive": 0
+      }
+    }
+  },
+  "scan_count": 4,
+  "last_scan": "2026-02-17T21:26:49+00:00",
+  "by_tier": {
+    "2": {
+      "open": 0,
+      "fixed": 5,
+      "auto_resolved": 1,
+      "wontfix": 1,
+      "false_positive": 0
+    },
+    "3": {
+      "open": 0,
+      "fixed": 28,
+      "auto_resolved": 24,
+      "wontfix": 21,
+      "false_positive": 16
+    },
+    "4": {
+      "open": 26,
+      "fixed": 0,
+      "auto_resolved": 5,
+      "wontfix": 0,
+      "false_positive": 0
+    }
+  },
+  "ignores": [],
+  "suppression": {
+    "last_ignored": 0,
+    "last_raw_findings": 78,
+    "last_suppressed_pct": 0.0,
+    "last_ignore_patterns": 0,
+    "recent_scans": 4,
+    "recent_ignored": 0,
+    "recent_raw_findings": 248,
+    "recent_suppressed_pct": 0.0
+  },
+  "detector_transparency": {
+    "rows": [
+      {
+        "detector": "subjective_review",
+        "visible": 26,
+        "suppressed": 0,
+        "excluded": 0,
+        "total_detected": 26
+      },
+      {
+        "detector": "smells",
+        "visible": 10,
+        "suppressed": 0,
+        "excluded": 0,
+        "total_detected": 10
+      },
+      {
+        "detector": "test_coverage",
+        "visible": 8,
+        "suppressed": 0,
+        "excluded": 0,
+        "total_detected": 8
+      },
+      {
+        "detector": "structural",
+        "visible": 4,
+        "suppressed": 0,
+        "excluded": 0,
+        "total_detected": 4
+      }
+    ],
+    "totals": {
+      "visible": 48,
+      "suppressed": 0,
+      "excluded": 0,
+      "detectors": 4
+    }
+  },
+  "potentials": {
+    "python": {
+      "unused": 36,
+      "structural": 36,
+      "flat_dirs": 5,
+      "props": 0,
+      "single_use": 12,
+      "cycles": 36,
+      "orphaned": 36,
+      "facade": 36,
+      "test_coverage": 238,
+      "smells": 36,
+      "global_mutable_config": 36,
+      "security": 36,
+      "private_imports": 36,
+      "layer_violation": 46,
+      "dict_keys": 36,
+      "subjective_review": 25,
+      "dupes": 105
+    }
+  },
+  "codebase_metrics": {
+    "python": {
+      "total_files": 46,
+      "total_loc": 4043,
+      "total_directories": 5
+    }
+  },
+  "strict_target": {
+    "target": 95.0,
+    "current": 76.8,
+    "gap": 18.2,
+    "state": "below",
+    "warning": null
+  },
+  "narrative": {
+    "phase": "regression",
+    "headline": "All T1 and T2 items cleared!",
+    "dimensions": {
+      "lowest_dimensions": [
+        {
+          "name": "Test health",
+          "strict": 45.7,
+          "issues": 26,
+          "impact": 0.0
+        },
+        {
+          "name": "Error Consistency",
+          "strict": 65.0,
+          "issues": 0,
+          "impact": 0.0,
+          "subjective": true,
+          "impact_description": "re-review to improve"
+        },
+        {
+          "name": "AI Generated Debt",
+          "strict": 68.0,
+          "issues": 0,
+          "impact": 0.0,
+          "subjective": true,
+          "impact_description": "re-review to improve"
+        }
+      ],
+      "biggest_gap_dimensions": [
+        {
+          "name": "Test health",
+          "lenient": 96.3,
+          "strict": 45.7,
+          "gap": 50.6,
+          "wontfix_count": 8
+        },
+        {
+          "name": "File health",
+          "lenient": 100.0,
+          "strict": 92.2,
+          "gap": 7.8,
+          "wontfix_count": 4
+        },
+        {
+          "name": "Code quality",
+          "lenient": 100.0,
+          "strict": 98.5,
+          "gap": 1.5,
+          "wontfix_count": 10
+        }
+      ],
+      "stagnant_dimensions": [
+        {
+          "name": "Duplication",
+          "strict": 100.0,
+          "stuck_scans": 4
+        }
+      ]
+    },
+    "actions": [
+      {
+        "priority": 1,
+        "type": "manual_fix",
+        "detector": "subjective_review",
+        "count": 26,
+        "description": "26 files need design review \u2014 run `desloppify review --prepare` to generate review context",
+        "command": "desloppify review --prepare",
+        "impact": 0.0,
+        "dimension": "Test health",
+        "lane": "refactor"
+      },
+      {
+        "priority": 2,
+        "type": "debt_review",
+        "detector": null,
+        "description": "5.1 pts of wontfix debt \u2014 review stale decisions",
+        "command": "desloppify show --status wontfix",
+        "gap": 5.1,
+        "lane": "debt_review"
+      }
+    ],
+    "strategy": {
+      "fixer_leverage": {
+        "auto_fixable_count": 0,
+        "total_count": 26,
+        "coverage": 0.0,
+        "impact_ratio": 0.0,
+        "recommendation": "none"
+      },
+      "lanes": {
+        "refactor": {
+          "actions": [
+            1
+          ],
+          "file_count": 26,
+          "total_impact": 0.0,
+          "automation": "manual",
+          "run_first": false
+        },
+        "debt_review": {
+          "actions": [
+            2
+          ],
+          "file_count": 0,
+          "total_impact": 0.0,
+          "automation": "manual",
+          "run_first": false
+        }
+      },
+      "can_parallelize": false,
+      "hint": "Work through actions in priority order. Rescan after each fix to track progress."
+    },
+    "tools": {
+      "fixers": [],
+      "move": {
+        "available": true,
+        "relevant": false,
+        "reason": null,
+        "usage": "desloppify move <source> <dest> [--dry-run]"
+      },
+      "plan": {
+        "command": "desloppify plan",
+        "description": "Generate prioritized markdown cleanup plan"
+      },
+      "badge": {
+        "generated": true,
+        "in_readme": false,
+        "path": "scorecard.png",
+        "recommendation": "Add to README: <img src=\"scorecard.png\" width=\"100%\">"
+      }
+    },
+    "debt": {
+      "overall_gap": 5.1,
+      "wontfix_count": 22,
+      "worst_dimension": "Test health",
+      "worst_gap": 50.6,
+      "trend": "stable"
+    },
+    "milestone": "All T1 and T2 items cleared!",
+    "primary_action": {
+      "priority": 1,
+      "type": "manual_fix",
+      "detector": "subjective_review",
+      "command": "desloppify review --prepare",
+      "description": "26 files need design review \u2014 run `desloppify review --prepare` to generate review context",
+      "impact": 0.0,
+      "lane": "refactor",
+      "count": 26
+    },
+    "why_now": "`subjective_review` is currently the highest-priority unresolved workstream.",
+    "verification_step": {
+      "command": "desloppify scan",
+      "reason": "Re-scan to verify the change and catch cascading findings before reporting progress.",
+      "success_signal": "Open findings drop and strict score direction remains positive."
+    },
+    "risk_flags": [
+      {
+        "type": "wontfix_gap",
+        "severity": "medium",
+        "message": "5.1 strict-score points are masked by wontfix debt (22 items).",
+        "command": "desloppify show --status wontfix"
+      }
+    ],
+    "strict_target": {
+      "target": 95.0,
+      "current": 76.8,
+      "gap": 18.2,
+      "state": "below",
+      "warning": null
+    },
+    "reminders": [
+      {
+        "type": "fp_calibration_smells_production",
+        "message": "38% of smells findings in production zone are false positives. Consider reviewing detection rules for production files.",
+        "command": null,
+        "severity": "medium",
+        "priority": 40,
+        "stage": "calibration"
+      },
+      {
+        "type": "fp_calibration_smells_test",
+        "message": "100% of smells findings in test zone are false positives. Consider reviewing detection rules for test files.",
+        "command": null,
+        "severity": "medium",
+        "priority": 40,
+        "stage": "calibration"
+      },
+      {
+        "type": "stagnant_nudge",
+        "message": "Duplication has been at 100.0% for 4 scans. The remaining items may be worth marking as wontfix if they're intentional.",
+        "command": null,
+        "severity": "info",
+        "priority": 45,
+        "stage": "strategy"
+      }
+    ],
+    "reminder_history": {
+      "report_scores": 3,
+      "zone_classification": 3,
+      "fp_calibration_smells_production": 3,
+      "feedback_nudge": 2,
+      "fp_calibration_smells_test": 2,
+      "stagnant_nudge": 2
+    }
+  },
+  "config": {
+    "review_max_age_days": 30,
+    "holistic_max_age_days": 30,
+    "generate_scorecard": true,
+    "badge_path": "scorecard.png",
+    "exclude": [],
+    "ignore": [],
+    "ignore_metadata": {},
+    "zone_overrides": {},
+    "review_dimensions": [],
+    "review_allow_custom_dimensions": false,
+    "review_custom_dimensions": [],
+    "large_files_threshold": 0,
+    "props_threshold": 0,
+    "finding_noise_budget": 10,
+    "finding_noise_global_budget": 0,
+    "target_strict_score": 95,
+    "languages": {}
+  }
+}

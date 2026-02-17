@@ -1,0 +1,143 @@
+{
+  "assessments": {
+    "naming_quality": 78,
+    "error_consistency": 65,
+    "abstraction_fitness": 76,
+    "logic_clarity": 72,
+    "ai_generated_debt": 68,
+    "type_safety": 70,
+    "contract_coherence": 72
+  },
+  "findings": [
+    {
+      "file": "src/aula/cli.py",
+      "dimension": "logic_clarity",
+      "identifier": "mu_tasks, mu_ugeplan, library_status",
+      "summary": "Duplicated child/institution filter extraction logic across three CLI commands",
+      "evidence_lines": [490, 572, 643],
+      "evidence": [
+        "The same block extracting child_filter from prof.children._raw['userId'] and institution_filter from institutionCode appears identically in mu_tasks (lines 490-504), mu_ugeplan (lines 572-586), and library_status (lines 643-657)"
+      ],
+      "suggestion": "Extract a helper like _get_widget_context(client, prof) -> tuple[list[str], list[str], str] that returns (child_filter, institution_filter, session_uuid) to DRY up the three commands.",
+      "reasoning": "This repeated block is ~15 lines copied verbatim three times. It combines profile traversal, raw dict access, and profile context fetching. Any bug fix or change to the extraction logic would need to be applied in three places, which is a maintenance risk.",
+      "confidence": "high"
+    },
+    {
+      "file": "src/aula/cli.py",
+      "dimension": "contract_coherence",
+      "identifier": "_get_client",
+      "summary": "_get_client has no return type annotation and returns an unannotated coroutine result",
+      "evidence_lines": [148, 152],
+      "evidence": [
+        "async def _get_client(ctx: click.Context): has no -> return type annotation. The returned object is used as an async context manager everywhere but the type is invisible to readers and type checkers."
+      ],
+      "suggestion": "Add a return type annotation: async def _get_client(ctx: click.Context) -> AulaApiClient: and import AulaApiClient.",
+      "reasoning": "Every CLI command uses _get_client and depends on knowing it returns an AulaApiClient. The missing annotation breaks the type chain from CLI to API client, which matters because AulaApiClient is the central interface.",
+      "confidence": "high"
+    },
+    {
+      "file": "src/aula/api_client.py",
+      "dimension": "error_consistency",
+      "identifier": "get_daily_overview vs get_message_threads",
+      "summary": "Mixed error conventions: some methods return None on failure, others raise on the same conditions",
+      "evidence_lines": [172, 194],
+      "evidence": [
+        "get_daily_overview returns None on non-200 status (line 182-187), while get_message_threads calls raise_for_status() and lets exceptions propagate (line 199). get_posts also raises. This inconsistency forces callers to handle two different error patterns."
+      ],
+      "suggestion": "Choose one convention: either all endpoint methods raise on HTTP errors (preferred for an API client) or all return Optional. Document the chosen convention in the class docstring.",
+      "reasoning": "Callers in cli.py already handle both patterns inconsistently. Some wrap in try/except, some check for None. A uniform error strategy would simplify all call sites.",
+      "confidence": "high"
+    },
+    {
+      "file": "src/aula/api_client.py",
+      "dimension": "type_safety",
+      "identifier": "_request_with_version_retry",
+      "summary": "params typed as dict but mutated with string assignment when it could be a list[tuple]",
+      "evidence_lines": [71, 81],
+      "evidence": [
+        "params is typed as dict | list[tuple[str, str]] | None, but line 81 does params['access_token'] = self._access_token which would fail at runtime if params is a list[tuple]. get_mu_tasks (line 371) passes params as list[tuple[str, str]]."
+      ],
+      "suggestion": "Convert the access_token injection to handle both types: if isinstance(params, list), append a tuple; if dict, set the key. Or normalize params to always be a dict before this point.",
+      "reasoning": "This is a latent bug: any caller passing params as list[tuple] to an Aula API URL will hit a TypeError at runtime on the dict assignment. Currently get_mu_tasks avoids it because MIN_UDDANNELSE_API doesn't start with API_URL, but the contract is fragile.",
+      "confidence": "high"
+    },
+    {
+      "file": "src/aula/auth/mitid_client.py",
+      "dimension": "ai_generated_debt",
+      "identifier": "authenticate",
+      "summary": "Decorative logging with banner separators adds noise without diagnostic value",
+      "evidence_lines": [127, 128, 129, 142, 143, 144],
+      "evidence": [
+        "_LOGGER.info('=' * 60) repeated as a visual banner before and after authentication. This is a hallmark of AI-generated code that prioritizes visual appearance in logs over structured, searchable log entries."
+      ],
+      "suggestion": "Replace the banner-style logging with single structured log lines: _LOGGER.info('Authentication flow started') and _LOGGER.info('Authentication flow completed'). The visual separators belong in CLI output (click.echo), not in library logging.",
+      "reasoning": "Library code should emit clean, grep-friendly log lines. Banner separators with '=' * 60 are presentation concerns that belong at the CLI layer, not in reusable auth logic.",
+      "confidence": "medium"
+    },
+    {
+      "file": "src/aula/cli.py",
+      "dimension": "contract_coherence",
+      "identifier": "messages command",
+      "summary": "CLI messages command reaches into _raw dict for participants and sender, bypassing the model layer",
+      "evidence_lines": [300, 301, 324, 325],
+      "evidence": [
+        "thread._raw['participants'] and msg._raw['sender']['fullName'] are accessed directly rather than through model properties. The MessageThread and Message models don't expose these fields, so the CLI has to break encapsulation."
+      ],
+      "suggestion": "Add 'participants' and 'last_updated' fields to MessageThread, and 'sender_name' and 'send_datetime' to Message. This keeps raw dict access inside from_dict() where it belongs.",
+      "reasoning": "The _raw field is documented as being for debugging/extensibility, but here it's used as the primary data access path. This couples the CLI directly to the API JSON structure, defeating the purpose of having model classes.",
+      "confidence": "high"
+    },
+    {
+      "file": "src/aula/auth/browser_client.py",
+      "dimension": "logic_clarity",
+      "identifier": "_poll_for_app_confirmation",
+      "summary": "Confusing double-negation condition in poll success check",
+      "evidence_lines": [223, 224],
+      "evidence": [
+        "Line 223: 'if not r.is_success or (data[\"status\"] == \"OK\" and data[\"confirmation\"] is True)' followed by line 224: 'if not r.is_success or data[\"status\"] != \"OK\"'. The first condition enters the block on either failure OR success, then the inner check re-tests failure. This is logically equivalent to a simpler structure."
+      ],
+      "suggestion": "Restructure as: if not r.is_success: raise MitIDError(...); if data['status'] == 'OK' and data['confirmation'] is True: return ...; Then handle individual statuses below.",
+      "reasoning": "The nested negation makes it hard to verify correctness. A reader has to mentally trace four boolean combinations to confirm the logic is right. The flat if/elif structure would be immediately obvious.",
+      "confidence": "high"
+    },
+    {
+      "file": "src/aula/auth/browser_client.py",
+      "dimension": "type_safety",
+      "identifier": "_compute_flow_value_proof",
+      "summary": "Seven bare assert statements used for runtime type narrowing instead of proper guards",
+      "evidence_lines": [359, 360, 361, 362, 363, 364, 365],
+      "evidence": [
+        "Lines 359-365 use 'assert self._authenticator_session_id is not None' etc. for seven fields. Asserts are stripped when Python runs with -O, silently turning these into no-ops and allowing None to propagate."
+      ],
+      "suggestion": "Replace with explicit checks: if self._authenticator_session_id is None: raise MitIDError('authenticator_session_id not set - complete authentication step first'). This is consistent with the MitIDError pattern used elsewhere in the module.",
+      "reasoning": "The auth module runs security-sensitive code where silent failures are dangerous. Using assert for runtime state validation is an anti-pattern because it can be disabled, unlike proper exception guards.",
+      "confidence": "high"
+    },
+    {
+      "file": "src/aula/api_client.py",
+      "dimension": "naming_quality",
+      "identifier": "_find_participant_by_role",
+      "summary": "Missing return type annotation; returns dict but could return empty dict silently",
+      "evidence_lines": [503, 506],
+      "evidence": [
+        "def _find_participant_by_role(self, lesson: dict, role: str) has no return type. It returns {} as default from next(), making the caller do teacher.get('teacherName', '') without knowing the type."
+      ],
+      "suggestion": "Add return type -> dict[str, Any] and consider returning None instead of {} to make the absence of a participant explicit, or define a small dataclass/TypedDict for participant data.",
+      "reasoning": "Returning an empty dict as a sentinel is a subtle contract that callers must know about. The method name suggests it finds a participant but silently returns nothing, leading to empty strings propagating through CalendarEvent fields.",
+      "confidence": "medium"
+    },
+    {
+      "file": "src/aula/token_storage.py",
+      "dimension": "abstraction_fitness",
+      "identifier": "FileTokenStorage.load, FileTokenStorage.save",
+      "summary": "Async methods that perform only synchronous I/O; no await in either method body",
+      "evidence_lines": [41, 58],
+      "evidence": [
+        "load() uses self._path.read_text() (sync) and save() uses os.fdopen/os.replace (sync). Neither method contains an await expression despite being declared async def."
+      ],
+      "suggestion": "This is acceptable if the ABC contract requires async for future backends (e.g., aiohttp token store), but add a brief comment in the ABC explaining why async is required even for sync implementations. Alternatively, use anyio.Path or aiofiles for truly async file I/O.",
+      "reasoning": "Async-without-await is flagged as a code smell. Here it's justified by the protocol design (TokenStorage ABC), but without a comment explaining this, readers may wonder if it's an oversight.",
+      "confidence": "low"
+    }
+  ]
+}
