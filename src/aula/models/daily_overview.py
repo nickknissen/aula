@@ -35,7 +35,7 @@ class DailyOverview(AulaDataClass):
             try:
                 presence_status = PresenceState(status_value)
             except ValueError:
-                _LOGGER.warning(f"Unknown presence status value received: {status_value}")
+                _LOGGER.warning("Unknown presence status value received: %s", status_value)
 
         inst_data = raw_data.get("institutionProfile")
         mg_data = raw_data.get("mainGroup")
