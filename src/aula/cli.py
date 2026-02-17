@@ -624,6 +624,80 @@ async def mu_ugeplan(ctx, week):
                     click.echo()
 
 
+@cli.command("easyiq:ugeplan")
+@click.option(
+    "--week",
+    type=str,
+    default=None,
+    help="Week number (e.g. 8) or full format (2026-W8). Defaults to current week.",
+)
+@click.pass_context
+@async_cmd
+async def easyiq_ugeplan(ctx, week):
+    """Fetch EasyIQ weekly plan (ugeplan) for children."""
+    week = _resolve_week(week)
+    async with await _get_client(ctx) as client:
+        try:
+            prof: Profile = await client.get_profile()
+        except Exception as e:
+            click.echo(f"Error fetching profile: {e}")
+            return
+
+        if not prof.children:
+            click.echo("No children found in profile.")
+            return
+
+        institution_filter: list[str] = []
+        for child in prof.children:
+            if child._raw:
+                inst_code = child._raw.get("institutionProfile", {}).get("institutionCode", "")
+                if inst_code and str(inst_code) not in institution_filter:
+                    institution_filter.append(str(inst_code))
+
+        try:
+            profile_context = await client.get_profile_context()
+            session_uuid = profile_context["data"]["userId"]
+        except Exception as e:
+            click.echo(f"Error fetching profile context: {e}")
+            return
+
+        for child in prof.children:
+            if not child._raw or "userId" not in child._raw:
+                continue
+            child_id = str(child._raw["userId"])
+
+            try:
+                appointments = await client.get_easyiq_weekplan(
+                    week, session_uuid, institution_filter, child_id
+                )
+            except Exception as e:
+                click.echo(f"Error fetching EasyIQ weekplan for {child.name}: {e}")
+                continue
+
+            click.echo(f"{'=' * 60}")
+            click.echo(f"  {child.name}  |  EasyIQ Ugeplan  [{week}]")
+            click.echo(f"{'=' * 60}")
+
+            if not appointments:
+                click.echo("  No appointments found.")
+            else:
+                for appt in appointments:
+                    click.echo(f"\n  {appt.title}")
+                    if appt._raw:
+                        start = appt._raw.get("start", "")
+                        end = appt._raw.get("end", "")
+                        if start or end:
+                            click.echo(f"  {start} - {end}")
+                        description = appt._raw.get("description", "")
+                        if description:
+                            from .utils.html import html_to_plain
+
+                            for line in html_to_plain(description).splitlines():
+                                click.echo(f"    {line}")
+
+            click.echo()
+
+
 @cli.command("library:status")
 @click.pass_context
 @async_cmd

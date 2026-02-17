@@ -417,7 +417,8 @@ class AulaApiClient:
 
     async def get_easyiq_weekplan(
         self, week: str, session_uuid: str, institution_filter: list[str], child_id: str
-    ) -> Appointment:
+    ) -> list[Appointment]:
+        """Fetch EasyIQ weekly plan appointments for a child."""
         token = await self._get_bearer_token(WIDGET_EASYIQ)
         headers = {
             "Authorization": token,
@@ -433,7 +434,15 @@ class AulaApiClient:
         resp = await self._request_with_version_retry(
             "post", f"{EASYIQ_API}/weekplaninfo", json=payload, headers=headers
         )
-        return self._parse_appointment(resp)
+        appointments = resp.json().get("data", {}).get("appointments", [])
+        return [
+            Appointment(
+                _raw=a,
+                appointment_id=a.get("appointmentId"),
+                title=a.get("title"),
+            )
+            for a in appointments
+        ]
 
     async def get_huskeliste(self, children: list[str], institutions: list[str]) -> Appointment:
         token = await self._get_bearer_token(WIDGET_HUSKELISTEN)
