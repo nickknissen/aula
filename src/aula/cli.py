@@ -127,6 +127,19 @@ def _print_qr_codes_in_terminal(qr1: qrcode.QRCode, qr2: qrcode.QRCode) -> None:
     click.echo("=" * 60)
 
 
+def _resolve_week(week: str | None) -> str:
+    """Resolve a week argument to YYYY-Wn format.
+
+    Accepts None (current week), a bare number like '8', or full 'YYYY-Wn'.
+    """
+    now = datetime.datetime.now(ZoneInfo("Europe/Copenhagen"))
+    if week is None:
+        return f"{now.year}-W{now.isocalendar()[1]}"
+    if week.isdigit():
+        return f"{now.year}-W{int(week)}"
+    return week
+
+
 async def _get_client(ctx: click.Context):
     """Create an authenticated AulaApiClient."""
     username = get_mitid_username(ctx)
@@ -448,12 +461,13 @@ async def posts(ctx, institution_profile_id, limit, page):
     "--week",
     type=str,
     default=None,
-    help="Week to fetch tasks for (YYYY-Wn, e.g. 2026-W8). Defaults to current week.",
+    help="Week number (e.g. 8) or full format (2026-W8). Defaults to current week.",
 )
 @click.pass_context
 @async_cmd
 async def mu_tasks(ctx, week):
     """Fetch Min Uddannelse tasks (opgaver) for children."""
+    week = _resolve_week(week)
     async with await _get_client(ctx) as client:
         try:
             prof: Profile = await client.get_profile()
@@ -490,10 +504,6 @@ async def mu_tasks(ctx, week):
 
         from .const import WIDGET_MIN_UDDANNELSE
 
-        now = datetime.datetime.now(ZoneInfo("Europe/Copenhagen"))
-        if week is None:
-            week = f"{now.year}-W{now.isocalendar()[1]}"
-
         try:
             opgaver = await client.get_mu_tasks(
                 WIDGET_MIN_UDDANNELSE,
@@ -526,6 +536,84 @@ async def mu_tasks(ctx, week):
                     click.echo(f"  Class:   {cls.name} ({cls.subject_name})")
                 if task.course:
                     click.echo(f"  Course:  {task.course.name}")
+
+
+@cli.command("mu:ugeplan")
+@click.option(
+    "--week",
+    type=str,
+    default=None,
+    help="Week number (e.g. 8) or full format (2026-W8). Defaults to current week.",
+)
+@click.pass_context
+@async_cmd
+async def mu_ugeplan(ctx, week):
+    """Fetch Min Uddannelse weekly plans (ugebreve) for children."""
+    week = _resolve_week(week)
+    async with await _get_client(ctx) as client:
+        try:
+            prof: Profile = await client.get_profile()
+        except Exception as e:
+            click.echo(f"Error fetching profile: {e}")
+            return
+
+        if not prof.children:
+            click.echo("No children found in profile.")
+            return
+
+        child_filter = [
+            str(child._raw["userId"])
+            for child in prof.children
+            if child._raw and "userId" in child._raw
+        ]
+        if not child_filter:
+            click.echo("No child user IDs found in profile data.")
+            return
+
+        institution_filter: list[str] = []
+        for child in prof.children:
+            if child._raw:
+                inst_code = child._raw.get("institutionProfile", {}).get("institutionCode", "")
+                if inst_code and str(inst_code) not in institution_filter:
+                    institution_filter.append(str(inst_code))
+
+        try:
+            profile_context = await client.get_profile_context()
+            session_uuid = profile_context["data"]["userId"]
+        except Exception as e:
+            click.echo(f"Error fetching profile context: {e}")
+            return
+
+        from .const import WIDGET_MIN_UDDANNELSE_UGEPLAN
+        from .utils.html import html_to_plain
+
+        try:
+            personer = await client.get_ugeplan(
+                WIDGET_MIN_UDDANNELSE_UGEPLAN,
+                child_filter,
+                institution_filter,
+                week,
+                session_uuid,
+            )
+        except Exception as e:
+            click.echo(f"Error fetching weekly plans: {e}")
+            return
+
+        if not personer:
+            click.echo("No weekly plans found.")
+            return
+
+        for person in personer:
+            for inst in person.institutions:
+                for letter in inst.letters:
+                    click.echo(f"{'=' * 60}")
+                    click.echo(f"  {person.name}  [{letter.group_name}]")
+                    click.echo(f"  {inst.name}  |  Week {letter.week_number}")
+                    click.echo(f"{'=' * 60}")
+                    click.echo()
+                    for line in html_to_plain(letter.content_html).splitlines():
+                        click.echo(f"  {line}")
+                    click.echo()
 
 
 if __name__ == "__main__":

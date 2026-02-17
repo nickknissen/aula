@@ -13,6 +13,7 @@ def html_to_plain(html: str) -> str:
         return ""
     try:
         h = html2text.HTML2Text()
+        h.unicode_snob = True
         h.images_to_alt = True
         h.single_line_break = True
         h.ignore_emphasis = True
@@ -31,6 +32,7 @@ def html_to_markdown(html: str) -> str:
         return ""
     try:
         h = html2text.HTML2Text()
+        h.unicode_snob = True
         return h.handle(html).strip()
     except Exception as e:
         _LOGGER.warning("Error converting HTML to Markdown: %s", e)

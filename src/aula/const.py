@@ -7,6 +7,7 @@ EASYIQ_API = "https://api.easyiqcloud.dk/api/aula"
 
 # Widget IDs for third-party integrations
 WIDGET_EASYIQ = "0001"
+WIDGET_MIN_UDDANNELSE_UGEPLAN = "0029"
 WIDGET_MIN_UDDANNELSE = "0030"
 WIDGET_HUSKELISTEN = "0062"
 

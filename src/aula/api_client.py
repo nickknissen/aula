@@ -20,6 +20,7 @@ from .models import (
     Message,
     MessageThread,
     MUTask,
+    MUWeeklyPerson,
     Post,
     Profile,
 )
@@ -384,22 +385,33 @@ class AulaApiClient:
         )
         return [MUTask.from_dict(o) for o in resp.json().get("opgaver", [])]
 
-    async def get_ugeplan(self, widget_id: str, child_filter: list[str], week: str) -> Appointment:
+    async def get_ugeplan(
+        self,
+        widget_id: str,
+        child_filter: list[str],
+        institution_filter: list[str],
+        week: str,
+        session_uuid: str,
+    ) -> list[MUWeeklyPerson]:
+        """Fetch Min Uddannelse weekly plans (ugebreve) for the given week."""
         token = await self._get_bearer_token(widget_id)
         params = {
-            "assuranceLevel": "2",
+            "assuranceLevel": "3",
             "childFilter": ",".join(child_filter),
             "currentWeekNumber": week,
+            "institutionFilter": ",".join(institution_filter),
             "isMobileApp": "false",
             "placement": "narrow",
+            "sessionUUID": session_uuid,
+            "userProfile": "guardian",
         }
         resp = await self._request_with_version_retry(
             "get",
             f"{MIN_UDDANNELSE_API}/ugebrev",
             params=params,
-            headers={"Authorization": token},
+            headers={"Authorization": token, "Accept": "application/json"},
         )
-        return self._parse_appointment(resp)
+        return [MUWeeklyPerson.from_dict(p) for p in resp.json().get("personer", [])]
 
     async def get_easyiq_weekplan(
         self, week: str, session_uuid: str, institution_filter: list[str], child_id: str
