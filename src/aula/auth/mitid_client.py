@@ -567,6 +567,53 @@ class MitIDAuthClient:
         except json.JSONDecodeError as e:
             raise OAuthError(f"Invalid token response format: {e}") from e
 
+    async def refresh_access_token(self, refresh_token: str) -> dict:
+        """Refresh the access token using a stored refresh token.
+
+        Args:
+            refresh_token: The refresh token from a previous authentication.
+
+        Returns:
+            Updated token dict with new access_token and potentially rotated refresh_token.
+
+        Raises:
+            OAuthError: If the refresh request fails (expired/revoked token, server error).
+        """
+        _LOGGER.info("Attempting token refresh")
+
+        token_url = f"{self._AUTH_BASE_URL}/simplesaml/module.php/oidc/token.php"
+
+        try:
+            response = await self._client.post(
+                token_url,
+                data={
+                    "grant_type": "refresh_token",
+                    "client_id": self._CLIENT_ID,
+                    "refresh_token": refresh_token,
+                },
+                headers={
+                    "Content-Type": "application/x-www-form-urlencoded",
+                    "Accept": "application/json",
+                },
+            )
+
+            if not response.is_success:
+                raise OAuthError(f"Token refresh failed: {response.status_code}")
+
+            tokens = response.json()
+
+            if "expires_in" in tokens:
+                tokens["expires_at"] = time.time() + tokens["expires_in"]
+
+            self._tokens = tokens
+            _LOGGER.info("Token refresh successful")
+            return tokens
+
+        except httpx.HTTPError as e:
+            raise NetworkError(f"Network error during token refresh: {e}") from e
+        except json.JSONDecodeError as e:
+            raise OAuthError(f"Invalid token refresh response format: {e}") from e
+
     # -- Static helpers --
 
     @staticmethod
