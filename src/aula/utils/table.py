@@ -61,7 +61,7 @@ def print_calendar_table(table_data: dict[str, Any]):
         table.add_column("Time")
         for date in date_headers:
             table.add_column(date)
-        for slot_label, row in zip(slot_labels, matrix):
+        for slot_label, row in zip(slot_labels, matrix, strict=True):
             table.add_row(slot_label, *row)
         console = Console()
         console.print(table)
@@ -74,5 +74,5 @@ def print_calendar_table(table_data: dict[str, Any]):
         header = "Time     " + " ".join(fmt_cell(h) for h in date_headers)
         click.echo(header)
         click.echo("-" * len(header))
-        for slot_label, row in zip(slot_labels, matrix):
+        for slot_label, row in zip(slot_labels, matrix, strict=True):
             click.echo(slot_label.ljust(8) + " " + " ".join(fmt_cell(cell) for cell in row))
