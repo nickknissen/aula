@@ -29,7 +29,7 @@ When working with Python, invoke the relevant /astral:\<skill> for uv, ty, and r
 
 - Target: Python 3.10 (`py310`)
 - Line length: 100
-- Rules: `E`, `F`, `W`, `I` (isort), `UP` (pyupgrade)
+- Rules: `E`, `F`, `W`, `I` (isort), `UP` (pyupgrade), `B` (bugbear), `SIM` (simplify), `LOG` (logging)
 
 ## Architecture
 

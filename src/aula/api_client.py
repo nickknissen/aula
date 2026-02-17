@@ -79,7 +79,7 @@ class AulaApiClient:
                 url = f"{url}{sep}access_token={self._access_token}"
 
         max_retries = 5
-        for attempt in range(max_retries):
+        for _attempt in range(max_retries):
             response = await self._client.request(
                 method, url, headers=headers, params=params, json=json
             )
