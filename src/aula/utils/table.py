@@ -4,8 +4,8 @@ from typing import Any
 import click
 
 try:
-    from rich.console import Console
-    from rich.table import Table
+    from rich.console import Console  # type: ignore[import-not-found]
+    from rich.table import Table  # type: ignore[import-not-found]
 
     _HAS_RICH = True
 except ImportError:

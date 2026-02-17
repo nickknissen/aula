@@ -280,7 +280,7 @@ class AulaApiClient:
                 )
         return threads
 
-    async def get_messages_for_thread(self, thread_id: int, limit: int = 5) -> list[Message]:
+    async def get_messages_for_thread(self, thread_id: str, limit: int = 5) -> list[Message]:
         """Fetches the latest messages for a specific thread."""
         resp = await self._request_with_version_retry(
             "get",
@@ -356,11 +356,11 @@ class AulaApiClient:
                         title=event.get("title"),
                         start_datetime=self._parse_date(event.get("startDateTime")),
                         end_datetime=self._parse_date(event.get("endDateTime")),
-                        teacher_name=teacher.get("teacherName"),
+                        teacher_name=teacher.get("teacherName", ""),
                         has_substitute=has_substitute,
                         substitute_name=substitute.get("teacherName"),
                         location=location,
-                        belongs_to=next(iter(event.get("belongsToProfiles")), None),
+                        belongs_to=next(iter(event.get("belongsToProfiles", [])), None),
                         _raw=event,
                     )
                 )
@@ -443,8 +443,10 @@ class AulaApiClient:
             "placement": "narrow",
         }
         resp = await self._request_with_version_retry(
-            "get", f"{MIN_UDDANNELSE_API}/opgaveliste",
-            params=params, headers={"Authorization": token},
+            "get",
+            f"{MIN_UDDANNELSE_API}/opgaveliste",
+            params=params,
+            headers={"Authorization": token},
         )
         data = resp.json()
         appointment = data.get("data", {}).get("appointments", [{}])[0]
@@ -464,8 +466,10 @@ class AulaApiClient:
             "placement": "narrow",
         }
         resp = await self._request_with_version_retry(
-            "get", f"{MIN_UDDANNELSE_API}/ugebrev",
-            params=params, headers={"Authorization": token},
+            "get",
+            f"{MIN_UDDANNELSE_API}/ugebrev",
+            params=params,
+            headers={"Authorization": token},
         )
         data = resp.json()
         appointment = data.get("data", {}).get("appointments", [{}])[0]

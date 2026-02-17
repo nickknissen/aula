@@ -304,6 +304,9 @@ class BrowserClient:
         """Execute the full SRP handshake (init → prove → verify → next)."""
         timer_start = time.monotonic()
 
+        assert self._authenticator_session_flow_key is not None
+        assert self._authenticator_session_id is not None
+
         srp = CustomSRP()
         public_a = srp.srp_stage1()
 
@@ -370,11 +373,19 @@ class BrowserClient:
 
     def _compute_flow_value_proof(self, session_key: bytes) -> str:
         """Create HMAC-SHA256 flow value proof using the SRP session key."""
+        assert self._authenticator_session_id is not None
+        assert self._authenticator_session_flow_key is not None
+        assert self._authenticator_eafe_hash is not None
+        assert self._broker_security_context is not None
+        assert self._reference_text_header is not None
+        assert self._reference_text_body is not None
+        assert self._service_provider_name is not None
+
         proof_key = hashlib.sha256(
             ("flowValues" + bytes_to_hex(session_key)).encode("utf-8")
         ).digest()
 
-        parts = [
+        parts: list[str] = [
             self._authenticator_session_id,
             self._authenticator_session_flow_key,
             self._client_hash,
