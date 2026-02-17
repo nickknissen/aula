@@ -8,7 +8,13 @@ import sys
 from zoneinfo import ZoneInfo
 
 import click
-from dotenv import load_dotenv
+
+try:
+    from dotenv import load_dotenv
+
+    load_dotenv()
+except ImportError:
+    pass
 
 # On Windows, use SelectorEventLoopPolicy to avoid 'Event loop closed' issues
 if sys.platform.startswith("win"):
@@ -18,9 +24,6 @@ from .auth_flow import authenticate_and_create_client
 from .config import CONFIG_FILE, DEFAULT_TOKEN_FILE, load_config, save_config
 from .models import DailyOverview, Message, MessageThread, Profile
 from .token_storage import FileTokenStorage
-
-# Load environment variables from .env file
-load_dotenv()
 
 
 # Decorator to run async functions within Click commands
