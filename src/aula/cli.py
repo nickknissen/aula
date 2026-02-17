@@ -8,6 +8,7 @@ import sys
 from zoneinfo import ZoneInfo
 
 import click
+import qrcode
 
 try:
     from dotenv import load_dotenv
@@ -104,11 +105,35 @@ def cli(ctx, username: str | None, verbose: int):
         ctx.obj["MITID_USERNAME"] = username
 
 
+def _print_qr_codes_in_terminal(qr1: qrcode.QRCode, qr2: qrcode.QRCode) -> None:
+    """Print QR codes as ASCII art in the terminal."""
+    click.echo("=" * 60)
+    click.echo("SCAN THESE QR CODES WITH YOUR MITID APP")
+    click.echo("=" * 60)
+    click.echo("QR CODE 1 (Scan this first):")
+    try:
+        qr1.print_ascii(invert=True)
+    except UnicodeEncodeError:
+        qr1.print_tty()
+
+    click.echo("QR CODE 2 (Scan this second):")
+    try:
+        qr2.print_ascii(invert=True)
+    except UnicodeEncodeError:
+        qr2.print_tty()
+
+    click.echo("=" * 60)
+    click.echo("Waiting for you to scan the QR codes...")
+    click.echo("=" * 60)
+
+
 async def _get_client(ctx: click.Context):
     """Create an authenticated AulaApiClient."""
     username = get_mitid_username(ctx)
     token_storage = FileTokenStorage(DEFAULT_TOKEN_FILE)
-    return await authenticate_and_create_client(username, token_storage)
+    return await authenticate_and_create_client(
+        username, token_storage, on_qr_codes=_print_qr_codes_in_terminal
+    )
 
 
 # Define commands

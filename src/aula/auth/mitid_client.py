@@ -7,9 +7,11 @@ import json
 import logging
 import secrets
 import time
+from collections.abc import Callable
 from urllib.parse import parse_qs, urlencode, urljoin, urlparse
 
 import httpx
+import qrcode
 from bs4 import BeautifulSoup, Tag
 
 from ..const import (
@@ -76,10 +78,12 @@ class MitIDAuthClient:
         self,
         mitid_username: str,
         timeout: int = 30,
+        on_qr_codes: Callable[[qrcode.QRCode, qrcode.QRCode], None] | None = None,
     ):
         self._client = httpx.AsyncClient(follow_redirects=False, timeout=timeout)
         self._mitid_username = mitid_username
         self._timeout = timeout
+        self._on_qr_codes = on_qr_codes
 
         # Mobile app user agent
         self._client.headers.update(
@@ -322,7 +326,9 @@ class MitIDAuthClient:
         )
         authentication_session_id = aux["parameters"]["authenticationSessionId"]
 
-        self._mitid_client = BrowserClient(client_hash, authentication_session_id, self._client)
+        self._mitid_client = BrowserClient(
+            client_hash, authentication_session_id, self._client, self._on_qr_codes
+        )
 
         await self._mitid_client.initialize()
 
