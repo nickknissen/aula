@@ -21,7 +21,6 @@ from .models import (
     MessageThread,
     Post,
     Profile,
-    ProfileContext,
 )
 
 # Logger
@@ -156,13 +155,14 @@ class AulaApiClient:
             return False
         return True
 
-    async def get_profile_context(self) -> ProfileContext:
+    async def get_profile_context(self) -> dict:
+        """Fetch the profile context for the current guardian session."""
         resp = await self._request_with_version_retry(
             "get",
             f"{self.api_url}?method=profiles.getProfileContext&portalrole=guardian",
         )
         resp.raise_for_status()
-        return ProfileContext(_raw=resp.json())
+        return resp.json()
 
     async def get_daily_overview(self, child_id: int) -> DailyOverview | None:
         """Fetches the daily overview for a specific child.
