@@ -1,5 +1,6 @@
 import logging
 from datetime import datetime
+from typing import Any
 from zoneinfo import ZoneInfo
 
 from .const import (
@@ -77,6 +78,8 @@ class AulaApiClient:
         # Auto-append access token for Aula API requests
         if self._access_token and url.startswith(API_URL):
             if params is not None:
+                if isinstance(params, list):
+                    params = dict(params)
                 params["access_token"] = self._access_token
             else:
                 sep = "&" if "?" in url else "?"
@@ -159,7 +162,7 @@ class AulaApiClient:
             return False
         return True
 
-    async def get_profile_context(self) -> dict:
+    async def get_profile_context(self) -> dict[str, Any]:
         """Fetch the profile context for the current guardian session."""
         resp = await self._request_with_version_retry(
             "get",
@@ -171,19 +174,16 @@ class AulaApiClient:
     async def get_daily_overview(self, child_id: int) -> DailyOverview | None:
         """Fetches the daily overview for a specific child.
 
-        Returns None if the data is unavailable (e.g. 403 Forbidden).
+        Returns None if no data is available for the child.
+
+        Raises:
+            HttpRequestError: If the API returns a 4xx/5xx error.
         """
         resp = await self._request_with_version_retry(
             "get",
             f"{self.api_url}?method=presence.getDailyOverview&childIds[]={child_id}",
         )
-        if resp.status_code != 200:
-            _LOGGER.warning(
-                "Could not fetch daily overview for child %d: HTTP %d",
-                child_id,
-                resp.status_code,
-            )
-            return None
+        resp.raise_for_status()
         data = resp.json().get("data")
         if not data:
             _LOGGER.warning("No daily overview data for child %d", child_id)
@@ -265,10 +265,10 @@ class AulaApiClient:
         )
 
         resp.raise_for_status()
-        data = resp.json()
+        response_data = resp.json()
 
         events = []
-        raw_events = data.get("data", [])
+        raw_events = response_data.get("data", [])
         if not isinstance(raw_events, list):
             _LOGGER.warning("Unexpected data format for calendar events: %s", raw_events)
             return []
@@ -499,7 +499,7 @@ class AulaApiClient:
     def _parse_date(self, date_str: str) -> datetime:
         return datetime.fromisoformat(date_str).astimezone(ZoneInfo("Europe/Copenhagen"))
 
-    def _find_participant_by_role(self, lesson: dict, role: str):
+    def _find_participant_by_role(self, lesson: dict[str, Any], role: str) -> dict[str, Any]:
         participants = lesson.get("participants", [])
 
         return next(

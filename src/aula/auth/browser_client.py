@@ -220,9 +220,10 @@ class BrowserClient:
             r = await self._client.post(poll_url, json={"ticket": ticket})
             data = r.json()
 
-            if not r.is_success or (data["status"] == "OK" and data["confirmation"] is True):
-                if not r.is_success or data["status"] != "OK":
-                    raise MitIDError("Login request was not accepted")
+            if not r.is_success:
+                raise MitIDError("Login request was not accepted")
+
+            if data["status"] == "OK" and data["confirmation"] is True:
                 return data["payload"]["response"], data["payload"]["responseSignature"]
 
             status = data["status"]
@@ -356,13 +357,18 @@ class BrowserClient:
 
     def _compute_flow_value_proof(self, session_key: bytes) -> str:
         """Create HMAC-SHA256 flow value proof using the SRP session key."""
-        assert self._authenticator_session_id is not None
-        assert self._authenticator_session_flow_key is not None
-        assert self._authenticator_eafe_hash is not None
-        assert self._broker_security_context is not None
-        assert self._reference_text_header is not None
-        assert self._reference_text_body is not None
-        assert self._service_provider_name is not None
+        required_fields = {
+            "authenticator_session_id": self._authenticator_session_id,
+            "authenticator_session_flow_key": self._authenticator_session_flow_key,
+            "authenticator_eafe_hash": self._authenticator_eafe_hash,
+            "broker_security_context": self._broker_security_context,
+            "reference_text_header": self._reference_text_header,
+            "reference_text_body": self._reference_text_body,
+            "service_provider_name": self._service_provider_name,
+        }
+        missing = [k for k, v in required_fields.items() if v is None]
+        if missing:
+            raise MitIDError(f"Missing required auth state: {', '.join(missing)}")
 
         proof_key = hashlib.sha256(
             ("flowValues" + bytes_to_hex(session_key)).encode("utf-8")
