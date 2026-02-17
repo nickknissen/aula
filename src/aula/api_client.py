@@ -7,10 +7,12 @@ from .const import (
     API_VERSION,
     CICERO_API,
     EASYIQ_API,
+    MEEBOOK_API,
     MIN_UDDANNELSE_API,
     SYSTEMATIC_API,
     WIDGET_EASYIQ,
     WIDGET_HUSKELISTEN,
+    WIDGET_MEEBOOK,
 )
 from .http import HttpClient, HttpResponse
 from .models import (
@@ -19,6 +21,7 @@ from .models import (
     Child,
     DailyOverview,
     LibraryStatus,
+    MeebookStudentPlan,
     Message,
     MessageThread,
     MUTask,
@@ -443,6 +446,48 @@ class AulaApiClient:
             )
             for a in appointments
         ]
+
+    async def get_meebook_weekplan(
+        self,
+        child_filter: list[str],
+        institution_filter: list[str],
+        week: str,
+        session_uuid: str,
+    ) -> list[MeebookStudentPlan]:
+        """Fetch Meebook weekly plan for children.
+
+        Week format must be YYYY-Wnn (with leading zero), e.g. '2026-W08'.
+        """
+        token = await self._get_bearer_token(WIDGET_MEEBOOK)
+
+        # Ensure week number has leading zero (YYYY-Wnn format)
+        parts = week.split("-W")
+        if len(parts) == 2:
+            week = f"{parts[0]}-W{int(parts[1]):02d}"
+
+        params: list[tuple[str, str]] = [
+            ("currentWeekNumber", week),
+            ("userProfile", "guardian"),
+        ]
+        for child in child_filter:
+            params.append(("childFilter[]", child))
+        for inst in institution_filter:
+            params.append(("institutionFilter[]", inst))
+
+        headers = {
+            "Authorization": token,
+            "Accept": "application/json",
+            "sessionUUID": session_uuid,
+            "X-Version": "1.0",
+        }
+
+        resp = await self._request_with_version_retry(
+            "get",
+            f"{MEEBOOK_API}/relatedweekplan/all",
+            params=params,
+            headers=headers,
+        )
+        return [MeebookStudentPlan.from_dict(s) for s in resp.json()]
 
     async def get_huskeliste(self, children: list[str], institutions: list[str]) -> Appointment:
         token = await self._get_bearer_token(WIDGET_HUSKELISTEN)
