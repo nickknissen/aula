@@ -140,12 +140,20 @@ def _resolve_week(week: str | None) -> str:
     return week
 
 
+def _on_login_required():
+    """Notify the user that MitID authentication is needed."""
+    click.echo("Session expired or not found. Please open your MitID app to approve the login.")
+
+
 async def _get_client(ctx: click.Context):
     """Create an authenticated AulaApiClient."""
     username = get_mitid_username(ctx)
     token_storage = FileTokenStorage(DEFAULT_TOKEN_FILE)
     return await authenticate_and_create_client(
-        username, token_storage, on_qr_codes=_print_qr_codes_in_terminal
+        username,
+        token_storage,
+        on_qr_codes=_print_qr_codes_in_terminal,
+        on_login_required=_on_login_required,
     )
 
 
