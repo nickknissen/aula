@@ -12,13 +12,13 @@ dependencies = [
     "httpx>=0.28.1",
     "click>=8.0",
     "html2text>=2025.4.15",
-    "python-dotenv>=1.0.0",
     "qrcode>=8.0",
     "pycryptodome>=3.20.0",
     "tzdata>=2024.1",
 ]
 
 [project.optional-dependencies]
+cli = ["python-dotenv>=1.0.0"]
 rich = ["rich"]
 
 [project.scripts]
@@ -34,3 +34,9 @@ line-length = 100
 
 [tool.ruff.lint]
 select = ["E", "F", "W", "I", "UP"]
+
+[tool.pyrefly]
+project-includes = [
+    "**/*.py*",
+    "**/*.ipynb",
+]
