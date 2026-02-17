@@ -26,7 +26,7 @@ Gather from the user or reverse-engineer from the widget source:
 - API base URL
 - Widget ID (4-digit string)
 - HTTP method (GET or POST) and endpoint path
-- Required headers beyond `Authorization: Bearer` and `Accept: application/json`
+- Required headers — note header name varies: `Authorization` vs `Aula-Authorization`
 - Query params / request body structure
 - Response JSON shape (bare array vs nested under `data`)
 

@@ -124,10 +124,13 @@ async def get_<provider>_<endpoint>(
 ```
 
 Notes:
+- Header name varies: most use `Authorization` but some (e.g. MoMo/Systematic) use `Aula-Authorization`
 - Some providers need extra headers (e.g. `X-Version`, `x-aula-institutionfilter`)
 - Some use POST instead of GET (e.g. EasyIQ)
 - Response structure varies: some return bare array, some nest under `.get("data", {})`
 - Week format varies: some need `YYYY-Wn`, some need `YYYY-Wnn` (leading zero)
+- Not all endpoints need a `week` parameter (e.g. MoMo courses)
+- Param key names vary: `childFilter[]`/`institutionFilter[]` vs `children`/`institutions`
 
 ## 5. cli.py - Click Command
 
@@ -205,7 +208,7 @@ async def <provider>_<command_name>(ctx, week):
 
 Key patterns:
 - Command name uses colon separator: `"provider:command"`
-- `_resolve_week(week)` handles None/bare number/full format
+- `--week` option and `_resolve_week(week)` only when the endpoint is week-based; omit for non-week endpoints
 - Profile + child_filter + institution_filter + session_uuid is always the same boilerplate
 - HTML content rendered via `html_to_plain()` from `utils.html`
 - Display uses `=` and `-` separators with 2-space indentation
