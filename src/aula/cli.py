@@ -108,7 +108,6 @@ async def _get_client(ctx: click.Context) -> AulaApiClient:
     client = AulaApiClient(
         mitid_username=username,
         token_storage=token_storage,
-        debug=ctx.obj.get("VERBOSE", 0) >= 2,
     )
     await client.login()
     return client
@@ -169,35 +168,80 @@ async def profile(ctx):
 @async_cmd
 async def overview(ctx, child_id):
     """Fetch the daily overview for a child or all children."""
-    click.echo("Fetching overview...")
     async with await _get_client(ctx) as client:
         child_ids = []
+        child_names: dict[int, str] = {}
 
         if child_id:
             child_ids.append(child_id)
-            click.echo(f"Fetching overview for child ID: {child_id}")
         else:
-            click.echo("Fetching overview for all children...")
             try:
                 prof: Profile = await client.get_profile()
                 if not prof.children:
                     click.echo("No children found in profile.")
                     return
-                child_ids = [child.id for child in prof.children]
+                for child in prof.children:
+                    child_ids.append(child.id)
+                    child_names[child.id] = child.name
             except Exception as e:
-                click.echo(f"Error fetching profile to get children IDs: {e}")
+                click.echo(f"Error fetching profile: {e}")
                 return
 
-        for c_id in child_ids:
+        for i, c_id in enumerate(child_ids):
             try:
-                overview_data: DailyOverview = await client.get_daily_overview(c_id)
-                click.echo(f"\n--- Overview for Child ID: {c_id} ---")
+                data: DailyOverview | None = await client.get_daily_overview(c_id)
+                if data is None:
+                    click.echo(f"{child_names.get(c_id, f'Child {c_id}')}: unavailable")
+                    continue
 
-                for k, v in overview_data:
-                    click.echo(f"{k}: {v}")
+                fallback = (
+                    data.institution_profile.name
+                    if data.institution_profile
+                    else f"Child {c_id}"
+                )
+                name = child_names.get(c_id, fallback)
+                status = (
+                    data.status.name.replace("_", " ").title()
+                    if data.status
+                    else "Unknown"
+                )
+                ip = data.institution_profile
+                institution = ip.institution_name if ip else None
+                group = data.main_group.name if data.main_group else None
+
+                click.echo(f"{'=' * 50}")
+                click.echo(f"  {name}  [{status}]")
+                if institution or group:
+                    click.echo(f"  {' / '.join(filter(None, [institution, group]))}")
+                click.echo(f"{'=' * 50}")
+
+                details = []
+                if data.check_in_time:
+                    details.append(("Check-in", data.check_in_time))
+                if data.check_out_time:
+                    details.append(("Check-out", data.check_out_time))
+                if data.entry_time:
+                    details.append(("Entry", data.entry_time))
+                if data.exit_time:
+                    details.append(("Exit", data.exit_time))
+                if data.exit_with:
+                    details.append(("Exit with", data.exit_with))
+                if data.location:
+                    details.append(("Location", data.location))
+                if data.comment:
+                    details.append(("Comment", data.comment))
+
+                if details:
+                    for label, value in details:
+                        click.echo(f"  {label}: {value}")
+                else:
+                    click.echo("  No additional details.")
+
+                if i < len(child_ids) - 1:
+                    click.echo()
 
             except Exception as e:
-                click.echo(f"Error fetching overview for child ID {c_id}: {e}")
+                click.echo(f"Error fetching overview for child {c_id}: {e}")
 
 
 @cli.command()
@@ -207,7 +251,7 @@ async def overview(ctx, child_id):
 async def messages(ctx, limit):
     """Fetch the latest message threads and their messages."""
     async with await _get_client(ctx) as client:
-        click.echo(f"Fetching the latest {limit} message threads...")
+        click.echo(f"Fetching the latest {limit} message threads...\n")
 
         try:
             threads: list[MessageThread] = await client.get_message_threads()
@@ -221,33 +265,43 @@ async def messages(ctx, limit):
             return
 
         for i, thread in enumerate(threads):
-            click.echo(f"\n--- Thread {i + 1}/{len(threads)} (ID: {thread.thread_id}) ---")
-            click.echo(f"Subject: {thread.subject}")
-            last_updated_str = (
-                thread._raw.get("lastUpdatedDate", "N/A") if thread._raw else "N/A"
-            )
-            participants_list = thread._raw.get("participants", []) if thread._raw else []
-            click.echo(f"Last Updated: {last_updated_str}")
-            click.echo(
-                f"Participants: {', '.join(p.get('name', 'N/A') for p in participants_list)}"
-            )
+            raw = thread._raw or {}
+            participants = [p.get("name", "?") for p in raw.get("participants", [])]
+            last_updated = raw.get("lastUpdatedDate", "")
 
-            click.echo("  Fetching latest messages...")
+            # Thread header
+            click.echo(f"{'=' * 60}")
+            click.echo(f"  {thread.subject}")
+            meta_parts = []
+            if participants:
+                meta_parts.append(", ".join(participants))
+            if last_updated:
+                meta_parts.append(last_updated)
+            if meta_parts:
+                click.echo(f"  {' | '.join(meta_parts)}")
+            click.echo(f"{'=' * 60}")
+
             try:
                 messages_list: list[Message] = await client.get_messages_for_thread(
                     thread.thread_id
                 )
                 if not messages_list:
-                    click.echo("  No messages found in this thread.")
+                    click.echo("  (no messages)")
                 else:
-                    click.echo(f"  Latest {len(messages_list)} Messages:")
-                    for j, msg in enumerate(messages_list):
-                        click.echo(
-                            f"    {j + 1}. ID: {msg.id}\n       Content: {msg.content}"
-                        )
+                    for msg in messages_list:
+                        msg_raw = msg._raw or {}
+                        sender = msg_raw.get("sender", {}).get("fullName", "Unknown")
+                        send_date = msg_raw.get("sendDateTime", "")
 
+                        click.echo(f"\n  {sender}  {send_date}")
+                        click.echo(f"  {'-' * 40}")
+                        for line in msg.content.splitlines():
+                            click.echo(f"  {line}")
             except Exception as e:
-                click.echo(f"  Error fetching messages for thread {thread.thread_id}: {e}")
+                click.echo(f"  Error: {e}")
+
+            if i < len(threads) - 1:
+                click.echo()
 
 
 @cli.command()
@@ -286,14 +340,10 @@ async def calendar(ctx, institution_profile_id, start_date, end_date):
                 click.echo(f"Error fetching profile to get child IDs: {e}")
                 return
 
-        click.echo(
-            f"Fetching for institution IDs: {', '.join(map(str, institution_profile_ids))}"
-        )
+        click.echo(f"Fetching for institution IDs: {', '.join(map(str, institution_profile_ids))}")
 
         try:
-            events = await client.get_calendar_events(
-                institution_profile_ids, start_date, end_date
-            )
+            events = await client.get_calendar_events(institution_profile_ids, start_date, end_date)
 
             if not events:
                 click.echo("No calendar events found for the specified criteria.")
@@ -334,8 +384,6 @@ async def calendar(ctx, institution_profile_id, start_date, end_date):
 async def posts(ctx, institution_profile_id, limit, page):
     """Fetch posts from Aula."""
     async with await _get_client(ctx) as client:
-        click.echo("Fetching posts...")
-
         institution_profile_ids = list(institution_profile_id)
 
         if not institution_profile_ids:
@@ -345,10 +393,6 @@ async def posts(ctx, institution_profile_id, limit, page):
             except Exception as e:
                 click.echo(f"Error fetching profile: {e}")
                 return
-
-        click.echo(
-            f"Fetching posts for institution IDs: {', '.join(map(str, institution_profile_ids))}"
-        )
 
         try:
             posts_list = await client.get_posts(
@@ -361,18 +405,32 @@ async def posts(ctx, institution_profile_id, limit, page):
                 click.echo("No posts found.")
                 return
 
-            click.echo(
-                f"\n--- Posts (Page {page}, {len(posts_list)} of {limit} per page) ---"
-            )
             for i, post in enumerate(posts_list):
-                click.echo(f"\n### Post {i} ###")
-                click.echo(f"Title: {post.title}")
-                click.echo(f"Date: {post.timestamp}")
-                click.echo(f"Author: {post.owner.full_name}")
-                click.echo(f"Content: {post.content}")
+                date_str = (
+                    post.timestamp.strftime("%Y-%m-%d %H:%M")
+                    if post.timestamp
+                    else ""
+                )
+
+                click.echo(f"{'=' * 60}")
+                click.echo(f"  {post.title}")
+                meta = f"  {post.owner.full_name}"
+                if date_str:
+                    meta += f"  |  {date_str}"
+                click.echo(meta)
+                click.echo(f"{'=' * 60}")
+
+                if post.content:
+                    for line in post.content.splitlines():
+                        click.echo(f"  {line}")
 
                 if post.attachments:
-                    click.echo(f"Attachments: {len(post.attachments)}")
+                    click.echo(
+                        f"\n  Attachments: {len(post.attachments)}"
+                    )
+
+                if i < len(posts_list) - 1:
+                    click.echo()
 
         except Exception as e:
             click.echo(f"Error fetching posts: {e}", err=True)

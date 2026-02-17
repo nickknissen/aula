@@ -114,9 +114,7 @@ class InstitutionProfile(AulaDataClass):
             institution_name=data.get("institutionName"),
             role=data.get("role"),
             name=data.get("name"),
-            profile_picture=ProfilePicture(url=pic_data.get("url"))
-            if pic_data
-            else None,
+            profile_picture=ProfilePicture(url=pic_data.get("url")) if pic_data else None,
             short_name=data.get("shortName"),
             institution_role=data.get("institutionRole"),
             metadata=data.get("metadata"),
@@ -169,9 +167,7 @@ class DailyOverview(AulaDataClass):
             try:
                 presence_status = PresenceState(status_value)
             except ValueError:
-                _LOGGER.warning(
-                    f"Unknown presence status value received: {status_value}"
-                )
+                _LOGGER.warning(f"Unknown presence status value received: {status_value}")
 
         return cls(
             id=raw_data.get("id"),
@@ -184,9 +180,7 @@ class DailyOverview(AulaDataClass):
             exit_time=raw_data.get("exitTime"),
             exit_with=raw_data.get("exitWith"),
             comment=raw_data.get("comment"),
-            institution_profile=InstitutionProfile.from_dict(
-                raw_data.get("institutionProfile")
-            ),
+            institution_profile=InstitutionProfile.from_dict(raw_data.get("institutionProfile")),
             main_group=MainGroup.from_dict(raw_data.get("mainGroup")),
         )
 
