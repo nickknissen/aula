@@ -14,7 +14,7 @@ from dotenv import load_dotenv
 if sys.platform.startswith("win"):
     asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
 
-from .api_client import AulaApiClient
+from .auth_flow import authenticate_and_create_client
 from .config import CONFIG_FILE, DEFAULT_TOKEN_FILE, load_config, save_config
 from .models import DailyOverview, Message, MessageThread, Profile
 from .token_storage import FileTokenStorage
@@ -101,16 +101,11 @@ def cli(ctx, username: str | None, verbose: int):
         ctx.obj["MITID_USERNAME"] = username
 
 
-async def _get_client(ctx: click.Context) -> AulaApiClient:
+async def _get_client(ctx: click.Context):
     """Create an authenticated AulaApiClient."""
     username = get_mitid_username(ctx)
     token_storage = FileTokenStorage(DEFAULT_TOKEN_FILE)
-    client = AulaApiClient(
-        mitid_username=username,
-        token_storage=token_storage,
-    )
-    await client.login()
-    return client
+    return await authenticate_and_create_client(username, token_storage)
 
 
 # Define commands

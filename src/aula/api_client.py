@@ -1,19 +1,15 @@
 import logging
-import time
 from datetime import datetime
 from zoneinfo import ZoneInfo
 
-import httpx
-
-from .auth import AulaAuthenticationError, MitIDAuthClient
 from .const import (
     API_URL,
     API_VERSION,
     EASYIQ_API,
     MIN_UDDANNELSE_API,
     SYSTEMATIC_API,
-    USER_AGENT,
 )
+from .http import HttpClient, HttpResponse
 from .models import (
     Appointment,
     CalendarEvent,
@@ -25,92 +21,26 @@ from .models import (
     Profile,
     ProfileContext,
 )
-from .token_storage import TokenStorage
 
 # Logger
 _LOGGER = logging.getLogger(__name__)
 
 
 class AulaApiClient:
+    """Async client for Aula API endpoints.
+
+    Transport-agnostic: accepts any HttpClient implementation (httpx, aiohttp, etc.).
+    Authentication is handled externally; this client only needs a ready HTTP
+    transport and a valid access token.
     """
-    Async client for Aula API endpoints and parsing.
 
-    Now uses MitID authentication instead of the old UniLogin system.
-    Requires a MitID username and the MitID app for authentication.
-    """
-
-    def __init__(self, mitid_username: str, token_storage: TokenStorage):
-        """
-        Initialize the Aula API client.
-
-        Args:
-            mitid_username: Your MitID username (not Aula username)
-            token_storage: A TokenStorage backend for persisting auth tokens.
-        """
-        self.mitid_username = mitid_username
-        self._token_storage = token_storage
+    def __init__(self, http_client: HttpClient, access_token: str) -> None:
+        self._client = http_client
+        self._access_token = access_token
         self.api_url = f"{API_URL}{API_VERSION}"
-        self._client: httpx.AsyncClient | None = None
-        self._auth_client: MitIDAuthClient | None = None
-        self._access_token: str | None = None
 
-    async def login(self) -> None:
-        """
-        Authenticate using MitID and discover latest API URL.
-
-        This method will:
-        1. Try to load cached tokens from the token file
-        2. If tokens are missing or expired, perform MitID authentication
-           (requires MitID app approval)
-        3. Configure the HTTP client with the access token
-        4. Discover the current API version
-        """
-        self._auth_client = MitIDAuthClient(mitid_username=self.mitid_username)
-
-        # Try to load cached tokens
-        token_data = await self._token_storage.load()
-        tokens_valid = False
-
-        if token_data is not None:
-            tokens = token_data.get("tokens", {})
-            expires_at = tokens.get("expires_at")
-            if tokens.get("access_token") and (expires_at is None or time.time() < expires_at):
-                self._auth_client.tokens = tokens
-                tokens_valid = True
-                _LOGGER.info("Loaded cached authentication tokens")
-            else:
-                _LOGGER.info("Cached tokens are expired")
-
-        if not tokens_valid:
-            _LOGGER.info("No valid tokens found, starting MitID authentication...")
-            _LOGGER.info("Please approve the login request in your MitID app")
-
-            try:
-                await self._auth_client.authenticate()
-                await self._token_storage.save(
-                    {
-                        "timestamp": time.time(),
-                        "created_at": time.strftime("%Y-%m-%d %H:%M:%S"),
-                        "username": self.mitid_username,
-                        "tokens": self._auth_client.tokens,
-                    }
-                )
-                _LOGGER.info("Authentication successful! Tokens saved.")
-            except AulaAuthenticationError as e:
-                _LOGGER.error(f"Authentication failed: {e}")
-                raise RuntimeError(f"MitID authentication failed: {e}")
-
-        self._access_token = self._auth_client.access_token
-
-        # Initialize HTTP client with authentication
-        self._client = httpx.AsyncClient(
-            follow_redirects=True,
-            headers={"User-Agent": USER_AGENT},
-        )
-
-        # Copy cookies from auth client to API client
-        self._client.cookies = self._auth_client.cookies
-
+    async def init(self) -> None:
+        """Discover the current API version and establish guardian role."""
         await self._set_correct_api_version()
 
         # Establish guardian role in the session (required for child-specific endpoints)
@@ -126,18 +56,21 @@ class AulaApiClient:
         )
         resp.raise_for_status()
 
-    async def _request_with_version_retry(self, method: str, url: str, **kwargs) -> httpx.Response:
-        """
-        Make an HTTP request with automatic API version bump on 410 Gone.
-
-        If the API returns 410 Gone (deprecated version), automatically increment
-        the version number and retry the request with the new version.
+    async def _request_with_version_retry(
+        self,
+        method: str,
+        url: str,
+        *,
+        headers: dict[str, str] | None = None,
+        params: dict | None = None,
+        json: object | None = None,
+    ) -> HttpResponse:
+        """Make an HTTP request with automatic API version bump on 410 Gone.
 
         Automatically appends the access_token query parameter for Aula API URLs.
         """
         # Auto-append access token for Aula API requests
         if self._access_token and url.startswith(API_URL):
-            params = kwargs.get("params")
             if params is not None:
                 params["access_token"] = self._access_token
             else:
@@ -146,22 +79,21 @@ class AulaApiClient:
 
         max_retries = 5
         for attempt in range(max_retries):
-            response = await getattr(self._client, method.lower())(url, **kwargs)
+            response = await self._client.request(
+                method, url, headers=headers, params=params, json=json
+            )
 
             if response.status_code == 410:
-                # Extract current version number from self.api_url
                 current_version = int(self.api_url.split("/v")[-1])
                 new_version = current_version + 1
 
                 _LOGGER.warning(
-                    f"API version v{current_version} is deprecated (410 Gone), "
-                    f"automatically switching to v{new_version}"
+                    "API version v%d is deprecated (410 Gone), automatically switching to v%d",
+                    current_version,
+                    new_version,
                 )
 
-                # Update API URL to new version
                 self.api_url = f"{API_URL}{new_version}"
-
-                # Retry with new version URL
                 url = url.replace(f"/v{current_version}", f"/v{new_version}")
                 continue
 
@@ -173,16 +105,14 @@ class AulaApiClient:
         resp = await self._request_with_version_retry(
             "get", f"{self.api_url}?method=profiles.getProfilesByLogin"
         )
-        resp.raise_for_status()  # Ensure request was successful
+        resp.raise_for_status()
         raw_data_list = resp.json().get("data", {}).get("profiles", [])
 
         if not raw_data_list:
             raise ValueError("No profile data found in API response")
 
-        # Assume the first profile in the list is the target
         profile_dict = raw_data_list[0]
 
-        # Parse children
         children = []
         raw_children = profile_dict.get("children", [])
         if isinstance(raw_children, list):
@@ -193,16 +123,14 @@ class AulaApiClient:
                     children.append(Child.from_dict(child_dict))
                 except (TypeError, ValueError) as e:
                     _LOGGER.warning(
-                        f"Skipping child due to parsing error: {e} - Data: {child_dict}"
+                        "Skipping child due to parsing error: %s - Data: %s", e, child_dict
                     )
 
         institution_profile_ids = [
             ip.get("id") for ip in profile_dict.get("institutionProfiles", [])
         ]
-
         institution_profile_ids.extend([x.id for x in children])
 
-        # Parse main profile
         try:
             profile = Profile(
                 _raw=profile_dict,
@@ -212,20 +140,17 @@ class AulaApiClient:
                 institution_profile_ids=institution_profile_ids,
             )
         except (TypeError, ValueError) as e:
-            _LOGGER.error(f"Failed to parse main profile: {e} - Data: {profile_dict}")
+            _LOGGER.error("Failed to parse main profile: %s - Data: %s", e, profile_dict)
             raise ValueError("Failed to parse main profile data") from e
 
         return profile
 
     async def is_logged_in(self) -> bool:
         """Check if session is still authenticated."""
-        if not self._client:
-            return False
-
         try:
             await self.get_profile()
         except Exception as e:
-            _LOGGER.debug(f"is_logged_in check failed: {e}")
+            _LOGGER.debug("is_logged_in check failed: %s", e)
             return False
         return True
 
@@ -248,12 +173,14 @@ class AulaApiClient:
         )
         if resp.status_code != 200:
             _LOGGER.warning(
-                f"Could not fetch daily overview for child {child_id}: HTTP {resp.status_code}"
+                "Could not fetch daily overview for child %d: HTTP %d",
+                child_id,
+                resp.status_code,
             )
             return None
         data = resp.json().get("data")
         if not data:
-            _LOGGER.warning(f"No daily overview data for child {child_id}")
+            _LOGGER.warning("No daily overview data for child %d", child_id)
             return None
         return DailyOverview.from_dict(data[0])
 
@@ -271,12 +198,14 @@ class AulaApiClient:
                 thread = MessageThread(
                     thread_id=t_dict.get("id"),
                     subject=t_dict.get("subject"),
-                    _raw=t_dict,  # Keep passing raw data as well
+                    _raw=t_dict,
                 )
                 threads.append(thread)
             except (TypeError, ValueError, KeyError) as e:
                 _LOGGER.warning(
-                    f"Skipping message thread due to initialization error: {e} - Data: {t_dict}"
+                    "Skipping message thread due to initialization error: %s - Data: %s",
+                    e,
+                    t_dict,
                 )
         return threads
 
@@ -300,9 +229,8 @@ class AulaApiClient:
                     )
                 except (TypeError, ValueError) as e:
                     _LOGGER.warning(
-                        f"Skipping message due to parsing error: {e} - Data: {msg_dict}"
+                        "Skipping message due to parsing error: %s - Data: %s", e, msg_dict
                     )
-            # Stop if we have reached the limit
             if len(messages) >= limit:
                 break
 
@@ -318,16 +246,15 @@ class AulaApiClient:
             "end": end.strftime("%Y-%m-%d 23:59:59.0000%z"),
         }
 
-        headers = {"content-type": "application/json"}
-        if self._client and self._client.cookies:
-            csrf_token = self._client.cookies.get("Csrfp-Token")
-            if csrf_token:
-                headers["csrfp-token"] = csrf_token
+        req_headers = {"content-type": "application/json"}
+        csrf_token = self._client.get_cookie("Csrfp-Token")
+        if csrf_token:
+            req_headers["csrfp-token"] = csrf_token
 
         resp = await self._request_with_version_retry(
             "post",
             f"{self.api_url}?method=calendar.getEventsByProfileIdsAndResourceIds",
-            headers=headers,
+            headers=req_headers,
             json=data,
         )
 
@@ -337,7 +264,7 @@ class AulaApiClient:
         events = []
         raw_events = data.get("data", [])
         if not isinstance(raw_events, list):
-            _LOGGER.warning(f"Unexpected data format for calendar events: {raw_events}")
+            _LOGGER.warning("Unexpected data format for calendar events: %s", raw_events)
             return []
 
         for event in raw_events:
@@ -366,7 +293,9 @@ class AulaApiClient:
                 )
             except (TypeError, ValueError, KeyError) as e:
                 _LOGGER.warning(
-                    f"Skipping calendar event due to initialization error: {e} - Data: {event}"
+                    "Skipping calendar event due to initialization error: %s - Data: %s",
+                    e,
+                    event,
                 )
                 raise
 
@@ -378,21 +307,11 @@ class AulaApiClient:
         page: int = 1,
         limit: int = 10,
     ) -> list[Post]:
-        """
-        Fetch posts from Aula.
-
-        Args:
-            page: Page number to fetch (1-based)
-            limit: Number of posts per page
-            institution_profile_ids: List of institution profile IDs to filter by
-
-        Returns:
-            List of Post objects
-        """
+        """Fetch posts from Aula."""
         params = {
             "method": "posts.getAllPosts",
             "parent": "profile",
-            "index": page - 1,  # API uses 0-based index
+            "index": page - 1,
             "limit": limit,
             "institutionProfileIds[]": institution_profile_ids,
         }
@@ -412,9 +331,8 @@ class AulaApiClient:
                     _LOGGER.warning("Skipping non-dict post data: %s", post_data)
                     continue
 
-                _LOGGER.debug("Processing post data: %s", post_data)  # Debug log
+                _LOGGER.debug("Processing post data: %s", post_data)
 
-                # Check if this is a post object with the expected structure
                 if "id" in post_data and "title" in post_data:
                     posts.append(Post.from_dict(post_data))
                 else:
@@ -526,8 +444,6 @@ class AulaApiClient:
         )
 
     async def _get_bearer_token(self, widget_id: str) -> str:
-        # reuse or fetch new
-        # simplistic: always fetch
         resp = await self._request_with_version_retry(
             "get", f"{self.api_url}?method=aulaToken.getAulaToken&widgetId={widget_id}"
         )
@@ -552,8 +468,5 @@ class AulaApiClient:
         await self.close()
 
     async def close(self) -> None:
-        """Close HTTP clients and cleanup resources."""
-        if self._client:
-            await self._client.aclose()
-        if self._auth_client:
-            await self._auth_client.close()
+        """Close the HTTP client."""
+        await self._client.close()
