@@ -2,6 +2,9 @@
 
 import logging
 import time
+from collections.abc import Callable
+
+import qrcode
 
 from .api_client import AulaApiClient
 from .auth import AulaAuthenticationError, MitIDAuthClient
@@ -14,6 +17,7 @@ _LOGGER = logging.getLogger(__name__)
 async def authenticate_and_create_client(
     mitid_username: str,
     token_storage: TokenStorage,
+    on_qr_codes: Callable[[qrcode.QRCode, qrcode.QRCode], None] | None = None,
 ) -> AulaApiClient:
     """Authenticate via MitID (or cached tokens) and return a ready-to-use client.
 
@@ -24,7 +28,7 @@ async def authenticate_and_create_client(
         4. Create AulaApiClient and call init().
         5. Return the client.
     """
-    auth_client = MitIDAuthClient(mitid_username=mitid_username)
+    auth_client = MitIDAuthClient(mitid_username=mitid_username, on_qr_codes=on_qr_codes)
 
     token_data = await token_storage.load()
     tokens_valid = False

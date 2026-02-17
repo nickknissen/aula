@@ -7,6 +7,7 @@ import hmac
 import json
 import logging
 import time
+from collections.abc import Callable
 
 import httpx
 import qrcode
@@ -64,10 +65,12 @@ class BrowserClient:
         client_hash: str,
         authentication_session_id: str,
         http_client: httpx.AsyncClient,
+        on_qr_codes: Callable[[qrcode.QRCode, qrcode.QRCode], None] | None = None,
     ):
         self._client = http_client
         self._client_hash = client_hash
         self._authentication_session_id = authentication_session_id
+        self._on_qr_codes = on_qr_codes
 
         # Authenticator state (populated after identify step)
         self._user_id: str | None = None
@@ -277,28 +280,8 @@ class BrowserClient:
         self.qr2.make()
 
         self.status_message = "Scan QR code with MitID app"
-        self._print_qr_codes_in_terminal(self.qr1, self.qr2)
-
-    def _print_qr_codes_in_terminal(self, qr1: qrcode.QRCode, qr2: qrcode.QRCode) -> None:
-        """Print QR codes as ASCII art in the terminal."""
-        _LOGGER.info("=" * 60)
-        _LOGGER.info("SCAN THESE QR CODES WITH YOUR MITID APP")
-        _LOGGER.info("=" * 60)
-        _LOGGER.info("QR CODE 1 (Scan this first):")
-        try:
-            qr1.print_ascii(invert=True)
-        except UnicodeEncodeError:
-            qr1.print_tty()
-
-        _LOGGER.info("QR CODE 2 (Scan this second):")
-        try:
-            qr2.print_ascii(invert=True)
-        except UnicodeEncodeError:
-            qr2.print_tty()
-
-        _LOGGER.info("=" * 60)
-        _LOGGER.info("Waiting for you to scan the QR codes...")
-        _LOGGER.info("=" * 60)
+        if self._on_qr_codes:
+            self._on_qr_codes(self.qr1, self.qr2)
 
     async def _perform_srp_handshake(self, response: str, response_signature: str) -> None:
         """Execute the full SRP handshake (init → prove → verify → next)."""
