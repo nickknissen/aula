@@ -8,6 +8,7 @@ import logging
 import secrets
 import time
 from collections.abc import Callable
+from typing import Any
 from urllib.parse import parse_qs, urlencode, urljoin, urlparse
 
 import httpx
@@ -64,7 +65,7 @@ class MitIDAuthClient:
 
         async with MitIDAuthClient(mitid_username="your_username") as client:
             await client.authenticate()
-            print(client.access_token)
+            # access_token is now available on client
     """
 
     # Aula OAuth configuration
@@ -117,15 +118,13 @@ class MitIDAuthClient:
 
     # -- Public API --
 
-    async def authenticate(self) -> dict:
+    async def authenticate(self) -> dict[str, Any]:
         """Execute the complete authentication flow.
 
         Returns:
             Dict containing ``{"success": True, "tokens": ...}``.
         """
-        _LOGGER.info("=" * 60)
-        _LOGGER.info("STARTING MITID AUTHENTICATION FLOW")
-        _LOGGER.info("=" * 60)
+        _LOGGER.info("Starting MitID authentication flow")
 
         try:
             saml_redirect_url = await self._step1_start_oauth_flow()
@@ -138,9 +137,7 @@ class MitIDAuthClient:
             callback_url = await self._step6_complete_aula_login(broker_data)
             tokens = await self._step7_exchange_oauth_code(callback_url)
 
-            _LOGGER.info("=" * 60)
-            _LOGGER.info("AUTHENTICATION COMPLETED SUCCESSFULLY!")
-            _LOGGER.info("=" * 60)
+            _LOGGER.info("Authentication flow completed successfully")
 
             return {"success": True, "tokens": tokens}
 
@@ -567,7 +564,7 @@ class MitIDAuthClient:
         except json.JSONDecodeError as e:
             raise OAuthError(f"Invalid token response format: {e}") from e
 
-    async def refresh_access_token(self, refresh_token: str) -> dict:
+    async def refresh_access_token(self, refresh_token: str) -> dict[str, Any]:
         """Refresh the access token using a stored refresh token.
 
         Args:

@@ -7,7 +7,8 @@ from collections.abc import Callable
 import qrcode
 
 from .api_client import AulaApiClient
-from .auth import AulaAuthenticationError, MitIDAuthClient, OAuthError
+from .auth.exceptions import AulaAuthenticationError, OAuthError
+from .auth.mitid_client import MitIDAuthClient
 from .http_httpx import HttpxHttpClient
 from .token_storage import TokenStorage
 
@@ -87,6 +88,8 @@ async def authenticate_and_create_client(
             raise RuntimeError(f"MitID authentication failed: {e}") from e
         finally:
             await auth_client.close()
+    else:
+        await auth_client.close()
 
     access_token = auth_client.access_token
     if not access_token:

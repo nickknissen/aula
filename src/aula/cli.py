@@ -15,12 +15,13 @@ try:
 
     load_dotenv()
 except ImportError:
-    pass
+    pass  # dotenv is an optional dependency
 
 # On Windows, use SelectorEventLoopPolicy to avoid 'Event loop closed' issues
 if sys.platform.startswith("win"):
     asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
 
+from .api_client import AulaApiClient
 from .auth_flow import authenticate_and_create_client
 from .config import CONFIG_FILE, DEFAULT_TOKEN_FILE, load_config, save_config
 from .models import DailyOverview, Message, MessageThread, Profile
@@ -145,7 +146,7 @@ def _on_login_required():
     click.echo("Session expired or not found. Please open your MitID app to approve the login.")
 
 
-async def _get_client(ctx: click.Context):
+async def _get_client(ctx: click.Context) -> AulaApiClient:
     """Create an authenticated AulaApiClient."""
     username = get_mitid_username(ctx)
     token_storage = FileTokenStorage(DEFAULT_TOKEN_FILE)
@@ -155,6 +156,39 @@ async def _get_client(ctx: click.Context):
         on_qr_codes=_print_qr_codes_in_terminal,
         on_login_required=_on_login_required,
     )
+
+
+async def _get_widget_context(
+    client: AulaApiClient, prof: "Profile",
+) -> tuple[list[str], list[str], str] | None:
+    """Extract child IDs, institution codes, and session UUID for widget API calls.
+
+    Returns None and prints an error if data is unavailable.
+    """
+    child_filter = [
+        str(child._raw["userId"])
+        for child in prof.children
+        if child._raw and "userId" in child._raw
+    ]
+    if not child_filter:
+        click.echo("No child user IDs found in profile data.")
+        return None
+
+    institution_filter: list[str] = []
+    for child in prof.children:
+        if child._raw:
+            inst_code = child._raw.get("institutionProfile", {}).get("institutionCode", "")
+            if inst_code and str(inst_code) not in institution_filter:
+                institution_filter.append(str(inst_code))
+
+    try:
+        profile_context = await client.get_profile_context()
+        session_uuid = profile_context["data"]["userId"]
+    except Exception as e:
+        click.echo(f"Error fetching profile context: {e}")
+        return None
+
+    return child_filter, institution_filter, session_uuid
 
 
 # Define commands
@@ -487,28 +521,10 @@ async def mu_tasks(ctx, week):
             click.echo("No children found in profile.")
             return
 
-        child_filter = [
-            str(child._raw["userId"])
-            for child in prof.children
-            if child._raw and "userId" in child._raw
-        ]
-        if not child_filter:
-            click.echo("No child user IDs found in profile data.")
+        widget_ctx = await _get_widget_context(client, prof)
+        if widget_ctx is None:
             return
-
-        institution_filter: list[str] = []
-        for child in prof.children:
-            if child._raw:
-                inst_code = child._raw.get("institutionProfile", {}).get("institutionCode", "")
-                if inst_code and str(inst_code) not in institution_filter:
-                    institution_filter.append(str(inst_code))
-
-        try:
-            profile_context = await client.get_profile_context()
-            session_uuid = profile_context["data"]["userId"]
-        except Exception as e:
-            click.echo(f"Error fetching profile context: {e}")
-            return
+        child_filter, institution_filter, session_uuid = widget_ctx
 
         from .const import WIDGET_MIN_UDDANNELSE
 
@@ -569,28 +585,10 @@ async def mu_ugeplan(ctx, week):
             click.echo("No children found in profile.")
             return
 
-        child_filter = [
-            str(child._raw["userId"])
-            for child in prof.children
-            if child._raw and "userId" in child._raw
-        ]
-        if not child_filter:
-            click.echo("No child user IDs found in profile data.")
+        widget_ctx = await _get_widget_context(client, prof)
+        if widget_ctx is None:
             return
-
-        institution_filter: list[str] = []
-        for child in prof.children:
-            if child._raw:
-                inst_code = child._raw.get("institutionProfile", {}).get("institutionCode", "")
-                if inst_code and str(inst_code) not in institution_filter:
-                    institution_filter.append(str(inst_code))
-
-        try:
-            profile_context = await client.get_profile_context()
-            session_uuid = profile_context["data"]["userId"]
-        except Exception as e:
-            click.echo(f"Error fetching profile context: {e}")
-            return
+        child_filter, institution_filter, session_uuid = widget_ctx
 
         from .const import WIDGET_MIN_UDDANNELSE_UGEPLAN
         from .utils.html import html_to_plain
@@ -640,28 +638,10 @@ async def library_status(ctx):
             click.echo("No children found in profile.")
             return
 
-        children = [
-            str(child._raw["userId"])
-            for child in prof.children
-            if child._raw and "userId" in child._raw
-        ]
-        if not children:
-            click.echo("No child user IDs found in profile data.")
+        widget_ctx = await _get_widget_context(client, prof)
+        if widget_ctx is None:
             return
-
-        institutions: list[str] = []
-        for child in prof.children:
-            if child._raw:
-                inst_code = child._raw.get("institutionProfile", {}).get("institutionCode", "")
-                if inst_code and str(inst_code) not in institutions:
-                    institutions.append(str(inst_code))
-
-        try:
-            profile_context = await client.get_profile_context()
-            session_uuid = profile_context["data"]["userId"]
-        except Exception as e:
-            click.echo(f"Error fetching profile context: {e}")
-            return
+        children, institutions, session_uuid = widget_ctx
 
         from .const import WIDGET_BIBLIOTEKET
 
