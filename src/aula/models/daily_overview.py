@@ -41,6 +41,7 @@ class DailyOverview(AulaDataClass):
         mg_data = raw_data.get("mainGroup")
 
         return cls(
+            _raw=raw_data,
             id=raw_data.get("id"),
             status=presence_status,
             location=raw_data.get("location"),
