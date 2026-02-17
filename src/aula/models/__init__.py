@@ -1,16 +1,9 @@
-from .appointment import Appointment
-from .base import AulaDataClass
-from .calendar_event import CalendarEvent
-from .child import Child
-from .daily_overview import DailyOverview
-from .institution import Institution
-from .institution_profile import InstitutionProfile
-from .main_group import MainGroup
-from .message import Message
-from .message_thread import MessageThread
-from .post import Post
-from .presence import PresenceState
-from .profile import Profile
-from .profile_context import ProfileContext
-from .profile_picture import ProfilePicture
-from .profile_reference import ProfileReference
+from .appointment import Appointment as Appointment
+from .calendar_event import CalendarEvent as CalendarEvent
+from .child import Child as Child
+from .daily_overview import DailyOverview as DailyOverview
+from .message import Message as Message
+from .message_thread import MessageThread as MessageThread
+from .post import Post as Post
+from .profile import Profile as Profile
+from .profile_context import ProfileContext as ProfileContext
