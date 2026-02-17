@@ -26,11 +26,12 @@ This library provides an asynchronous client (`AulaApiClient`) to fetch data suc
 
 ## Library Usage
 
-Here's a basic example of how to use the `AulaApiClient` with MitID authentication:
+Here's a basic example of how to use the library with MitID authentication:
 
 ```python
 import asyncio
-from aula import AulaApiClient, FileTokenStorage
+from aula import FileTokenStorage
+from aula.auth_flow import authenticate_and_create_client
 
 async def main():
     # Replace with your MitID username
@@ -40,17 +41,10 @@ async def main():
     # Create a token storage backend (persists tokens to a file)
     token_storage = FileTokenStorage(".aula_tokens.json")
 
-    # Create the client with async context manager for proper cleanup
-    async with AulaApiClient(
-        mitid_username=mitid_username,
-        token_storage=token_storage,
-    ) as client:
-        # Login using MitID
-        # First time: Will prompt you to approve in MitID app
-        # Subsequent times: Uses cached tokens (fast!)
-        print("Logging in with MitID...")
-        print("Please approve the login in your MitID app if prompted")
-        await client.login()
+    # Authenticate and create a ready-to-use client
+    # First time: Will prompt you to approve in MitID app
+    # Subsequent times: Uses cached tokens (fast!)
+    async with await authenticate_and_create_client(mitid_username, token_storage) as client:
         print(f"Successfully logged in! API URL: {client.api_url}")
 
         # Fetch profile information
@@ -90,7 +84,6 @@ On subsequent runs, tokens are loaded from cache - no MitID app interaction need
 
 Key methods of `AulaApiClient` include:
 
-- `login()`: Authenticate and initialize the session.
 - `is_logged_in()`: Check if the session is currently active.
 - `get_profile()`: Fetch user and child profile information.
 - `get_daily_overview(child_id)`: Fetch the daily overview for a specific child.
@@ -102,7 +95,7 @@ Key methods of `AulaApiClient` include:
 
 ### Data Models
 
-The library uses dataclasses to structure the returned data (e.g., `Profile`, `Child`, `DailyOverview`, `MessageThread`). Check `models.py` for the specific fields available in each model.
+The library uses dataclasses to structure the returned data (e.g., `Profile`, `Child`, `DailyOverview`, `MessageThread`). Check the `src/aula/models/` package for the specific fields available in each model.
 
 ## Authentication Requirements
 
