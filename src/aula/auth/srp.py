@@ -113,12 +113,14 @@ class CustomSRP:
     # -- Internal computations --
 
     def _compute_little_s(self) -> int:
+        """Compute SRP multiplier k = H(N, g)."""
         n_bytes = int_to_bytes(_N)
         g_bytes = int_to_bytes(_G).rjust(len(n_bytes), b"\0")
 
         return hex_to_int(_sha256_hex(str(_N).encode("utf-8") + g_bytes))
 
     def _compute_u(self) -> int:
+        """Compute scrambling parameter u = H(A, B)."""
         a_bytes = _pad_to_n_length(int_to_bytes(self._public_key))
         b_bytes = _pad_to_n_length(int_to_bytes(self._server_public_key))
 

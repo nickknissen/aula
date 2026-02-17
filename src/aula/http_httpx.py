@@ -38,7 +38,7 @@ class HttpxHttpClient:
         )
         try:
             data = response.json()
-        except Exception:
+        except (ValueError, UnicodeDecodeError):
             data = None
         return HttpResponse(
             status_code=response.status_code,
