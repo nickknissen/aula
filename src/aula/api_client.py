@@ -8,6 +8,8 @@ from .const import (
     EASYIQ_API,
     MIN_UDDANNELSE_API,
     SYSTEMATIC_API,
+    WIDGET_EASYIQ,
+    WIDGET_HUSKELISTEN,
 )
 from .http import HttpClient, HttpResponse
 from .models import (
@@ -366,13 +368,7 @@ class AulaApiClient:
             params=params,
             headers={"Authorization": token},
         )
-        data = resp.json()
-        appointment = data.get("data", {}).get("appointments", [{}])[0]
-        return Appointment(
-            _raw=appointment,
-            appointment_id=appointment.get("appointmentId"),
-            title=appointment.get("title"),
-        )
+        return self._parse_appointment(resp)
 
     async def get_ugeplan(self, widget_id: str, child_filter: list[str], week: str) -> Appointment:
         token = await self._get_bearer_token(widget_id)
@@ -389,18 +385,12 @@ class AulaApiClient:
             params=params,
             headers={"Authorization": token},
         )
-        data = resp.json()
-        appointment = data.get("data", {}).get("appointments", [{}])[0]
-        return Appointment(
-            _raw=appointment,
-            appointment_id=appointment.get("appointmentId"),
-            title=appointment.get("title"),
-        )
+        return self._parse_appointment(resp)
 
     async def get_easyiq_weekplan(
         self, week: str, session_uuid: str, institution_filter: list[str], child_id: str
     ) -> Appointment:
-        token = await self._get_bearer_token("0001")
+        token = await self._get_bearer_token(WIDGET_EASYIQ)
         headers = {
             "Authorization": token,
             "x-aula-institutionfilter": ",".join(institution_filter),
@@ -415,16 +405,10 @@ class AulaApiClient:
         resp = await self._request_with_version_retry(
             "post", f"{EASYIQ_API}/weekplaninfo", json=payload, headers=headers
         )
-        data = resp.json()
-        appointment = data.get("data", {}).get("appointments", [{}])[0]
-        return Appointment(
-            _raw=appointment,
-            appointment_id=appointment.get("appointmentId"),
-            title=appointment.get("title"),
-        )
+        return self._parse_appointment(resp)
 
     async def get_huskeliste(self, children: list[str], institutions: list[str]) -> Appointment:
-        token = await self._get_bearer_token("0062")
+        token = await self._get_bearer_token(WIDGET_HUSKELISTEN)
         params = {
             "children": ",".join(children),
             "institutions": ",".join(institutions),
@@ -435,8 +419,14 @@ class AulaApiClient:
             params=params,
             headers={"Aula-Authorization": token},
         )
-        data = resp.json()
-        appointment = data.get("data", {}).get("appointments", [{}])[0]
+        return self._parse_appointment(resp)
+
+    def _parse_appointment(self, resp: HttpResponse) -> Appointment:
+        """Extract the first appointment from a widget API response."""
+        appointments = resp.json().get("data", {}).get("appointments", [])
+        if not appointments:
+            raise ValueError("No appointments found in widget response")
+        appointment = appointments[0]
         return Appointment(
             _raw=appointment,
             appointment_id=appointment.get("appointmentId"),
