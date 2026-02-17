@@ -52,7 +52,7 @@ class HttpClient(Protocol):
         url: str,
         *,
         headers: dict[str, str] | None = None,
-        params: dict[str, Any] | None = None,
+        params: dict[str, Any] | list[tuple[str, str]] | None = None,
         json: Any | None = None,
     ) -> HttpResponse: ...
 

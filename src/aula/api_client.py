@@ -19,6 +19,7 @@ from .models import (
     DailyOverview,
     Message,
     MessageThread,
+    MUTask,
     Post,
     Profile,
 )
@@ -63,7 +64,7 @@ class AulaApiClient:
         url: str,
         *,
         headers: dict[str, str] | None = None,
-        params: dict | None = None,
+        params: dict | list[tuple[str, str]] | None = None,
         json: object | None = None,
     ) -> HttpResponse:
         """Make an HTTP request with automatic API version bump on 410 Gone.
@@ -353,22 +354,35 @@ class AulaApiClient:
 
         return posts
 
-    async def get_mu_tasks(self, widget_id: str, child_filter: list[str], week: str) -> Appointment:
+    async def get_mu_tasks(
+        self,
+        widget_id: str,
+        child_filter: list[str],
+        institution_filter: list[str],
+        week: str,
+        session_uuid: str,
+    ) -> list[MUTask]:
+        """Fetch Min Uddannelse tasks (opgaver) for the given week."""
         token = await self._get_bearer_token(widget_id)
-        params = {
-            "assuranceLevel": "2",
-            "childFilter": ",".join(child_filter),
-            "currentWeekNumber": week,
-            "isMobileApp": "false",
-            "placement": "narrow",
-        }
+        params: list[tuple[str, str]] = [
+            ("placement", "narrow"),
+            ("sessionUUID", session_uuid),
+            ("userProfile", "guardian"),
+            ("currentWeekNumber", week),
+            ("isMobileApp", "false"),
+        ]
+        for child in child_filter:
+            params.append(("childFilter[]", child))
+        for inst in institution_filter:
+            params.append(("institutionFilter[]", inst))
+
         resp = await self._request_with_version_retry(
             "get",
             f"{MIN_UDDANNELSE_API}/opgaveliste",
             params=params,
-            headers={"Authorization": token},
+            headers={"Authorization": token, "Accept": "application/json"},
         )
-        return self._parse_appointment(resp)
+        return [MUTask.from_dict(o) for o in resp.json().get("opgaver", [])]
 
     async def get_ugeplan(self, widget_id: str, child_filter: list[str], week: str) -> Appointment:
         token = await self._get_bearer_token(widget_id)
