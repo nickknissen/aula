@@ -138,28 +138,22 @@ async def profile(ctx):
             click.echo(f"An unexpected error occurred: {e}")
             return
 
-        click.echo(f"User: {prof.display_name} (ID: {prof.profile_id})")
+        click.echo(f"Profile: {prof.display_name} (ID: {prof.profile_id})")
 
-        # Print main profile attributes
-        for k, v in prof:
-            click.echo(f"  {k}: {v}")
+        if prof.institution_profile_ids:
+            ids = ", ".join(str(i) for i in prof.institution_profile_ids)
+            click.echo(f"  Institution Profile IDs: {ids}")
 
-        # Print children if they exist
         if prof.children:
-            click.echo("  Children:")
-            for i, child in enumerate(prof.children):
-                child_prefix = "    " if i == len(prof.children) - 1 else "    "
-                click.echo(
-                    f"{child_prefix}Child {i + 1}: {child.name} (profile ID: {child.profile_id})"
-                )
-
-                child_indent = "        "
-                fields = list(child)
-                for j, (k, v) in enumerate(fields):
-                    click.echo(f"{child_indent}{k}: {v}")
-                click.echo()
+            click.echo(f"\nChildren ({len(prof.children)}):")
+            for child in prof.children:
+                click.echo(f"  {child.name}")
+                click.echo(f"    ID:          {child.id}")
+                click.echo(f"    Profile ID:  {child.profile_id}")
+                if child.institution_name:
+                    click.echo(f"    Institution: {child.institution_name}")
         else:
-            click.echo("  No children associated with this profile.")
+            click.echo("\nNo children associated with this profile.")
 
 
 @cli.command()
