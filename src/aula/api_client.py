@@ -39,9 +39,7 @@ class AulaApiClient:
     Requires a MitID username and the MitID app for authentication.
     """
 
-    def __init__(
-        self, mitid_username: str, token_storage: TokenStorage, debug: bool = False
-    ):
+    def __init__(self, mitid_username: str, token_storage: TokenStorage, debug: bool = False):
         """
         Initialize the Aula API client.
 
@@ -69,9 +67,7 @@ class AulaApiClient:
         3. Configure the HTTP client with the access token
         4. Discover the current API version
         """
-        self._auth_client = MitIDAuthClient(
-            mitid_username=self.mitid_username, debug=self.debug
-        )
+        self._auth_client = MitIDAuthClient(mitid_username=self.mitid_username, debug=self.debug)
 
         # Try to load cached tokens
         token_data = await self._token_storage.load()
@@ -80,9 +76,7 @@ class AulaApiClient:
         if token_data is not None:
             tokens = token_data.get("tokens", {})
             expires_at = tokens.get("expires_at")
-            if tokens.get("access_token") and (
-                expires_at is None or time.time() < expires_at
-            ):
+            if tokens.get("access_token") and (expires_at is None or time.time() < expires_at):
                 self._auth_client.tokens = tokens
                 tokens_valid = True
                 _LOGGER.info("Loaded cached authentication tokens")
@@ -117,7 +111,7 @@ class AulaApiClient:
         )
 
         # Copy cookies from auth client to API client
-        self._client.cookies = self._auth_client.client.cookies
+        self._client.cookies = self._auth_client.cookies
 
         await self._set_correct_api_version()
 
@@ -134,9 +128,7 @@ class AulaApiClient:
         )
         resp.raise_for_status()
 
-    async def _request_with_version_retry(
-        self, method: str, url: str, **kwargs
-    ) -> httpx.Response:
+    async def _request_with_version_retry(self, method: str, url: str, **kwargs) -> httpx.Response:
         """
         Make an HTTP request with automatic API version bump on 410 Gone.
 
@@ -177,9 +169,7 @@ class AulaApiClient:
 
             return response
 
-        raise RuntimeError(
-            f"Failed to find working API version after {max_retries} attempts"
-        )
+        raise RuntimeError(f"Failed to find working API version after {max_retries} attempts")
 
     async def get_profile(self) -> Profile:
         resp = await self._request_with_version_retry(
@@ -292,9 +282,7 @@ class AulaApiClient:
                 )
         return threads
 
-    async def get_messages_for_thread(
-        self, thread_id: int, limit: int = 5
-    ) -> list[Message]:
+    async def get_messages_for_thread(self, thread_id: int, limit: int = 5) -> list[Message]:
         """Fetches the latest messages for a specific thread."""
         resp = await self._request_with_version_retry(
             "get",
@@ -308,9 +296,7 @@ class AulaApiClient:
         for msg_dict in raw_messages:
             if msg_dict.get("messageType") == "Message":
                 try:
-                    text = msg_dict.get("text", {}).get("html") or msg_dict.get(
-                        "text", ""
-                    )
+                    text = msg_dict.get("text", {}).get("html") or msg_dict.get("text", "")
                     messages.append(
                         Message(_raw=msg_dict, id=msg_dict.get("id"), content_html=text)
                     )
@@ -416,9 +402,7 @@ class AulaApiClient:
 
         _LOGGER.debug("Fetching posts with params: %s", params)
 
-        resp = await self._request_with_version_retry(
-            "get", self.api_url, params=params
-        )
+        resp = await self._request_with_version_retry("get", self.api_url, params=params)
 
         resp.raise_for_status()
 
@@ -452,14 +436,10 @@ class AulaApiClient:
 
         return posts
 
-    async def get_mu_tasks(
-        self, widget_id: str, child_filter: list[str], week: str
-    ) -> Appointment:
+    async def get_mu_tasks(self, widget_id: str, child_filter: list[str], week: str) -> Appointment:
         token = await self._get_bearer_token(widget_id)
         url = f"{MIN_UDDANNELSE_API}/opgaveliste?assuranceLevel=2&childFilter={','.join(child_filter)}&currentWeekNumber={week}&isMobileApp=false&placement=narrow"
-        resp = await self._request_with_version_retry(
-            "get", url, headers={"Authorization": token}
-        )
+        resp = await self._request_with_version_retry("get", url, headers={"Authorization": token})
         data = resp.json()
         appointment = data.get("data", {}).get("appointments", [{}])[0]
         return Appointment(
@@ -468,14 +448,10 @@ class AulaApiClient:
             title=appointment.get("title"),
         )
 
-    async def get_ugeplan(
-        self, widget_id: str, child_filter: list[str], week: str
-    ) -> Appointment:
+    async def get_ugeplan(self, widget_id: str, child_filter: list[str], week: str) -> Appointment:
         token = await self._get_bearer_token(widget_id)
         url = f"{MIN_UDDANNELSE_API}/ugebrev?assuranceLevel=2&childFilter={','.join(child_filter)}&currentWeekNumber={week}&isMobileApp=false&placement=narrow"
-        resp = await self._request_with_version_retry(
-            "get", url, headers={"Authorization": token}
-        )
+        resp = await self._request_with_version_retry("get", url, headers={"Authorization": token})
         data = resp.json()
         appointment = data.get("data", {}).get("appointments", [{}])[0]
         return Appointment(
@@ -510,9 +486,7 @@ class AulaApiClient:
             title=appointment.get("title"),
         )
 
-    async def get_huskeliste(
-        self, children: list[str], institutions: list[str]
-    ) -> Appointment:
+    async def get_huskeliste(self, children: list[str], institutions: list[str]) -> Appointment:
         token = await self._get_bearer_token("0062")
         params = {
             "children": ",".join(children),
