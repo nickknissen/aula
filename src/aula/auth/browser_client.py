@@ -118,9 +118,10 @@ class BrowserClient:
         self._reference_text_body = data["referenceTextBody"]
 
         self.status_message = f"Beginning login session for {self._service_provider_name}"
-        _LOGGER.info("Beginning login session for %s", self._service_provider_name)
-        _LOGGER.debug(self._reference_text_header)
-        _LOGGER.debug(self._reference_text_body)
+        _LOGGER.info("MitID session initialized for service: %s", self._service_provider_name)
+        _LOGGER.debug(
+            "Reference text: %s — %s", self._reference_text_header, self._reference_text_body
+        )
 
     def get_current_qr_codes(self) -> tuple | None:
         """Get current QR codes for external display (e.g., GUI)."""
@@ -188,7 +189,7 @@ class BrowserClient:
         poll_url = data["pollUrl"]
         ticket = data["ticket"]
         self.status_message = "Login request has been made, open your MitID app now"
-        _LOGGER.info("Login request has been made, open your MitID app now")
+        _LOGGER.info("Waiting for MitID app approval")
 
         response, response_signature = await self._poll_for_app_confirmation(poll_url, ticket)
         await self._perform_srp_handshake(response, response_signature)
@@ -236,7 +237,7 @@ class BrowserClient:
                 self.status_message = (
                     f"Please use the following OTP code in the app: {self.otp_code}"
                 )
-                _LOGGER.info("Please use the following OTP code in the app: %s", self.otp_code)
+                _LOGGER.debug("OTP channel validation requested")
                 await asyncio.sleep(0.5)
                 continue
 
@@ -249,7 +250,7 @@ class BrowserClient:
                 self.status_message = (
                     "The OTP/QR code has been verified, now waiting user to approve login"
                 )
-                _LOGGER.info("The OTP/QR code has been verified, now waiting user to approve login")
+                _LOGGER.debug("Channel verified, awaiting user approval")
                 await asyncio.sleep(0.5)
                 continue
 
@@ -352,7 +353,7 @@ class BrowserClient:
 
         self._finalization_session_id = data["nextSessionId"]
         self.status_message = "App login was accepted, finalizing authentication"
-        _LOGGER.info("App login was accepted, finalizing authentication")
+        _LOGGER.info("MitID app authentication successful")
 
     def _compute_flow_value_proof(self, session_key: bytes) -> str:
         """Create HMAC-SHA256 flow value proof using the SRP session key."""

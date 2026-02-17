@@ -123,9 +123,6 @@ class MitIDAuthClient:
         Returns:
             Dict containing ``{"success": True, "tokens": ...}``.
         """
-        _LOGGER.info("=" * 60)
-        _LOGGER.info("STARTING MITID AUTHENTICATION FLOW")
-        _LOGGER.info("=" * 60)
 
         try:
             saml_redirect_url = await self._step1_start_oauth_flow()
@@ -138,16 +135,11 @@ class MitIDAuthClient:
             callback_url = await self._step6_complete_aula_login(broker_data)
             tokens = await self._step7_exchange_oauth_code(callback_url)
 
-            _LOGGER.info("=" * 60)
-            _LOGGER.info("AUTHENTICATION COMPLETED SUCCESSFULLY!")
-            _LOGGER.info("=" * 60)
-
             return {"success": True, "tokens": tokens}
 
         except AulaAuthenticationError:
             raise
         except Exception as e:
-            _LOGGER.error("Authentication flow failed: %s", e)
             raise AulaAuthenticationError(f"Authentication failed: {e}") from e
 
     @property
@@ -193,7 +185,7 @@ class MitIDAuthClient:
 
     async def _step1_start_oauth_flow(self) -> str:
         """Step 1: Start OAuth authorization flow."""
-        _LOGGER.info("Starting OAuth 2.0 authorization flow")
+        _LOGGER.info("Step 1/7: Starting OAuth authorization flow")
 
         try:
             self._code_verifier, self._code_challenge = self._generate_pkce_parameters()
@@ -212,12 +204,11 @@ class MitIDAuthClient:
             auth_url = f"{self._AUTH_BASE_URL}/simplesaml/module.php/oidc/authorize.php"
             full_auth_url = f"{auth_url}?{urlencode(auth_params)}"
 
-            _LOGGER.info("Visiting OAuth authorization URL")
             response = await self._client.get(full_auth_url)
 
             if response.is_redirect:
                 redirect_url = response.headers.get("Location")
-                _LOGGER.info("OAuth redirecting to SAML: %s...", redirect_url[:80])
+                _LOGGER.debug("OAuth redirecting to: %s", redirect_url)
                 return redirect_url
 
             if response.is_success:
@@ -234,7 +225,7 @@ class MitIDAuthClient:
 
     async def _step2_follow_redirect_to_mitid(self, start_url: str) -> dict:
         """Step 2: Follow the redirect chain to MitID."""
-        _LOGGER.info("Following redirect chain to MitID")
+        _LOGGER.info("Step 2/7: Following redirect chain to MitID")
 
         current_url = start_url
         max_redirects = 15
@@ -242,17 +233,20 @@ class MitIDAuthClient:
         try:
             for redirect_count in range(1, max_redirects + 1):
                 response = await self._client.get(current_url)
-                _LOGGER.info("Redirect %d: %d", redirect_count, response.status_code)
+                _LOGGER.debug(
+                    "Redirect %d: HTTP %d → %s",
+                    redirect_count, response.status_code, response.url,
+                )
 
                 if response.is_success:
                     soup = BeautifulSoup(response.text, "html.parser")
 
                     if "broker.unilogin.dk" in str(response.url):
-                        _LOGGER.info("Reached UniLogin broker - looking for MitID selection")
+                        _LOGGER.debug("Reached UniLogin broker")
                         return await self._handle_broker_page(soup)
 
                     if "mitid.dk" in str(response.url) or "nemlog-in" in str(response.url):
-                        _LOGGER.info("Reached MitID page")
+                        _LOGGER.debug("Reached MitID page")
                         token_input = soup.find("input", {"name": "__RequestVerificationToken"})
                         if not isinstance(token_input, Tag):
                             raise SAMLError("Could not find RequestVerificationToken on MitID page")
@@ -280,21 +274,21 @@ class MitIDAuthClient:
         """Handle the broker page for MitID selection."""
         action, form_data = _extract_form_data(soup)
 
-        _LOGGER.info("Submitting MitID selection form")
+        _LOGGER.debug("Submitting MitID selection form to %s", action)
         form_data["selectedIdp"] = "nemlogin3"
 
         post_response = await self._client.post(action, data=form_data)
 
         if post_response.is_redirect and "Location" in post_response.headers:
             current_url = post_response.headers["Location"]
-            _LOGGER.info("Form submission redirected to: %s...", current_url[:80])
+            _LOGGER.debug("IdP selection redirected to: %s", current_url)
             return await self._step2_follow_redirect_to_mitid(current_url)
 
         raise SAMLError("Could not find working IdP selection method")
 
     async def _step3_mitid_authentication(self, verification_token: str) -> str:
         """Step 3: Perform MitID authentication with the app."""
-        _LOGGER.info("Starting MitID authentication (APP method)")
+        _LOGGER.info("Step 3/7: Authenticating with MitID app")
 
         post_url = "https://nemlog-in.mitid.dk/login/mitid/initialize"
         post_headers = {
@@ -338,7 +332,7 @@ class MitIDAuthClient:
             )
         )
 
-        _LOGGER.info("Available authenticators: %s", available_authenticators)
+        _LOGGER.debug("Available authenticators: %s", available_authenticators)
 
         if "APP" not in available_authenticators:
             raise MitIDError("APP authentication method not available for this user")
@@ -348,14 +342,14 @@ class MitIDAuthClient:
         authorization_code = (
             await self._mitid_client.finalize_authentication_and_get_authorization_code()
         )
-        _LOGGER.info("MitID authentication code obtained")
+        _LOGGER.debug("MitID authorization code obtained")
         return authorization_code
 
     async def _step4_complete_mitid_flow(
         self, verification_token: str, authorization_code: str
     ) -> dict:
         """Step 4: Complete MitID authentication and get SAML response."""
-        _LOGGER.info("Completing MitID authentication flow")
+        _LOGGER.info("Step 4/7: Completing MitID flow")
 
         try:
             session_uuid = self._client.cookies.get("SessionUuid", "")
@@ -392,7 +386,7 @@ class MitIDAuthClient:
 
     async def _step5_saml_broker_flow(self, saml_data: dict) -> dict:
         """Step 5: Complete SAML broker authentication."""
-        _LOGGER.info("Processing SAML broker flow")
+        _LOGGER.info("Step 5/7: Processing SAML broker flow")
 
         try:
             params = {
@@ -457,7 +451,7 @@ class MitIDAuthClient:
 
     async def _step6_complete_aula_login(self, saml_data: dict) -> str:
         """Step 6: Complete Aula login with SAML response."""
-        _LOGGER.info("Completing Aula login with SAML response")
+        _LOGGER.info("Step 6/7: Completing Aula login")
 
         try:
             aula_saml_data = {
@@ -491,7 +485,7 @@ class MitIDAuthClient:
             # Check if this is the OAuth callback
             response_url = str(redirect_response.url)
             if self._APP_REDIRECT_URI in response_url and "code=" in response_url:
-                _LOGGER.info("Found OAuth callback URL")
+                _LOGGER.debug("Found OAuth callback URL")
                 return response_url
 
             if "Location" in redirect_response.headers:
@@ -510,7 +504,7 @@ class MitIDAuthClient:
 
     async def _step7_exchange_oauth_code(self, callback_url: str) -> dict:
         """Step 7: Exchange OAuth authorization code for tokens."""
-        _LOGGER.info("Exchanging OAuth authorization code for tokens")
+        _LOGGER.info("Step 7/7: Exchanging authorization code for tokens")
 
         try:
             parsed_url = urlparse(callback_url)
@@ -558,7 +552,7 @@ class MitIDAuthClient:
             if expires_in := tokens.get("expires_in", 0):
                 hours, remainder = divmod(int(expires_in), 3600)
                 minutes = remainder // 60
-                _LOGGER.info("Token obtained! Lifetime: %dh %dm", hours, minutes)
+                _LOGGER.info("Authentication complete, token lifetime: %dh %dm", hours, minutes)
 
             return tokens
 
@@ -579,7 +573,7 @@ class MitIDAuthClient:
         Raises:
             OAuthError: If the refresh request fails (expired/revoked token, server error).
         """
-        _LOGGER.info("Attempting token refresh")
+        _LOGGER.info("Refreshing access token")
 
         token_url = f"{self._AUTH_BASE_URL}/simplesaml/module.php/oidc/token.php"
 
@@ -606,7 +600,7 @@ class MitIDAuthClient:
                 tokens["expires_at"] = time.time() + tokens["expires_in"]
 
             self._tokens = tokens
-            _LOGGER.info("Token refresh successful")
+            _LOGGER.info("Token refreshed successfully")
             return tokens
 
         except httpx.HTTPError as e:
