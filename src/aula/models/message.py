@@ -1,6 +1,6 @@
 from dataclasses import dataclass, field
 
-from ..utils import html_to_markdown, html_to_plain
+from ..utils.html import html_to_markdown, html_to_plain
 from .base import AulaDataClass
 
 

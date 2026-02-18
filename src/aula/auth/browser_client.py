@@ -33,7 +33,7 @@ _NAME_TO_COMBINATION_ID: dict[str, str] = {
 }
 
 
-def _pad(s: str) -> str:
+def _pkcs7_pad(s: str) -> str:
     pad_len = _BLOCK_SIZE - len(s) % _BLOCK_SIZE
     return s + pad_len * chr(pad_len)
 
@@ -221,9 +221,10 @@ class BrowserClient:
             r = await self._client.post(poll_url, json={"ticket": ticket})
             data = r.json()
 
-            if not r.is_success or (data["status"] == "OK" and data["confirmation"] is True):
-                if not r.is_success or data["status"] != "OK":
-                    raise MitIDError("Login request was not accepted")
+            if not r.is_success:
+                raise MitIDError("Login request was not accepted")
+
+            if data["status"] == "OK" and data["confirmation"] is True:
                 return data["payload"]["response"], data["payload"]["responseSignature"]
 
             status = data["status"]
@@ -288,8 +289,8 @@ class BrowserClient:
         """Execute the full SRP handshake (init → prove → verify → next)."""
         timer_start = time.monotonic()
 
-        assert self._authenticator_session_flow_key is not None
-        assert self._authenticator_session_id is not None
+        if self._authenticator_session_flow_key is None or self._authenticator_session_id is None:
+            raise MitIDError("SRP handshake requires authenticator session to be established")
 
         srp = CustomSRP()
         public_a = srp.srp_stage1()
@@ -325,7 +326,7 @@ class BrowserClient:
             raise MitIDError("m2 could not be validated during proving of app response")
 
         auth_enc = base64.b64encode(
-            srp.auth_enc(base64.b64decode(_pad(response_signature)))
+            srp.auth_enc(base64.b64decode(_pkcs7_pad(response_signature)))
         ).decode("ascii")
 
         front_end_time_ms = int((time.monotonic() - timer_start) * 1000)
@@ -357,13 +358,18 @@ class BrowserClient:
 
     def _compute_flow_value_proof(self, session_key: bytes) -> str:
         """Create HMAC-SHA256 flow value proof using the SRP session key."""
-        assert self._authenticator_session_id is not None
-        assert self._authenticator_session_flow_key is not None
-        assert self._authenticator_eafe_hash is not None
-        assert self._broker_security_context is not None
-        assert self._reference_text_header is not None
-        assert self._reference_text_body is not None
-        assert self._service_provider_name is not None
+        required_fields = {
+            "authenticator_session_id": self._authenticator_session_id,
+            "authenticator_session_flow_key": self._authenticator_session_flow_key,
+            "authenticator_eafe_hash": self._authenticator_eafe_hash,
+            "broker_security_context": self._broker_security_context,
+            "reference_text_header": self._reference_text_header,
+            "reference_text_body": self._reference_text_body,
+            "service_provider_name": self._service_provider_name,
+        }
+        missing = [k for k, v in required_fields.items() if v is None]
+        if missing:
+            raise MitIDError(f"Missing required auth state: {', '.join(missing)}")
 
         proof_key = hashlib.sha256(
             ("flowValues" + bytes_to_hex(session_key)).encode("utf-8")

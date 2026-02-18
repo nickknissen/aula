@@ -34,3 +34,21 @@ line-length = 100
 
 [tool.ruff.lint]
 select = ["E", "F", "W", "I", "UP", "B", "SIM", "LOG"]
+
+[tool.pytest.ini_options]
+addopts = "--cov=aula --cov-report=term-missing"
+
+[tool.coverage.run]
+source = ["aula"]
+branch = true
+
+[tool.coverage.report]
+show_missing = true
+skip_empty = true
+
+[dependency-groups]
+dev = [
+    "pytest>=9.0.2",
+    "pytest-asyncio>=1.3.0",
+    "pytest-cov>=7.0.0",
+]

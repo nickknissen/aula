@@ -4,6 +4,7 @@ import json
 import logging
 import os
 import sys
+import tempfile
 from abc import ABC, abstractmethod
 from pathlib import Path
 from typing import Any
@@ -12,7 +13,11 @@ _LOGGER = logging.getLogger(__name__)
 
 
 class TokenStorage(ABC):
-    """Abstract base class for token storage backends."""
+    """Abstract base class for token storage backends.
+
+    Methods are async to support future backends (e.g., remote/cloud storage)
+    even though the file-based implementation uses synchronous I/O.
+    """
 
     @abstractmethod
     async def load(self) -> dict[str, Any] | None:
@@ -56,8 +61,16 @@ class FileTokenStorage(TokenStorage):
 
     async def save(self, data: dict[str, Any]) -> None:
         self._path.parent.mkdir(parents=True, exist_ok=True)
-        self._path.write_text(json.dumps(data, indent=2))
-        # Restrict file permissions to owner-only on Unix systems
-        if sys.platform != "win32":
-            os.chmod(self._path, 0o600)
+        # Atomic write: write to temp file then rename to avoid partial writes
+        fd, tmp_path = tempfile.mkstemp(dir=self._path.parent, suffix=".tmp")
+        try:
+            with os.fdopen(fd, "w") as f:
+                json.dump(data, f, indent=2)
+            # Restrict file permissions to owner-only on Unix systems
+            if sys.platform != "win32":
+                os.chmod(tmp_path, 0o600)
+            os.replace(tmp_path, self._path)
+        except OSError:
+            os.unlink(tmp_path)
+            raise
         _LOGGER.debug("Tokens saved to %s", self._path)
