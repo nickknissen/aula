@@ -2,7 +2,7 @@ import datetime
 from dataclasses import dataclass, field
 from typing import Any
 
-from ..utils import html_to_markdown, html_to_plain
+from ..utils.html import html_to_markdown, html_to_plain
 from .base import AulaDataClass
 from .profile_reference import ProfileReference
 

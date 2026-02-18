@@ -21,7 +21,7 @@ def html_to_plain(html: str) -> str:
         h.ignore_images = True
         h.ignore_tables = True
         return h.handle(html).strip()
-    except Exception as e:
+    except (ValueError, AttributeError, UnicodeError) as e:
         _LOGGER.warning("Error converting HTML to plain text: %s", e)
         return html
 
@@ -34,6 +34,6 @@ def html_to_markdown(html: str) -> str:
         h = html2text.HTML2Text()
         h.unicode_snob = True
         return h.handle(html).strip()
-    except Exception as e:
+    except (ValueError, AttributeError, UnicodeError) as e:
         _LOGGER.warning("Error converting HTML to Markdown: %s", e)
         return html

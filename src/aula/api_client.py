@@ -1,5 +1,6 @@
 import logging
 from datetime import date, datetime
+from typing import Any
 from zoneinfo import ZoneInfo
 
 from .const import (
@@ -82,9 +83,8 @@ class AulaApiClient:
         if self._access_token and url.startswith(API_URL):
             if params is not None:
                 if isinstance(params, list):
-                    params.append(("access_token", self._access_token))
-                else:
-                    params["access_token"] = self._access_token
+                    params = dict(params)
+                params["access_token"] = self._access_token
             else:
                 sep = "&" if "?" in url else "?"
                 url = f"{url}{sep}access_token={self._access_token}"
@@ -139,7 +139,7 @@ class AulaApiClient:
                     )
 
         institution_profile_ids = [
-            ip.get("id") for ip in profile_dict.get("institutionProfiles", [])
+            ip["id"] for ip in profile_dict.get("institutionProfiles", []) if "id" in ip
         ]
         institution_profile_ids.extend([x.id for x in children])
 
@@ -166,7 +166,7 @@ class AulaApiClient:
             return False
         return True
 
-    async def get_profile_context(self) -> dict:
+    async def get_profile_context(self) -> dict[str, Any]:
         """Fetch the profile context for the current guardian session."""
         resp = await self._request_with_version_retry(
             "get",
@@ -178,30 +178,29 @@ class AulaApiClient:
     async def get_daily_overview(self, child_id: int) -> DailyOverview | None:
         """Fetches the daily overview for a specific child.
 
-        Returns None if the data is unavailable (e.g. 403 Forbidden).
+        Returns None if no data is available for the child.
+
+        Raises:
+            HttpRequestError: If the API returns a 4xx/5xx error.
         """
         resp = await self._request_with_version_retry(
             "get",
             f"{self.api_url}?method=presence.getDailyOverview&childIds[]={child_id}",
         )
-        if resp.status_code != 200:
-            _LOGGER.warning(
-                "Could not fetch daily overview for child %d: HTTP %d",
-                child_id,
-                resp.status_code,
-            )
-            return None
+        resp.raise_for_status()
         data = resp.json().get("data")
         if not data:
             _LOGGER.warning("No daily overview data for child %d", child_id)
             return None
         return DailyOverview.from_dict(data[0])
 
-    async def get_message_threads(self) -> list[MessageThread]:
-        resp = await self._request_with_version_retry(
-            "get",
-            f"{self.api_url}?method=messaging.getThreads&sortOn=date&orderDirection=desc&page=0",
-        )
+    async def get_message_threads(
+        self, filter_on: str | None = None
+    ) -> list[MessageThread]:
+        url = f"{self.api_url}?method=messaging.getThreads&sortOn=date&orderDirection=desc&page=0"
+        if filter_on:
+            url += f"&filterOn={filter_on}"
+        resp = await self._request_with_version_retry("get", url)
         resp.raise_for_status()
         threads_data = resp.json().get("data", {}).get("threads", [])
 
@@ -234,7 +233,7 @@ class AulaApiClient:
         raw_messages = data.get("data", {}).get("messages", [])
 
         for msg_dict in raw_messages:
-            if msg_dict.get("messageType") == "Message":
+            if msg_dict.get("messageType") in ("Message", "MessageEdited"):
                 try:
                     text = msg_dict.get("text", {}).get("html") or msg_dict.get("text", "")
                     messages.append(
@@ -247,6 +246,72 @@ class AulaApiClient:
             if len(messages) >= limit:
                 break
 
+        return messages
+
+    async def search_messages(
+        self,
+        text: str,
+        institution_profile_ids: list[int],
+        institution_codes: list[str],
+        limit: int = 20,
+    ) -> list[Message]:
+        """Search for messages matching the given text."""
+        data = {
+            "text": text,
+            "typeahead": False,
+            "exactTerm": True,
+            "activeChildrenInstitutionProfileIds": institution_profile_ids,
+            "institutionCodes": institution_codes,
+            "limit": limit,
+            "offset": 0,
+            "commonInboxID": None,
+            "filterBy": "all",
+            "sortBy": "date",
+            "sortDirection": "desc",
+            "threadSubject": None,
+            "messageContent": None,
+            "fromDate": None,
+            "toDate": None,
+            "threadCreators": [],
+            "participants": [],
+            "hasAttachments": None,
+        }
+
+        req_headers = {
+            "content-type": "application/json",
+            "origin": "https://www.aula.dk",
+            "referer": "https://www.aula.dk/portal/",
+        }
+        csrf_token = self._client.get_cookie("Csrfp-Token")
+        if csrf_token:
+            req_headers["csrfp-token"] = csrf_token
+
+        resp = await self._request_with_version_retry(
+            "post",
+            f"{self.api_url}?method=search.findMessage",
+            headers=req_headers,
+            json=data,
+        )
+        resp.raise_for_status()
+
+        results = resp.json().get("data", {}).get("results", [])
+        messages = []
+        for msg_dict in results:
+            try:
+                raw_text = msg_dict.get("text")
+                if isinstance(raw_text, dict):
+                    text_content = raw_text.get("html", "")
+                elif isinstance(raw_text, str):
+                    text_content = raw_text
+                else:
+                    text_content = ""
+                messages.append(
+                    Message(_raw=msg_dict, id=msg_dict.get("id", ""), content_html=text_content)
+                )
+            except (TypeError, ValueError) as e:
+                _LOGGER.warning(
+                    "Skipping search result due to parsing error: %s - Data: %s", e, msg_dict
+                )
         return messages
 
     async def get_calendar_events(
@@ -272,10 +337,10 @@ class AulaApiClient:
         )
 
         resp.raise_for_status()
-        data = resp.json()
+        response_data = resp.json()
 
         events = []
-        raw_events = data.get("data", [])
+        raw_events = response_data.get("data", [])
         if not isinstance(raw_events, list):
             _LOGGER.warning("Unexpected data format for calendar events: %s", raw_events)
             return []
@@ -732,7 +797,7 @@ class AulaApiClient:
     def _parse_date(self, date_str: str) -> datetime:
         return datetime.fromisoformat(date_str).astimezone(ZoneInfo("Europe/Copenhagen"))
 
-    def _find_participant_by_role(self, lesson: dict, role: str):
+    def _find_participant_by_role(self, lesson: dict[str, Any], role: str) -> dict[str, Any]:
         participants = lesson.get("participants", [])
 
         return next(

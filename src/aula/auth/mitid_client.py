@@ -8,6 +8,7 @@ import logging
 import secrets
 import time
 from collections.abc import Callable
+from typing import Any
 from urllib.parse import parse_qs, urlencode, urljoin, urlparse
 
 import httpx
@@ -64,7 +65,7 @@ class MitIDAuthClient:
 
         async with MitIDAuthClient(mitid_username="your_username") as client:
             await client.authenticate()
-            print(client.access_token)
+            # access_token is now available on client
     """
 
     # Aula OAuth configuration
@@ -117,7 +118,7 @@ class MitIDAuthClient:
 
     # -- Public API --
 
-    async def authenticate(self) -> dict:
+    async def authenticate(self) -> dict[str, Any]:
         """Execute the complete authentication flow.
 
         Returns:
@@ -563,7 +564,7 @@ class MitIDAuthClient:
         except json.JSONDecodeError as e:
             raise OAuthError(f"Invalid token response format: {e}") from e
 
-    async def refresh_access_token(self, refresh_token: str) -> dict:
+    async def refresh_access_token(self, refresh_token: str) -> dict[str, Any]:
         """Refresh the access token using a stored refresh token.
 
         Args:
