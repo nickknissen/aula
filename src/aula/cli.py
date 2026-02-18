@@ -312,15 +312,76 @@ async def overview(ctx, child_id):
 
 @cli.command()
 @click.option("--limit", type=int, default=5, help="Number of threads to fetch.")
+@click.option("--unread", is_flag=True, default=False, help="Only show unread message threads.")
+@click.option("--search", type=str, default=None, help="Search messages for the given text.")
 @click.pass_context
 @async_cmd
-async def messages(ctx, limit):
+async def messages(ctx, limit, unread, search):
     """Fetch the latest message threads and their messages."""
     async with await _get_client(ctx) as client:
-        click.echo(f"Fetching the latest {limit} message threads...\n")
+        if search:
+            click.echo(f'Searching messages for "{search}"...\n')
+
+            try:
+                prof: Profile = await client.get_profile()
+            except Exception as e:
+                click.echo(f"Error fetching profile: {e}")
+                return
+
+            institution_codes: list[str] = []
+            for child in prof.children:
+                if child._raw:
+                    code = child._raw.get("institutionProfile", {}).get(
+                        "institutionCode", ""
+                    )
+                    if code and str(code) not in institution_codes:
+                        institution_codes.append(str(code))
+
+            try:
+                results = await client.search_messages(
+                    text=search,
+                    institution_profile_ids=prof.institution_profile_ids,
+                    institution_codes=institution_codes,
+                    limit=limit,
+                )
+            except Exception as e:
+                click.echo(f"Error searching messages: {e}")
+                return
+
+            if not results:
+                click.echo("No messages found.")
+                return
+
+            for i, msg in enumerate(results):
+                msg_raw = msg._raw or {}
+                sender = msg_raw.get("sender", {}).get("fullName", "Unknown")
+                send_date = msg_raw.get("sendDateTime", "")
+                subject = msg_raw.get("threadSubject", "")
+
+                click.echo(f"{'=' * 60}")
+                if subject:
+                    click.echo(f"  {subject}")
+                click.echo(f"  {sender}  {send_date}")
+                click.echo(f"  {'-' * 40}")
+                content = msg.content.strip()
+                if content:
+                    for line in content.splitlines():
+                        click.echo(f"  {line}")
+                else:
+                    click.echo("  (no message body)")
+
+                if i < len(results) - 1:
+                    click.echo()
+            return
+
+        filter_label = "unread" if unread else "latest"
+        click.echo(f"Fetching the {filter_label} {limit} message threads...\n")
 
         try:
-            threads: list[MessageThread] = await client.get_message_threads()
+            filter_on = "unread" if unread else None
+            threads: list[MessageThread] = await client.get_message_threads(
+                filter_on=filter_on
+            )
             threads = threads[:limit]
         except Exception as e:
             click.echo(f"Error fetching message threads: {e}")
