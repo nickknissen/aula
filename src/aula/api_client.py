@@ -72,7 +72,7 @@ class AulaApiClient:
         url: str,
         *,
         headers: dict[str, str] | None = None,
-        params: dict | list[tuple[str, str]] | None = None,
+        params: dict[str, Any] | None = None,
         json: object | None = None,
     ) -> HttpResponse:
         """Make an HTTP request with automatic API version bump on 410 Gone.
@@ -82,8 +82,6 @@ class AulaApiClient:
         # Auto-append access token for Aula API requests
         if self._access_token and url.startswith(API_URL):
             if params is not None:
-                if isinstance(params, list):
-                    params = dict(params)
                 params["access_token"] = self._access_token
             else:
                 sep = "&" if "?" in url else "?"
@@ -248,72 +246,6 @@ class AulaApiClient:
 
         return messages
 
-    async def search_messages(
-        self,
-        text: str,
-        institution_profile_ids: list[int],
-        institution_codes: list[str],
-        limit: int = 20,
-    ) -> list[Message]:
-        """Search for messages matching the given text."""
-        data = {
-            "text": text,
-            "typeahead": False,
-            "exactTerm": True,
-            "activeChildrenInstitutionProfileIds": institution_profile_ids,
-            "institutionCodes": institution_codes,
-            "limit": limit,
-            "offset": 0,
-            "commonInboxID": None,
-            "filterBy": "all",
-            "sortBy": "date",
-            "sortDirection": "desc",
-            "threadSubject": None,
-            "messageContent": None,
-            "fromDate": None,
-            "toDate": None,
-            "threadCreators": [],
-            "participants": [],
-            "hasAttachments": None,
-        }
-
-        req_headers = {
-            "content-type": "application/json",
-            "origin": "https://www.aula.dk",
-            "referer": "https://www.aula.dk/portal/",
-        }
-        csrf_token = self._client.get_cookie("Csrfp-Token")
-        if csrf_token:
-            req_headers["csrfp-token"] = csrf_token
-
-        resp = await self._request_with_version_retry(
-            "post",
-            f"{self.api_url}?method=search.findMessage",
-            headers=req_headers,
-            json=data,
-        )
-        resp.raise_for_status()
-
-        results = resp.json().get("data", {}).get("results", [])
-        messages = []
-        for msg_dict in results:
-            try:
-                raw_text = msg_dict.get("text")
-                if isinstance(raw_text, dict):
-                    text_content = raw_text.get("html", "")
-                elif isinstance(raw_text, str):
-                    text_content = raw_text
-                else:
-                    text_content = ""
-                messages.append(
-                    Message(_raw=msg_dict, id=msg_dict.get("id", ""), content_html=text_content)
-                )
-            except (TypeError, ValueError) as e:
-                _LOGGER.warning(
-                    "Skipping search result due to parsing error: %s - Data: %s", e, msg_dict
-                )
-        return messages
-
     async def get_calendar_events(
         self, institution_profile_ids: list[int], start: datetime, end: datetime
     ) -> list[CalendarEvent]:
@@ -439,17 +371,15 @@ class AulaApiClient:
     ) -> list[MUTask]:
         """Fetch Min Uddannelse tasks (opgaver) for the given week."""
         token = await self._get_bearer_token(widget_id)
-        params: list[tuple[str, str]] = [
-            ("placement", "narrow"),
-            ("sessionUUID", session_uuid),
-            ("userProfile", "guardian"),
-            ("currentWeekNumber", week),
-            ("isMobileApp", "false"),
-        ]
-        for child in child_filter:
-            params.append(("childFilter[]", child))
-        for inst in institution_filter:
-            params.append(("institutionFilter[]", inst))
+        params = {
+            "placement": "narrow",
+            "sessionUUID": session_uuid,
+            "userProfile": "guardian",
+            "currentWeekNumber": week,
+            "isMobileApp": "false",
+            "childFilter[]": child_filter,
+            "institutionFilter[]": institution_filter,
+        }
 
         resp = await self._request_with_version_retry(
             "get",
@@ -534,14 +464,12 @@ class AulaApiClient:
         if len(parts) == 2:
             week = f"{parts[0]}-W{int(parts[1]):02d}"
 
-        params: list[tuple[str, str]] = [
-            ("currentWeekNumber", week),
-            ("userProfile", "guardian"),
-        ]
-        for child in child_filter:
-            params.append(("childFilter[]", child))
-        for inst in institution_filter:
-            params.append(("institutionFilter[]", inst))
+        params = {
+            "currentWeekNumber": week,
+            "userProfile": "guardian",
+            "childFilter[]": child_filter,
+            "institutionFilter[]": institution_filter,
+        }
 
         headers = {
             "Authorization": token,
@@ -567,15 +495,13 @@ class AulaApiClient:
         """Fetch MoMo courses (forløb) for children."""
         token = await self._get_bearer_token(WIDGET_HUSKELISTEN)
 
-        params: list[tuple[str, str]] = [
-            ("widgetVersion", "1.3"),
-            ("userProfile", "guardian"),
-            ("sessionId", session_uuid),
-        ]
-        for child in children:
-            params.append(("children", child))
-        for inst in institutions:
-            params.append(("institutions", inst))
+        params = {
+            "widgetVersion": "1.3",
+            "userProfile": "guardian",
+            "sessionId": session_uuid,
+            "children": children,
+            "institutions": institutions,
+        }
 
         resp = await self._request_with_version_retry(
             "get",
@@ -594,16 +520,14 @@ class AulaApiClient:
     ) -> LibraryStatus:
         """Fetch library status (loans, reservations) from Cicero."""
         token = await self._get_bearer_token(widget_id)
-        params: list[tuple[str, str]] = [
-            ("coverImageHeight", "160"),
-            ("widgetVersion", "1.6"),
-            ("userProfile", "guardian"),
-            ("sessionUUID", session_uuid),
-        ]
-        for inst in institutions:
-            params.append(("institutions", inst))
-        for child in children:
-            params.append(("children", child))
+        params = {
+            "coverImageHeight": "160",
+            "widgetVersion": "1.6",
+            "userProfile": "guardian",
+            "sessionUUID": session_uuid,
+            "institutions": institutions,
+            "children": children,
+        }
 
         resp = await self._request_with_version_retry(
             "get",
@@ -658,16 +582,18 @@ class AulaApiClient:
 
     async def search_messages(
         self,
-        children_institution_profile_ids: list[int],
+        institution_profile_ids: list[int],
         institution_codes: list[str],
+        *,
+        text: str = "",
         from_date: date | None = None,
         to_date: date | None = None,
         has_attachments: bool | None = None,
         limit: int = 100,
-    ) -> list[dict]:
+    ) -> list[Message]:
         """Search messages using search.findMessage with server-side filtering.
 
-        ``children_institution_profile_ids`` must only contain the children's
+        ``institution_profile_ids`` must only contain the children's
         institution profile IDs (not the parent's), otherwise the API returns 403.
 
         Paginates automatically to fetch all matching results.
@@ -677,15 +603,15 @@ class AulaApiClient:
         if csrf_token:
             headers["csrfp-token"] = csrf_token
 
-        all_results: list[dict] = []
+        all_messages: list[Message] = []
         offset = 0
 
         while True:
             payload = {
-                "text": "",
+                "text": text,
                 "typeahead": False,
                 "exactTerm": True,
-                "activeChildrenInstitutionProfileIds": children_institution_profile_ids,
+                "activeChildrenInstitutionProfileIds": institution_profile_ids,
                 "institutionCodes": institution_codes,
                 "limit": limit,
                 "offset": offset,
@@ -714,14 +640,25 @@ class AulaApiClient:
             if not results:
                 break
 
-            all_results.extend(results)
+            for msg_dict in results:
+                raw_text = msg_dict.get("text")
+                if isinstance(raw_text, dict):
+                    content_html = raw_text.get("html", "")
+                elif isinstance(raw_text, str):
+                    content_html = raw_text
+                else:
+                    content_html = ""
+                all_messages.append(
+                    Message(_raw=msg_dict, id=msg_dict.get("id", ""), content_html=content_html)
+                )
+
             total = data.get("totalSize", 0)
             offset += limit
 
             if offset >= total or len(results) < limit:
                 break
 
-        return all_results
+        return all_messages
 
     async def get_all_message_threads(self, cutoff_date: date) -> list[dict]:
         """Paginate messaging.getThreads until threads are older than cutoff_date."""
