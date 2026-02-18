@@ -225,10 +225,11 @@ async def download_message_images(
     # Deduplicate by thread ID (search may return multiple results per thread)
     threads: dict[str, dict] = {}
     for result in search_results:
-        thread_info = result.get("thread", {})
+        raw = result._raw or {}
+        thread_info = raw.get("thread", {})
         thread_id = str(thread_info.get("id", ""))
         if thread_id and thread_id not in threads:
-            send_dt = result.get("searchMessage", {}).get("sendDateTime", "")
+            send_dt = raw.get("searchMessage", {}).get("sendDateTime", "")
             threads[thread_id] = {
                 "subject": thread_info.get("subject", "No Subject"),
                 "date": _parse_date_str(send_dt),
