@@ -1429,5 +1429,221 @@ async def weekly_summary(ctx, child, week, providers):
                 click.echo()
 
 
+_DANISH_WEEKDAYS = ["Mandag", "Tirsdag", "Onsdag", "Torsdag", "Fredag", "Lørdag", "Søndag"]
+
+
+@cli.command("daily-summary")
+@click.option(
+    "--child",
+    type=str,
+    default=None,
+    help="Child name (partial, case-insensitive). Defaults to all children.",
+)
+@click.option(
+    "--date",
+    "target_date",
+    type=click.DateTime(formats=["%Y-%m-%d"]),
+    default=None,
+    help="Date to summarise (YYYY-MM-DD). Defaults to today.",
+)
+@click.pass_context
+@async_cmd
+async def daily_summary(ctx, child, target_date):
+    """Generate a daily overview for today, formatted for AI consumption.
+
+    Includes check-in status, today's schedule, homework due today,
+    and unread messages. Output can be pasted directly into an AI assistant.
+    """
+    from collections import defaultdict
+
+    _log = logging.getLogger(__name__)
+    tz = ZoneInfo("Europe/Copenhagen")
+    now = datetime.datetime.now(tz)
+
+    if target_date is None:
+        today = now.replace(hour=0, minute=0, second=0, microsecond=0)
+    else:
+        today = target_date.replace(tzinfo=tz)
+
+    day_start = today.replace(hour=0, minute=0, second=0, microsecond=0)
+    day_end = today.replace(hour=23, minute=59, second=59, microsecond=0)
+
+    iso = today.isocalendar()
+    week = f"{iso[0]}-W{iso[1]}"
+    today_weekday_da = _DANISH_WEEKDAYS[today.weekday()]
+    day_label = today.strftime("%A, %d %B %Y")
+
+    async with await _get_client(ctx) as client:
+        try:
+            prof: Profile = await client.get_profile()
+        except Exception as e:
+            click.echo(f"Error fetching profile: {e}")
+            return
+
+        if not prof.children:
+            click.echo("No children found in profile.")
+            return
+
+        children = prof.children
+        if child:
+            needle = child.lower()
+            children = [c for c in prof.children if needle in c.name.lower()]
+            if not children:
+                names = ", ".join(c.name for c in prof.children)
+                click.echo(f"No child matching '{child}'. Available: {names}")
+                return
+
+        click.echo(f"# Daily Summary – {day_label}")
+        click.echo(f"Generated: {now.strftime('%Y-%m-%d %H:%M')}")
+        click.echo()
+
+        # ── Check-in status ───────────────────────────────────────────────────
+        click.echo("## Status")
+        click.echo()
+        for c in children:
+            try:
+                ov = await client.get_daily_overview(c.id)
+            except Exception as e:
+                _log.warning("Could not fetch daily overview for %s: %s", c.name, e)
+                ov = None
+
+            if ov is None:
+                click.echo(f"**{c.name}**: unavailable")
+                click.echo()
+                continue
+
+            status = ov.status.name.replace("_", " ").title() if ov.status else "Unknown"
+            click.echo(f"**{c.name}**: {status}")
+            if ov.check_in_time:
+                click.echo(f"- Check-in: {ov.check_in_time}")
+            if ov.check_out_time:
+                click.echo(f"- Check-out: {ov.check_out_time}")
+            if ov.location:
+                click.echo(f"- Location: {ov.location}")
+            if ov.main_group:
+                click.echo(f"- Group: {ov.main_group.name}")
+            click.echo()
+
+        # ── Schedule ──────────────────────────────────────────────────────────
+        child_inst_ids = [c.id for c in children]
+        try:
+            events = await client.get_calendar_events(child_inst_ids, day_start, day_end)
+        except Exception as e:
+            events = []
+            _log.warning("Could not fetch calendar events: %s", e)
+
+        click.echo("## Schedule")
+        click.echo()
+        if events:
+            slots: dict[tuple, list] = defaultdict(list)
+            for ev in sorted(events, key=lambda e: e.start_datetime):
+                slots[(ev.start_datetime, ev.end_datetime)].append(ev)
+            for (start_dt, end_dt), evs in sorted(slots.items()):
+                time_range = f"{start_dt.strftime('%H:%M')}–{end_dt.strftime('%H:%M')}"
+                titles = " / ".join(dict.fromkeys(ev.title or "Untitled" for ev in evs))
+                locations = list(dict.fromkeys(ev.location for ev in evs if ev.location))
+                teachers = list(dict.fromkeys(ev.teacher_name for ev in evs if ev.teacher_name))
+                substitutes = list(
+                    dict.fromkeys(
+                        ev.substitute_name
+                        for ev in evs
+                        if ev.has_substitute and ev.substitute_name
+                    )
+                )
+                parts = [time_range, titles]
+                if locations:
+                    parts.append(f"({' / '.join(locations)})")
+                if teachers:
+                    parts.append(f"[{' / '.join(teachers)}]")
+                if substitutes:
+                    parts.append(f"[Substitute: {' / '.join(substitutes)}]")
+                click.echo(f"- {'  '.join(parts)}")
+        else:
+            click.echo("No events today.")
+        click.echo()
+
+        # ── Homework due today ────────────────────────────────────────────────
+        widget_ctx = await _get_widget_context(client, prof)
+        if widget_ctx is not None:
+            child_filter, institution_filter, session_uuid = widget_ctx
+
+            if child:
+                selected_user_ids = {
+                    str(c._raw["userId"])
+                    for c in children
+                    if c._raw and "userId" in c._raw
+                }
+                child_filter = [uid for uid in child_filter if uid in selected_user_ids]
+
+            from .const import WIDGET_MIN_UDDANNELSE
+
+            try:
+                all_tasks = await client.get_mu_tasks(
+                    WIDGET_MIN_UDDANNELSE, child_filter, institution_filter, week, session_uuid
+                )
+            except Exception as e:
+                all_tasks = []
+                _log.warning("Could not fetch tasks: %s", e)
+
+            today_tasks = [
+                t
+                for t in all_tasks
+                if t.weekday == today_weekday_da
+                or (t.due_date and t.due_date.date() == today.date())
+            ]
+
+            if today_tasks:
+                click.echo("## Homework Due Today")
+                click.echo()
+                for task in today_tasks:
+                    subjects = ", ".join(
+                        cls.subject_name for cls in task.classes if cls.subject_name
+                    )
+                    label = f"{subjects}: {task.title}" if subjects else task.title
+                    status = " ✓" if task.is_completed else ""
+                    click.echo(f"- {label}{status}")
+                click.echo()
+
+        # ── Unread messages ───────────────────────────────────────────────────
+        try:
+            unread_threads = await client.get_message_threads(filter_on="unread")
+        except Exception as e:
+            unread_threads = []
+            _log.warning("Could not fetch unread messages: %s", e)
+
+        if unread_threads:
+            click.echo("## Unread Messages")
+            click.echo()
+            for thread in unread_threads:
+                raw = thread._raw or {}
+                participants = [p.get("name", "?") for p in raw.get("participants", [])]
+                last_updated = raw.get("lastUpdatedDate", "")
+                meta = []
+                if participants:
+                    meta.append(", ".join(participants))
+                if last_updated:
+                    meta.append(last_updated)
+                click.echo(f"### {thread.subject}")
+                if meta:
+                    click.echo(f"_{' | '.join(meta)}_")
+                click.echo()
+                try:
+                    msgs = await client.get_messages_for_thread(thread.thread_id)
+                    for msg in msgs:
+                        msg_raw = msg._raw or {}
+                        sender = msg_raw.get("sender", {}).get("fullName", "Unknown")
+                        send_date = msg_raw.get("sendDateTime", "")
+                        click.echo(f"**{sender}** {send_date}".strip())
+                        for line in msg.content.splitlines():
+                            if line.strip():
+                                click.echo(line)
+                        click.echo()
+                except Exception as e:
+                    _log.warning(
+                        "Could not fetch messages for thread %s: %s", thread.thread_id, e
+                    )
+                    click.echo()
+
+
 if __name__ == "__main__":
     cli()
