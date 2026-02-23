@@ -1502,7 +1502,7 @@ async def daily_summary(ctx, child, target_date):
         click.echo()
         for c in children:
             try:
-                ov = await client.get_daily_overview(c.id, date=today.date())
+                ov = await client.get_daily_overview(c.id)
             except Exception as e:
                 _log.warning("Could not fetch daily overview for %s: %s", c.name, e)
                 ov = None
