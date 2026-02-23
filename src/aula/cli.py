@@ -1229,6 +1229,46 @@ async def weekly_summary(ctx, child, week, providers):
             click.echo("No calendar events found.")
             click.echo()
 
+        # ── Unread messages ──────────────────────────────────────────────────
+        try:
+            unread_threads = await client.get_message_threads(filter_on="unread")
+        except Exception as e:
+            unread_threads = []
+            _log.warning("Could not fetch unread messages: %s", e)
+
+        if unread_threads:
+            click.echo("## Unread Messages")
+            click.echo()
+            for thread in unread_threads:
+                raw = thread._raw or {}
+                participants = [p.get("name", "?") for p in raw.get("participants", [])]
+                last_updated = raw.get("lastUpdatedDate", "")
+                meta = []
+                if participants:
+                    meta.append(", ".join(participants))
+                if last_updated:
+                    meta.append(last_updated)
+                click.echo(f"### {thread.subject}")
+                if meta:
+                    click.echo(f"_{' | '.join(meta)}_")
+                click.echo()
+                try:
+                    msgs = await client.get_messages_for_thread(thread.thread_id)
+                    for msg in msgs:
+                        msg_raw = msg._raw or {}
+                        sender = msg_raw.get("sender", {}).get("fullName", "Unknown")
+                        send_date = msg_raw.get("sendDateTime", "")
+                        click.echo(f"**{sender}** {send_date}".strip())
+                        for line in msg.content.splitlines():
+                            if line.strip():
+                                click.echo(line)
+                        click.echo()
+                except Exception as e:
+                    _log.warning(
+                        "Could not fetch messages for thread %s: %s", thread.thread_id, e
+                    )
+                    click.echo()
+
         if not enabled:
             return  # nothing to fetch beyond calendar
 
