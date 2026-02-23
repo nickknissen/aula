@@ -1578,61 +1578,59 @@ async def daily_summary(ctx, child, target_date):
         click.echo(f"Generated: {now.strftime('%Y-%m-%d %H:%M')}")
         click.echo()
 
-        # ── Presence templates for today ──────────────────────────────────────
+        # ── Presence templates for target date (planned times) ────────────────
         child_inst_ids = [c.id for c in children]
         try:
-            presence_templates_today = await client.get_presence_templates(
+            presence_tmpl_list = await client.get_presence_templates(
                 child_inst_ids, today.date(), today.date()
             )
         except Exception as e:
-            presence_templates_today = []
+            presence_tmpl_list = []
             _log.warning("Could not fetch presence templates: %s", e)
 
-        # Map institution_profile_id → DayTemplate for today
         from .models import DayTemplate
 
         day_template_by_child: dict[int, DayTemplate] = {}
-        for tmpl in presence_templates_today:
+        for tmpl in presence_tmpl_list:
             if tmpl.institution_profile and tmpl.day_templates:
                 day_template_by_child[tmpl.institution_profile.id] = tmpl.day_templates[0]
+
+        # Daily overview only reflects today's actual state — skip for other dates
+        is_today = today.date() == now.date()
 
         # ── Check-in status ───────────────────────────────────────────────────
         click.echo("## Status")
         click.echo()
         for c in children:
-            try:
-                ov = await client.get_daily_overview(c.id)
-            except Exception as e:
-                _log.warning("Could not fetch daily overview for %s: %s", c.name, e)
-                ov = None
-
-            if ov is None:
-                click.echo(f"**{c.name}**: unavailable")
-                click.echo()
-                continue
-
-            status = ov.status.name.replace("_", " ").title() if ov.status else "Unknown"
-            click.echo(f"**{c.name}**: {status}")
-            if ov.check_in_time:
-                click.echo(f"- Check-in: {ov.check_in_time}")
-            if ov.check_out_time:
-                click.echo(f"- Check-out: {ov.check_out_time}")
-            if ov.exit_time:
-                click.echo(f"- Exit time: {ov.exit_time}")
-            if ov.exit_with:
-                click.echo(f"- Picked up by: {ov.exit_with}")
-            if ov.location:
-                click.echo(f"- Location: {ov.location}")
-            if ov.main_group:
-                click.echo(f"- Group: {ov.main_group.name}")
-
             day_tmpl = day_template_by_child.get(c.id)
+
+            ov = None
+            if is_today:
+                try:
+                    ov = await client.get_daily_overview(c.id)
+                except Exception as e:
+                    _log.warning("Could not fetch daily overview for %s: %s", c.name, e)
+
+            click.echo(f"**{c.name}**")
+
+            if ov is not None:
+                status = ov.status.name.replace("_", " ").title() if ov.status else "Unknown"
+                click.echo(f"- Status: {status}")
+                if ov.check_in_time:
+                    click.echo(f"- Check-in: {ov.check_in_time}")
+                if ov.check_out_time:
+                    click.echo(f"- Check-out: {ov.check_out_time}")
+                if ov.location:
+                    click.echo(f"- Location: {ov.location}")
+                if ov.main_group:
+                    click.echo(f"- Group: {ov.main_group.name}")
+
             if day_tmpl:
-                if day_tmpl.entry_time and not ov.entry_time:
+                if day_tmpl.entry_time:
                     click.echo(f"- Planned entry: {day_tmpl.entry_time}")
-                if day_tmpl.exit_time and not ov.exit_time:
+                if day_tmpl.exit_time:
                     click.echo(f"- Planned exit: {day_tmpl.exit_time}")
-                if day_tmpl.exit_with and not ov.exit_with:
+                if day_tmpl.exit_with:
                     click.echo(f"- Picked up by: {day_tmpl.exit_with}")
                 if day_tmpl.spare_time_activity:
                     sta = day_tmpl.spare_time_activity
@@ -1640,6 +1638,8 @@ async def daily_summary(ctx, child, target_date):
                     if sta.comment:
                         activity_line += f"  ({sta.comment})"
                     click.echo(activity_line)
+            elif ov is None:
+                click.echo("- No data available")
 
             click.echo()
 
