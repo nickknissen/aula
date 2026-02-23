@@ -24,6 +24,17 @@ ruff format src/ tests/
 pytest
 ```
 
+## Release Flow
+
+1. Bump `version` in `pyproject.toml` (semver: patch for fixes/docs, minor for new features)
+2. Commit: `git commit -m "chore: bump version to X.Y.Z"`
+3. Push: `git push`
+4. Create a GitHub release — this triggers the PyPI publish workflow (`.github/workflows/publish.yml`):
+   ```bash
+   gh release create vX.Y.Z --title "vX.Y.Z" --notes "- change 1\n- change 2"
+   ```
+5. Verify the Actions run at https://github.com/nickknissen/aula/actions and the new version appears on PyPI.
+
 When working with Python, invoke the relevant /astral:\<skill> for uv, ty, and ruff to ensure best practices are followed.
 
 ## Ruff Configuration
