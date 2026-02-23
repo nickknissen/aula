@@ -1578,6 +1578,24 @@ async def daily_summary(ctx, child, target_date):
         click.echo(f"Generated: {now.strftime('%Y-%m-%d %H:%M')}")
         click.echo()
 
+        # ── Presence templates for today ──────────────────────────────────────
+        child_inst_ids = [c.id for c in children]
+        try:
+            presence_templates_today = await client.get_presence_templates(
+                child_inst_ids, today.date(), today.date()
+            )
+        except Exception as e:
+            presence_templates_today = []
+            _log.warning("Could not fetch presence templates: %s", e)
+
+        # Map institution_profile_id → DayTemplate for today
+        from .models import DayTemplate
+
+        day_template_by_child: dict[int, DayTemplate] = {}
+        for tmpl in presence_templates_today:
+            if tmpl.institution_profile and tmpl.day_templates:
+                day_template_by_child[tmpl.institution_profile.id] = tmpl.day_templates[0]
+
         # ── Check-in status ───────────────────────────────────────────────────
         click.echo("## Status")
         click.echo()
@@ -1607,10 +1625,25 @@ async def daily_summary(ctx, child, target_date):
                 click.echo(f"- Location: {ov.location}")
             if ov.main_group:
                 click.echo(f"- Group: {ov.main_group.name}")
+
+            day_tmpl = day_template_by_child.get(c.id)
+            if day_tmpl:
+                if day_tmpl.entry_time and not ov.entry_time:
+                    click.echo(f"- Planned entry: {day_tmpl.entry_time}")
+                if day_tmpl.exit_time and not ov.exit_time:
+                    click.echo(f"- Planned exit: {day_tmpl.exit_time}")
+                if day_tmpl.exit_with and not ov.exit_with:
+                    click.echo(f"- Picked up by: {day_tmpl.exit_with}")
+                if day_tmpl.spare_time_activity:
+                    sta = day_tmpl.spare_time_activity
+                    activity_line = f"- Activity: {sta.start_time}–{sta.end_time}"
+                    if sta.comment:
+                        activity_line += f"  ({sta.comment})"
+                    click.echo(activity_line)
+
             click.echo()
 
         # ── Schedule ──────────────────────────────────────────────────────────
-        child_inst_ids = [c.id for c in children]
         try:
             events = await client.get_calendar_events(child_inst_ids, day_start, day_end)
         except Exception as e:
