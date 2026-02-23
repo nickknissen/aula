@@ -15,9 +15,19 @@ Async Python client for the Danish school platform **aula.dk**.
 
 ```bash
 pip install aula
+# or with uv
+uv add aula
 ```
 
 **Requirements:** Python >= 3.10, MitID username and MitID app.
+
+### Run without installing
+
+Use `uvx` to run the CLI directly from PyPI without a permanent install:
+
+```bash
+uvx aula --username johndoe messages --limit 5
+```
 
 ### Install from Source
 
@@ -83,6 +93,8 @@ Example:
 
 ```bash
 aula --username johndoe messages --limit 5
+# or without installing
+uvx aula --username johndoe messages --limit 5
 ```
 
 ## License
