@@ -1429,6 +1429,87 @@ async def weekly_summary(ctx, child, week, providers):
                 click.echo()
 
 
+@cli.command("presence-templates")
+@click.option(
+    "--from-date",
+    type=click.DateTime(formats=["%Y-%m-%d"]),
+    default=None,
+    help="Start date (YYYY-MM-DD). Defaults to today.",
+)
+@click.option(
+    "--to-date",
+    type=click.DateTime(formats=["%Y-%m-%d"]),
+    default=None,
+    help="End date (YYYY-MM-DD). Defaults to 7 days from today.",
+)
+@click.pass_context
+@async_cmd
+async def presence_templates(ctx, from_date, to_date):
+    """Fetch presence week templates (planned entry/exit times) for all children."""
+    tz = ZoneInfo("Europe/Copenhagen")
+    now = datetime.datetime.now(tz)
+
+    from_date_d = from_date.date() if from_date else now.date()
+    to_date_d = to_date.date() if to_date else (now + datetime.timedelta(days=7)).date()
+
+    async with await _get_client(ctx) as client:
+        try:
+            prof: Profile = await client.get_profile()
+        except Exception as e:
+            click.echo(f"Error fetching profile: {e}")
+            return
+
+        if not prof.children:
+            click.echo("No children found in profile.")
+            return
+
+        institution_profile_ids = [child.id for child in prof.children]
+
+        try:
+            templates = await client.get_presence_templates(
+                institution_profile_ids, from_date_d, to_date_d
+            )
+        except Exception as e:
+            click.echo(f"Error fetching presence templates: {e}")
+            return
+
+        if not templates:
+            click.echo("No presence templates found.")
+            return
+
+        for tmpl in templates:
+            ip = tmpl.institution_profile
+            name = ip.name if ip else "Unknown"
+            institution = ip.institution_name if ip else ""
+
+            click.echo(f"{'=' * 60}")
+            header = name
+            if institution:
+                header += f"  |  {institution}"
+            click.echo(f"  {header}")
+            click.echo(f"{'=' * 60}")
+
+            if not tmpl.day_templates:
+                click.echo("  No day templates.")
+            else:
+                for day in tmpl.day_templates:
+                    click.echo(f"\n  {day.by_date}")
+                    if day.entry_time or day.exit_time:
+                        times = f"  {day.entry_time or '?'} → {day.exit_time or '?'}"
+                        if day.exit_with:
+                            times += f"  (picked up by: {day.exit_with})"
+                        click.echo(times)
+                    if day.spare_time_activity:
+                        sta = day.spare_time_activity
+                        click.echo(f"  Activity: {sta.start_time} – {sta.end_time}")
+                        if sta.comment:
+                            click.echo(f"    {sta.comment}")
+                    if day.comment:
+                        click.echo(f"  Note: {day.comment}")
+
+            click.echo()
+
+
 _DANISH_WEEKDAYS = ["Mandag", "Tirsdag", "Onsdag", "Torsdag", "Fredag", "Lørdag", "Søndag"]
 
 

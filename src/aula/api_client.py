@@ -29,6 +29,7 @@ from .models import (
     MUTask,
     MUWeeklyPerson,
     Post,
+    PresenceWeekTemplate,
     Profile,
 )
 
@@ -191,6 +192,32 @@ class AulaApiClient:
             _LOGGER.warning("No daily overview data for child %d", child_id)
             return None
         return DailyOverview.from_dict(data[0])
+
+    async def get_presence_templates(
+        self,
+        institution_profile_ids: list[int],
+        from_date: date,
+        to_date: date,
+    ) -> list[PresenceWeekTemplate]:
+        """Fetch presence week templates for the given institution profile IDs and date range."""
+        params: dict[str, Any] = {
+            "method": "presence.getPresenceTemplates",
+            "filterInstitutionProfileIds[]": institution_profile_ids,
+            "fromDate": from_date.isoformat(),
+            "toDate": to_date.isoformat(),
+        }
+        resp = await self._request_with_version_retry("get", self.api_url, params=params)
+        resp.raise_for_status()
+        templates = resp.json().get("data", {}).get("presenceWeekTemplates", [])
+        result = []
+        for t in templates:
+            try:
+                result.append(PresenceWeekTemplate.from_dict(t))
+            except (TypeError, ValueError, KeyError) as e:
+                _LOGGER.warning(
+                    "Skipping presence week template due to parsing error: %s - Data: %s", e, t
+                )
+        return result
 
     async def get_message_threads(
         self, filter_on: str | None = None
