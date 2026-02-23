@@ -11,4 +11,7 @@ from .momo_huskeliste import MomoUserCourses as MomoUserCourses
 from .mu_task import MUTask as MUTask
 from .mu_weekly_letter import MUWeeklyPerson as MUWeeklyPerson
 from .post import Post as Post
+from .presence_template import DayTemplate as DayTemplate
+from .presence_template import PresenceWeekTemplate as PresenceWeekTemplate
+from .presence_template import SpareTimeActivity as SpareTimeActivity
 from .profile import Profile as Profile
