@@ -17,10 +17,11 @@ aula --username <mitid_username> <command>
 # or: python -m aula
 
 # Lint and format
-ruff check src/
-ruff format src/
+ruff check src/ tests/
+ruff format src/ tests/
 
-# No test suite exists yet
+# Run tests
+pytest
 ```
 
 When working with Python, invoke the relevant /astral:\<skill> for uv, ty, and ruff to ensure best practices are followed.
@@ -33,6 +34,32 @@ When working with Python, invoke the relevant /astral:\<skill> for uv, ty, and r
 
 ## Architecture
 
+### Project Layout
+
+```
+pyproject.toml              # single package: name = "aula"
+src/aula/
+  __init__.py
+  __main__.py               # python -m aula entry point
+  api_client.py             # async API client
+  auth_flow.py              # high-level auth orchestration
+  cli.py                    # Click CLI commands
+  config.py                 # CLI config (~/.config/aula/config.json)
+  const.py                  # API base URLs, user agent
+  http.py                   # HTTP abstraction protocol
+  http_httpx.py             # httpx implementation
+  token_storage.py          # token persistence (ABC + file impl)
+  auth/                     # MitID authentication
+    mitid_client.py, browser_client.py, srp.py, exceptions.py, _utils.py
+  models/                   # API data models (one file per model)
+    base.py, child.py, message.py, post.py, calendar_event.py, ...
+  utils/
+    html.py                 # HTML-to-text helpers
+    table.py                # calendar table rendering (rich or plain)
+    download.py             # image download orchestration
+tests/                      # mirrors src/aula/ structure
+```
+
 ### Module Dependency Flow
 
 ```
@@ -42,7 +69,7 @@ cli.py → api_client.py → auth/mitid_client.py → auth/browser_client.py →
   │            ├→ const.py
   │            └→ token_storage.py
   ├→ config.py
-  └→ utils/table.py
+  └→ utils/{table.py, download.py}
 ```
 
 ### Key Modules
@@ -56,6 +83,8 @@ cli.py → api_client.py → auth/mitid_client.py → auth/browser_client.py →
 - **`cli.py`** — Click command group. Uses `@async_cmd` decorator to bridge sync Click to async via `asyncio.run()`. Sets `WindowsSelectorEventLoopPolicy` on Windows.
 - **`config.py`** — CLI config at `~/.config/aula/config.json`.
 - **`const.py`** — API base URLs (current base version: v22) and user agent.
+- **`utils/table.py`** — Calendar table rendering (rich or plain text fallback).
+- **`utils/download.py`** — Image download orchestration for gallery, posts, messages.
 
 ### Key Patterns
 
