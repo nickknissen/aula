@@ -173,24 +173,18 @@ class AulaApiClient:
         resp.raise_for_status()
         return resp.json()
 
-    async def get_daily_overview(
-        self, child_id: int, date: date | None = None
-    ) -> DailyOverview | None:
+    async def get_daily_overview(self, child_id: int) -> DailyOverview | None:
         """Fetches the daily overview for a specific child.
 
         Returns None if no data is available for the child.
 
-        Args:
-            child_id: The child's institution profile ID.
-            date: The date to fetch the overview for. Defaults to today.
-
         Raises:
             HttpRequestError: If the API returns a 4xx/5xx error.
         """
-        url = f"{self.api_url}?method=presence.getDailyOverview&childIds[]={child_id}"
-        if date is not None:
-            url += f"&date={date.isoformat()}"
-        resp = await self._request_with_version_retry("get", url)
+        resp = await self._request_with_version_retry(
+            "get",
+            f"{self.api_url}?method=presence.getDailyOverview&childIds[]={child_id}",
+        )
         resp.raise_for_status()
         data = resp.json().get("data")
         if not data:
