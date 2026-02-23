@@ -89,11 +89,13 @@ def get_mitid_username(ctx: click.Context) -> str:
 def cli(ctx, username: str | None, verbose: int):
     """CLI for interacting with Aula API"""
     # Configure logging based on verbosity
-    log_level = logging.WARNING  # Default: Show warnings and above
+    log_level = logging.ERROR   # Default: errors only (no warnings in normal output)
     if verbose == 1:
-        log_level = logging.INFO  # -v: Show info and above
-    elif verbose >= 2:
-        log_level = logging.DEBUG  # -vv, -vvv, etc.: Show debug and above
+        log_level = logging.WARNING  # -v: Show warnings and above
+    elif verbose == 2:
+        log_level = logging.INFO     # -vv: Show info and above
+    elif verbose >= 3:
+        log_level = logging.DEBUG    # -vvv: Show debug and above
 
     logging.basicConfig(
         level=log_level,
