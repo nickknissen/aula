@@ -567,7 +567,7 @@ async def posts(ctx, institution_profile_id, limit, page):
             raise
 
 
-@cli.command("mu:tasks")
+@cli.command("mu:opgaver")
 @click.option(
     "--week",
     type=str,
@@ -576,7 +576,7 @@ async def posts(ctx, institution_profile_id, limit, page):
 )
 @click.pass_context
 @async_cmd
-async def mu_tasks(ctx, week):
+async def mu_opgaver(ctx, week):
     """Fetch Min Uddannelse tasks (opgaver) for children."""
     week = _resolve_week(week)
     async with await _get_client(ctx) as client:
