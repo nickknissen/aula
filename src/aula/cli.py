@@ -1094,8 +1094,8 @@ async def library_status(ctx):
     "--provider",
     "providers",
     multiple=True,
-    type=click.Choice([p.value for p in WeeklySummaryProvider]),
-    help="Enable a specific provider for this run (overrides config).",
+    type=click.Choice([p.value for p in WeeklySummaryProvider] + ["all"]),
+    help="Provider to enable for this run (overrides config). Use 'all' for every provider.",
 )
 @click.pass_context
 @async_cmd
@@ -1112,7 +1112,11 @@ async def weekly_summary(ctx, child, week, providers):
     # ── Provider resolution ──────────────────────────────────────────────────
     _log = logging.getLogger(__name__)
     if providers:
-        enabled: set[WeeklySummaryProvider] = {WeeklySummaryProvider(p) for p in providers}
+        enabled: set[WeeklySummaryProvider] = (
+            set(WeeklySummaryProvider)
+            if "all" in providers
+            else {WeeklySummaryProvider(p) for p in providers}
+        )
     else:
         cfg = load_config().get("weekly_summary", {})
         enabled = set()
