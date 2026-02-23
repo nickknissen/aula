@@ -1502,7 +1502,7 @@ async def daily_summary(ctx, child, target_date):
         click.echo()
         for c in children:
             try:
-                ov = await client.get_daily_overview(c.id)
+                ov = await client.get_daily_overview(c.id, date=today.date())
             except Exception as e:
                 _log.warning("Could not fetch daily overview for %s: %s", c.name, e)
                 ov = None
@@ -1518,6 +1518,10 @@ async def daily_summary(ctx, child, target_date):
                 click.echo(f"- Check-in: {ov.check_in_time}")
             if ov.check_out_time:
                 click.echo(f"- Check-out: {ov.check_out_time}")
+            if ov.exit_time:
+                click.echo(f"- Exit time: {ov.exit_time}")
+            if ov.exit_with:
+                click.echo(f"- Picked up by: {ov.exit_with}")
             if ov.location:
                 click.echo(f"- Location: {ov.location}")
             if ov.main_group:
