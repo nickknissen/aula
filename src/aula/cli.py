@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 import asyncio
 import datetime
+import enum
 import functools
 import logging
 import os
@@ -35,6 +36,13 @@ def async_cmd(func):
         return asyncio.run(func(*args, **kwargs))
 
     return wrapper
+
+
+class WeeklySummaryProvider(str, enum.Enum):
+    MU_TASKS = "mu_tasks"
+    MU_UGEPLAN = "mu_ugeplan"
+    MEEBOOK = "meebook"
+    EASYIQ = "easyiq"
 
 
 def get_mitid_username(ctx: click.Context) -> str:
@@ -1067,6 +1075,297 @@ async def library_status(ctx):
             click.echo("\n  No loans or reservations found.")
 
         click.echo()
+
+
+@cli.command("weekly-summary")
+@click.option(
+    "--child",
+    type=str,
+    default=None,
+    help="Child name (partial, case-insensitive). Defaults to all children.",
+)
+@click.option(
+    "--week",
+    type=str,
+    default=None,
+    help="Week number (e.g. 8) or full format (2026-W8). Defaults to current week.",
+)
+@click.option(
+    "--provider",
+    "providers",
+    multiple=True,
+    type=click.Choice([p.value for p in WeeklySummaryProvider]),
+    help="Enable a specific provider for this run (overrides config).",
+)
+@click.pass_context
+@async_cmd
+async def weekly_summary(ctx, child, week, providers):
+    """Generate a weekly overview for a child, formatted for AI consumption.
+
+    Aggregates calendar events, homework tasks, and weekly plans from all
+    configured providers. Output can be pasted directly into an AI assistant.
+    """
+    from .utils.html import html_to_plain
+
+    week = _resolve_week(week)
+
+    # ── Provider resolution ──────────────────────────────────────────────────
+    _log = logging.getLogger(__name__)
+    if providers:
+        enabled: set[WeeklySummaryProvider] = {WeeklySummaryProvider(p) for p in providers}
+    else:
+        cfg = load_config().get("weekly_summary", {})
+        enabled = set()
+        for key, active in cfg.items():
+            try:
+                provider = WeeklySummaryProvider(key)
+            except ValueError:
+                _log.warning("Unknown weekly_summary provider in config: %r (ignored)", key)
+                continue
+            if active:
+                enabled.add(provider)
+
+    year_num, week_num = week.split("-W")
+    week_start = datetime.datetime.fromisocalendar(
+        int(year_num), int(week_num), 1
+    ).replace(tzinfo=ZoneInfo("Europe/Copenhagen"))
+    week_end = datetime.datetime.fromisocalendar(
+        int(year_num), int(week_num), 5
+    ).replace(tzinfo=ZoneInfo("Europe/Copenhagen"), hour=23, minute=59, second=59)
+
+    async with await _get_client(ctx) as client:
+        try:
+            prof: Profile = await client.get_profile()
+        except Exception as e:
+            click.echo(f"Error fetching profile: {e}")
+            return
+
+        if not prof.children:
+            click.echo("No children found in profile.")
+            return
+
+        # Filter children by name if --child provided
+        children = prof.children
+        if child:
+            needle = child.lower()
+            children = [c for c in prof.children if needle in c.name.lower()]
+            if not children:
+                names = ", ".join(c.name for c in prof.children)
+                click.echo(f"No child matching '{child}'. Available: {names}")
+                return
+
+        now = datetime.datetime.now(ZoneInfo("Europe/Copenhagen"))
+        click.echo(f"# Weekly Overview – Week {week_num}, {year_num}")
+        click.echo(f"Generated: {now.strftime('%Y-%m-%d')}")
+        click.echo(
+            f"Period: {week_start.strftime('%a %d %b')} – {week_end.strftime('%a %d %b %Y')}"
+        )
+        click.echo()
+
+        # ── Calendar events ──────────────────────────────────────────────────
+        child_inst_ids = [c.id for c in children]
+        try:
+            events = await client.get_calendar_events(child_inst_ids, week_start, week_end)
+        except Exception as e:
+            events = []
+            logging.getLogger(__name__).warning("Could not fetch calendar events: %s", e)
+
+        click.echo("## Calendar Events")
+        click.echo()
+        if events:
+            # Group by date
+            from collections import defaultdict
+
+            by_day: dict[datetime.date, list] = defaultdict(list)
+            for ev in events:
+                by_day[ev.start_datetime.date()].append(ev)
+
+            for day_offset in range(5):
+                day = (week_start + datetime.timedelta(days=day_offset)).date()
+                day_label = (week_start + datetime.timedelta(days=day_offset)).strftime(
+                    "%A, %d %B"
+                )
+                day_events = sorted(by_day.get(day, []), key=lambda e: e.start_datetime)
+                click.echo(f"### {day_label}")
+                if day_events:
+                    for ev in day_events:
+                        time_range = (
+                            f"{ev.start_datetime.strftime('%H:%M')}–"
+                            f"{ev.end_datetime.strftime('%H:%M')}"
+                        )
+                        parts = [time_range, ev.title or "Untitled"]
+                        if ev.location:
+                            parts.append(f"({ev.location})")
+                        if ev.teacher_name:
+                            parts.append(f"[{ev.teacher_name}]")
+                        if ev.has_substitute and ev.substitute_name:
+                            parts.append(f"[Substitute: {ev.substitute_name}]")
+                        click.echo(f"- {'  '.join(parts)}")
+                else:
+                    click.echo("- (no events)")
+                click.echo()
+        else:
+            click.echo("No calendar events found.")
+            click.echo()
+
+        if not enabled:
+            return  # nothing to fetch beyond calendar
+
+        widget_ctx = await _get_widget_context(client, prof)
+        if widget_ctx is None:
+            click.echo("(Widget context unavailable – skipping provider data)")
+            return
+
+        child_filter, institution_filter, session_uuid = widget_ctx
+
+        # Filter child_filter to selected children only
+        if child:
+            selected_user_ids = {
+                str(c._raw["userId"])
+                for c in children
+                if c._raw and "userId" in c._raw
+            }
+            child_filter = [uid for uid in child_filter if uid in selected_user_ids]
+
+        # ── Min Uddannelse – Homework & Tasks ────────────────────────────────
+        if WeeklySummaryProvider.MU_TASKS in enabled:
+            from .const import WIDGET_MIN_UDDANNELSE
+
+            try:
+                tasks = await client.get_mu_tasks(
+                    WIDGET_MIN_UDDANNELSE,
+                    child_filter,
+                    institution_filter,
+                    week,
+                    session_uuid,
+                )
+            except Exception as e:
+                tasks = []
+                _log.warning("Could not fetch MU tasks: %s", e)
+
+            click.echo("## Homework & Tasks (Min Uddannelse)")
+            click.echo()
+            if tasks:
+                for task in tasks:
+                    parts = []
+                    if task.weekday:
+                        parts.append(task.weekday)
+                    subjects = ", ".join(
+                        cls.subject_name for cls in task.classes if cls.subject_name
+                    )
+                    if subjects:
+                        parts.append(subjects)
+                    label = f"{' – '.join(parts)}: {task.title}" if parts else task.title
+                    status = " ✓" if task.is_completed else ""
+                    click.echo(f"- {label}{status}")
+                    if task.task_type:
+                        click.echo(f"  Type: {task.task_type}")
+            else:
+                click.echo("No tasks found.")
+            click.echo()
+
+        # ── Min Uddannelse – Weekly Letter (Ugeplan) ─────────────────────────
+        if WeeklySummaryProvider.MU_UGEPLAN in enabled:
+            from .const import WIDGET_MIN_UDDANNELSE_UGEPLAN
+
+            try:
+                mu_persons = await client.get_ugeplan(
+                    WIDGET_MIN_UDDANNELSE_UGEPLAN,
+                    child_filter,
+                    institution_filter,
+                    week,
+                    session_uuid,
+                )
+            except Exception as e:
+                mu_persons = []
+                _log.warning("Could not fetch MU ugeplan: %s", e)
+
+            if mu_persons:
+                click.echo("## Weekly Letter (Min Uddannelse Ugeplan)")
+                click.echo()
+                for person in mu_persons:
+                    for inst in person.institutions:
+                        for letter in inst.letters:
+                            click.echo(f"### {person.name} – {letter.group_name} ({inst.name})")
+                            click.echo()
+                            for line in html_to_plain(letter.content_html).splitlines():
+                                click.echo(line)
+                            click.echo()
+
+        # ── Meebook – Weekly Plan ────────────────────────────────────────────
+        if WeeklySummaryProvider.MEEBOOK in enabled:
+            try:
+                meebook_students = await client.get_meebook_weekplan(
+                    child_filter, institution_filter, week, session_uuid
+                )
+            except Exception as e:
+                meebook_students = []
+                _log.warning("Could not fetch Meebook weekplan: %s", e)
+
+            if meebook_students:
+                click.echo("## Weekly Plan (Meebook)")
+                click.echo()
+                for student in meebook_students:
+                    click.echo(f"### {student.name}")
+                    click.echo()
+                    for day in student.week_plan:
+                        if not day.tasks:
+                            continue
+                        click.echo(f"**{day.date}**")
+                        for task in day.tasks:
+                            label = task.title or task.type
+                            if task.pill:
+                                label = f"[{task.pill}] {label}"
+                            click.echo(f"- {label}")
+                            if task.content:
+                                for line in html_to_plain(task.content).splitlines():
+                                    if line.strip():
+                                        click.echo(f"  {line}")
+                    click.echo()
+
+        # ── EasyIQ – Weekly Plan ─────────────────────────────────────────────
+        if WeeklySummaryProvider.EASYIQ in enabled:
+            easyiq_any = False
+            for c in children:
+                if not c._raw or "userId" not in c._raw:
+                    continue
+                c_user_id = str(c._raw["userId"])
+                c_institutions: list[str] = []
+                inst_code = c._raw.get("institutionProfile", {}).get("institutionCode", "")
+                if inst_code:
+                    c_institutions.append(str(inst_code))
+
+                try:
+                    appointments = await client.get_easyiq_weekplan(
+                        week, session_uuid, c_institutions or institution_filter, c_user_id
+                    )
+                except Exception as e:
+                    _log.warning("Could not fetch EasyIQ weekplan for %s: %s", c.name, e)
+                    continue
+
+                if not appointments:
+                    continue
+
+                if not easyiq_any:
+                    click.echo("## Weekly Plan (EasyIQ)")
+                    click.echo()
+                    easyiq_any = True
+
+                click.echo(f"### {c.name}")
+                click.echo()
+                for appt in appointments:
+                    click.echo(f"- {appt.title}")
+                    if appt._raw:
+                        start = appt._raw.get("start", "")
+                        end = appt._raw.get("end", "")
+                        if start or end:
+                            click.echo(f"  {start} – {end}")
+                        description = appt._raw.get("description", "")
+                        if description:
+                            for line in html_to_plain(description).splitlines():
+                                if line.strip():
+                                    click.echo(f"  {line}")
+                click.echo()
 
 
 if __name__ == "__main__":
