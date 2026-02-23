@@ -39,7 +39,7 @@ def async_cmd(func):
 
 
 class WeeklySummaryProvider(str, enum.Enum):
-    MU_TASKS = "mu_tasks"
+    MU_OPGAVER = "mu_opgaver"
     MU_UGEPLAN = "mu_ugeplan"
     MEEBOOK = "meebook"
     EASYIQ = "easyiq"
@@ -1228,7 +1228,7 @@ async def weekly_summary(ctx, child, week, providers):
             child_filter = [uid for uid in child_filter if uid in selected_user_ids]
 
         # ── Min Uddannelse – Homework & Tasks ────────────────────────────────
-        if WeeklySummaryProvider.MU_TASKS in enabled:
+        if WeeklySummaryProvider.MU_OPGAVER in enabled:
             from .const import WIDGET_MIN_UDDANNELSE
 
             try:
