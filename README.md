@@ -1,32 +1,33 @@
-# Aula: Python Aula API Client Library
+# Aula
 
-Python library for interacting with the Aula platform using the **new MitID authentication system**.
+[![PyPI](https://img.shields.io/pypi/v/aula)](https://pypi.org/project/aula/)
+[![Python](https://img.shields.io/pypi/pyversions/aula)](https://pypi.org/project/aula/)
+[![License](https://img.shields.io/pypi/l/aula)](LICENSE)
 
-This library provides an asynchronous client (`AulaApiClient`) to fetch data such as profiles, daily overviews, messages, and calendar events from Aula.
+Async Python client for the Danish school platform **aula.dk**.
 
-## TODO
+- Fetch calendar events, messages, posts, and daily overviews
+- Authenticate via Denmark's MitID national identity system
+- Token caching — MitID app approval only needed on first login
+- Full async API client (`AulaApiClient`) and a CLI included
 
-### Core functionality
-- [x] Calendar fetching
-- [x] Post fetching
-- [x] Messages fetching
-- [x] Daily Overview fetching
-- [x] Profile fetching
+## Installation
 
-### Widgets
-- [x] 0001 - EasyIQ - Ugeplan
-- [ ] 0004 - Meebook Ugeplan
-- [x] 0019 - Biblioteket
-- [x] 0029 - MinUddannelse Ugenoter
-- [x] 0030 - MinUddannelse Opgaver
-- [ ] 0047 - Fravær - forældreindberetning
-- [ ] 0062 - Huskelisten
-- [ ] 0121 - INFOBA Modulordninger til forældre
+```bash
+pip install aula
+```
 
+**Requirements:** Python >= 3.10, MitID username and MitID app.
 
-## Library Usage
+### Install from Source
 
-Here's a basic example of how to use the library with MitID authentication:
+```bash
+git clone https://github.com/nickknissen/aula.git
+cd aula
+pip install -e .
+```
+
+## Quick Start
 
 ```python
 import asyncio
@@ -34,173 +35,56 @@ from aula import FileTokenStorage
 from aula.auth_flow import authenticate_and_create_client
 
 async def main():
-    # Replace with your MitID username
-    # NOTE: This is your MitID username, NOT your Aula username!
-    mitid_username = "your_mitid_username"
-
-    # Create a token storage backend (persists tokens to a file)
     token_storage = FileTokenStorage(".aula_tokens.json")
-
-    # Authenticate and create a ready-to-use client
-    # First time: Will prompt you to approve in MitID app
-    # Subsequent times: Uses cached tokens (fast!)
-    async with await authenticate_and_create_client(mitid_username, token_storage) as client:
-        print(f"Successfully logged in! API URL: {client.api_url}")
-
-        # Fetch profile information
+    async with await authenticate_and_create_client("your_mitid_username", token_storage) as client:
         profile = await client.get_profile()
-        print(f"User: {profile.display_name} (ID: {profile.profile_id})")
+        print(profile.display_name)
+        for child in profile.children:
+            overview = await client.get_daily_overview(child.id)
 
-        if profile.children:
-            print("Children:")
-            for child in profile.children:
-                print(f" - {child.name} (ID: {child.id})")
-
-                # Fetch daily overview for the first child
-                if child == profile.children[0]:
-                    overview = await client.get_daily_overview(child.id)
-                    if overview:
-                        print(f"   Overview for {child.name}:")
-                        print(f"   - Status: {overview.status}")
-        else:
-            print("No children found.")
-
-if __name__ == "__main__":
-    asyncio.run(main())
+asyncio.run(main())
 ```
 
-### First Login Experience
+Key methods on `AulaApiClient`: `get_profile()`, `get_daily_overview(child_id)`, `get_message_threads()`, `get_messages_for_thread(thread_id)`, `get_calendar_events(...)`, `get_posts(...)`. See `src/aula/api_client.py` for the full list.
 
-When you run the code for the first time:
-1. You'll see a message: "Please approve the login in your MitID app"
-2. Open your **MitID app** on your phone
-3. You may need to scan a QR code or enter an OTP code (shown in terminal)
-4. Approve the login request
-5. Tokens are saved and cached for future use
-
-On subsequent runs, tokens are loaded from cache - no MitID app interaction needed!
-
-### Available Methods
-
-Key methods of `AulaApiClient` include:
-
-- `is_logged_in()`: Check if the session is currently active.
-- `get_profile()`: Fetch user and child profile information.
-- `get_daily_overview(child_id)`: Fetch the daily overview for a specific child.
-- `get_message_threads()`: Fetch message threads.
-- `get_messages_for_thread(thread_id)`: Fetch messages within a specific thread.
-- `get_calendar_events(...)`: Fetch calendar events.
-- `get_posts(...)`: Fetch posts/announcements.
-- _... (and others, see `api_client.py` for details)_
-
-### Data Models
-
-The library uses dataclasses to structure the returned data (e.g., `Profile`, `Child`, `DailyOverview`, `MessageThread`). Check the `src/aula/models/` package for the specific fields available in each model.
-
-## Authentication Requirements
+## Authentication
 
 ### What You Need
-1. **MitID Username**: Your MitID username (NOT your Aula username)
-   - Find it by logging into https://mitid.dk/
-   - Usually in format: "FirstnameLastname" or similar
 
-2. **MitID App**: The MitID mobile app installed on your phone
-   - Available on iOS and Android
-   - Must be set up and working
+- **MitID username** — your MitID username (not your Aula username). Find it at [mitid.dk](https://mitid.dk/).
+- **MitID app** — installed and set up on your phone.
 
-### How Authentication Works
-1. **First Login**: Complete OAuth + SAML + MitID flow (requires app approval)
-2. **Token Caching**: Access tokens are saved to a local file
-3. **Subsequent Logins**: Tokens are reused (no app interaction needed)
-4. **Token Expiration**: When tokens expire, re-authenticate with app
+### First Login
+
+On first run you'll be prompted to approve the login in your MitID app. You may need to scan a QR code or enter an OTP shown in the terminal. Tokens are saved to the storage file and reused on subsequent runs — no app interaction needed until they expire.
 
 ### Token Security
-- Tokens provide full access to your Aula account
-- Store token files securely
-- Add to `.gitignore`:
-  ```gitignore
-  .aula_tokens.json
-  ```
 
-## Installation
+Tokens provide full access to your Aula account — treat them like passwords and never commit token files to version control.
 
-### Requirements
-- Python >= 3.10
-- MitID username and MitID app
-
-### Install from PyPI
-```bash
-pip install aula
-```
-
-### Install from Source
-```bash
-git clone https://github.com/nickknissen/aula.git
-cd aula
-pip install -e .
-```
-
-### Dependencies
-The library automatically installs:
-- `httpx` - Async HTTP client
-- `beautifulsoup4` - HTML parsing
-- `qrcode` - QR code generation for MitID
-- `pycryptodome` - Cryptography for MitID protocol
-- Other required dependencies
-
-## CLI Tool
-
-A command-line interface is included for quick access to Aula data. It uses MitID authentication.
+## CLI
 
 ```bash
-# General command structure (username can also be set via AULA_MITID_USERNAME env var)
-aula --username <your_mitid_username> [COMMAND] [OPTIONS]
+aula --username <your_mitid_username> [COMMAND]
 ```
 
-### CLI Commands
+The username can also be set via the `AULA_MITID_USERNAME` environment variable or a config file (`~/.config/aula/config.json`).
 
-**1. Login:**
-Verifies credentials by authenticating with MitID.
+| Command | Description |
+|---|---|
+| `login` | Verify credentials |
+| `profile` | Show profile and children |
+| `overview` | Daily overview for all children |
+| `messages` | Recent message threads |
+| `calendar` | Calendar events |
+| `posts` | Posts and announcements |
+
+Example:
 
 ```bash
-aula --username <your_mitid_username> login
+aula --username johndoe messages --limit 5
 ```
 
-**2. Profile:**
-Fetches and displays profile information.
+## License
 
-```bash
-aula --username <your_mitid_username> profile
-```
-
-**3. Overview:**
-Fetches the daily overview. By default, it fetches for all children. Specify a single child with `--child-id`.
-
-```bash
-# Get overview for all children
-aula --username <your_mitid_username> overview
-
-# Get overview for a specific child
-aula --username <your_mitid_username> overview --child-id 12345
-```
-
-**4. Messages:**
-Fetches recent message threads and their contents.
-
-```bash
-aula --username <your_mitid_username> messages --limit 5
-```
-
-**5. Calendar:**
-Fetches calendar events for the next 7 days (default).
-
-```bash
-aula --username <your_mitid_username> calendar --start-date 2025-01-01 --end-date 2025-01-07
-```
-
-**6. Posts:**
-Fetches posts and announcements.
-
-```bash
-aula --username <your_mitid_username> posts --limit 10
-```
+MIT
