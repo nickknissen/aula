@@ -1188,18 +1188,33 @@ async def weekly_summary(ctx, child, week, providers):
                 day_events = sorted(by_day.get(day, []), key=lambda e: e.start_datetime)
                 click.echo(f"### {day_label}")
                 if day_events:
+                    # Merge events that share the exact same timeslot
+                    slots: dict[tuple, list] = defaultdict(list)
                     for ev in day_events:
+                        slots[(ev.start_datetime, ev.end_datetime)].append(ev)
+                    for (start_dt, end_dt), evs in sorted(slots.items()):
                         time_range = (
-                            f"{ev.start_datetime.strftime('%H:%M')}–"
-                            f"{ev.end_datetime.strftime('%H:%M')}"
+                            f"{start_dt.strftime('%H:%M')}–{end_dt.strftime('%H:%M')}"
                         )
-                        parts = [time_range, ev.title or "Untitled"]
-                        if ev.location:
-                            parts.append(f"({ev.location})")
-                        if ev.teacher_name:
-                            parts.append(f"[{ev.teacher_name}]")
-                        if ev.has_substitute and ev.substitute_name:
-                            parts.append(f"[Substitute: {ev.substitute_name}]")
+                        titles = " / ".join(dict.fromkeys(ev.title or "Untitled" for ev in evs))
+                        locations = list(dict.fromkeys(ev.location for ev in evs if ev.location))
+                        teachers = list(
+                            dict.fromkeys(ev.teacher_name for ev in evs if ev.teacher_name)
+                        )
+                        substitutes = list(
+                            dict.fromkeys(
+                                ev.substitute_name
+                                for ev in evs
+                                if ev.has_substitute and ev.substitute_name
+                            )
+                        )
+                        parts = [time_range, titles]
+                        if locations:
+                            parts.append(f"({' / '.join(locations)})")
+                        if teachers:
+                            parts.append(f"[{' / '.join(teachers)}]")
+                        if substitutes:
+                            parts.append(f"[Substitute: {' / '.join(substitutes)}]")
                         click.echo(f"- {'  '.join(parts)}")
                 else:
                     click.echo("- (no events)")
