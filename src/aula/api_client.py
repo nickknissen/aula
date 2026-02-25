@@ -1,6 +1,7 @@
 import logging
 import time
 from datetime import date, datetime
+from types import TracebackType
 from typing import Any
 from zoneinfo import ZoneInfo
 
@@ -837,7 +838,12 @@ class AulaApiClient:
     async def __aenter__(self) -> "AulaApiClient":
         return self
 
-    async def __aexit__(self, exc_type, exc_val, exc_tb) -> None:
+    async def __aexit__(
+        self,
+        exc_type: type[BaseException] | None,
+        exc_val: BaseException | None,
+        exc_tb: TracebackType | None,
+    ) -> None:
         await self.close()
 
     async def close(self) -> None:
