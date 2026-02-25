@@ -199,7 +199,12 @@ class AulaApiClient:
         from_date: date,
         to_date: date,
     ) -> list[PresenceWeekTemplate]:
-        """Fetch presence week templates for the given institution profile IDs and date range."""
+        """Fetch presence week templates for the given institution profile IDs and date range.
+
+        Note: The parameter name 'filterInstitutionProfileIds[]' should be verified against
+        actual API responses. Different Aula endpoints use different patterns (e.g.,
+        institutionProfileIds[] vs filterInstitutionProfileIds[]).
+        """
         params: dict[str, Any] = {
             "method": "presence.getPresenceTemplates",
             "filterInstitutionProfileIds[]": institution_profile_ids,
