@@ -1,4 +1,5 @@
 import logging
+import time
 from datetime import date, datetime
 from typing import Any
 from zoneinfo import ZoneInfo
@@ -93,8 +94,18 @@ class AulaApiClient:
 
         max_retries = 5
         for _attempt in range(max_retries):
+            start = time.monotonic()
             response = await self._client.request(
                 method, url, headers=headers, params=params, json=json
+            )
+            elapsed = time.monotonic() - start
+
+            _LOGGER.debug(
+                "%s %s → %d (%.2fs)",
+                method.upper(),
+                url.split("?")[0],
+                response.status_code,
+                elapsed,
             )
 
             if response.status_code == 410:
