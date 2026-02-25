@@ -49,9 +49,15 @@ class AulaApiClient:
     transport and a valid access token.
     """
 
-    def __init__(self, http_client: HttpClient, access_token: str) -> None:
+    def __init__(
+        self,
+        http_client: HttpClient,
+        access_token: str,
+        csrf_token: str | None = None,
+    ) -> None:
         self._client = http_client
         self._access_token = access_token
+        self._csrf_token = csrf_token
         self.api_url = f"{API_URL}{API_VERSION}"
 
     async def init(self) -> None:
@@ -318,9 +324,8 @@ class AulaApiClient:
         }
 
         req_headers = {"content-type": "application/json"}
-        csrf_token = self._client.get_cookie("Csrfp-Token")
-        if csrf_token:
-            req_headers["csrfp-token"] = csrf_token
+        if self._csrf_token:
+            req_headers["csrfp-token"] = self._csrf_token
 
         resp = await self._request_with_version_retry(
             "post",
@@ -659,10 +664,9 @@ class AulaApiClient:
 
         Paginates automatically to fetch all matching results.
         """
-        csrf_token = self._client.get_cookie("Csrfp-Token")
         headers: dict[str, str] = {"content-type": "application/json"}
-        if csrf_token:
-            headers["csrfp-token"] = csrf_token
+        if self._csrf_token:
+            headers["csrfp-token"] = self._csrf_token
 
         all_messages: list[Message] = []
         offset = 0
