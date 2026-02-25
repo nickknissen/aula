@@ -1592,10 +1592,11 @@ async def daily_summary(ctx, child, target_date):
         click.echo()
 
         # ── Presence templates for target date (planned times) ────────────────
-        child_inst_ids = [c.id for c in children]
+        # Extract institution profile IDs from children (Child.id, not profile_id)
+        child_institution_profile_ids = [c.id for c in children]
         try:
             presence_tmpl_list = await client.get_presence_templates(
-                child_inst_ids, today.date(), today.date()
+                child_institution_profile_ids, today.date(), today.date()
             )
         except Exception as e:
             presence_tmpl_list = []
@@ -1701,7 +1702,9 @@ async def daily_summary(ctx, child, target_date):
 
         # ── Schedule ──────────────────────────────────────────────────────────
         try:
-            events = await client.get_calendar_events(child_inst_ids, day_start, day_end)
+            events = await client.get_calendar_events(
+                child_institution_profile_ids, day_start, day_end
+            )
         except Exception as e:
             events = []
             _log.warning("Could not fetch calendar events: %s", e)

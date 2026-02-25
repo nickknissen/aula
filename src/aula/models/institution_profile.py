@@ -7,8 +7,17 @@ from .profile_picture import ProfilePicture
 
 @dataclass
 class InstitutionProfile(AulaDataClass):
-    profile_id: int | None = None
-    id: int | None = None
+    """An institution profile (child's profile at a school/institution).
+
+    Note: This class has two different ID fields:
+    - `id`: Institution profile ID (matches Child.id, used for API calls)
+    - `profile_id`: User's profile ID (matches Child.profile_id)
+
+    When mapping children to institution profiles, always match on the `id` field.
+    """
+
+    profile_id: int | None = None  # User profile ID
+    id: int | None = None  # Institution profile ID - use for matching with Child.id
     institution_code: str | None = None
     institution_name: str | None = None
     role: str | None = None
