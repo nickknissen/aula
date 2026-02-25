@@ -208,12 +208,19 @@ class AulaApiClient:
         }
         resp = await self._request_with_version_retry("get", self.api_url, params=params)
         resp.raise_for_status()
-        templates = resp.json().get("data", {}).get("presenceWeekTemplates", [])
+        data = resp.json().get("data")
+        if not isinstance(data, dict):
+            return []
+        templates = data.get("presenceWeekTemplates", [])
+        if not isinstance(templates, list):
+            return []
         result = []
         for t in templates:
+            if t is None or not isinstance(t, dict):
+                continue
             try:
                 result.append(PresenceWeekTemplate.from_dict(t))
-            except (TypeError, ValueError, KeyError) as e:
+            except (TypeError, ValueError, KeyError, AttributeError) as e:
                 _LOGGER.warning(
                     "Skipping presence week template due to parsing error: %s - Data: %s", e, t
                 )
