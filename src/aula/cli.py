@@ -1452,6 +1452,13 @@ async def presence_templates(ctx, from_date, to_date):
     from_date_d = from_date.date() if from_date else now.date()
     to_date_d = to_date.date() if to_date else (now + datetime.timedelta(days=7)).date()
 
+    if from_date_d > to_date_d:
+        click.echo(
+            f"Error: --from-date ({from_date_d}) must be on or before --to-date ({to_date_d})",
+            err=True,
+        )
+        return
+
     async with await _get_client(ctx) as client:
         try:
             prof: Profile = await client.get_profile()
