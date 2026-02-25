@@ -7,7 +7,265 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 
 from aula.api_client import AulaApiClient
-from aula.http import HttpResponse
+from aula.http import (
+    AulaAuthenticationError,
+    AulaServerError,
+    HttpRequestError,
+    HttpResponse,
+)
+
+
+class TestRequestWithVersionRetry:
+    """Tests for AulaApiClient._request_with_version_retry method."""
+
+    @pytest.fixture
+    def client(self):
+        http_client = AsyncMock()
+        return AulaApiClient(http_client=http_client, access_token="test_token")
+
+    @pytest.mark.asyncio
+    async def test_successful_request(self, client):
+        """Normal 200 response is returned directly."""
+        client._client.request = AsyncMock(
+            return_value=HttpResponse(status_code=200, data={"ok": True})
+        )
+        resp = await client._request_with_version_retry(
+            "get", "https://www.aula.dk/api/v22?method=test"
+        )
+        assert resp.status_code == 200
+        assert resp.json() == {"ok": True}
+
+    @pytest.mark.asyncio
+    async def test_410_bumps_version_and_retries(self, client):
+        """410 Gone triggers version bump and retry."""
+        client._client.request = AsyncMock(
+            side_effect=[
+                HttpResponse(status_code=410, data=None),
+                HttpResponse(status_code=200, data={"ok": True}),
+            ]
+        )
+        resp = await client._request_with_version_retry(
+            "get", "https://www.aula.dk/api/v22?method=test"
+        )
+        assert resp.status_code == 200
+        assert client.api_url == "https://www.aula.dk/api/v23"
+
+    @pytest.mark.asyncio
+    async def test_multiple_410_bumps(self, client):
+        """Multiple 410s bump version each time."""
+        client._client.request = AsyncMock(
+            side_effect=[
+                HttpResponse(status_code=410, data=None),
+                HttpResponse(status_code=410, data=None),
+                HttpResponse(status_code=200, data={"ok": True}),
+            ]
+        )
+        resp = await client._request_with_version_retry(
+            "get", "https://www.aula.dk/api/v22?method=test"
+        )
+        assert resp.status_code == 200
+        assert client.api_url == "https://www.aula.dk/api/v24"
+
+    @pytest.mark.asyncio
+    async def test_max_retries_exceeded_raises_runtime_error(self, client):
+        """5 consecutive 410s raises RuntimeError."""
+        client._client.request = AsyncMock(
+            return_value=HttpResponse(status_code=410, data=None)
+        )
+        with pytest.raises(RuntimeError, match="Failed to find working API version"):
+            await client._request_with_version_retry(
+                "get", "https://www.aula.dk/api/v22?method=test"
+            )
+        assert client._client.request.call_count == 5
+
+    @pytest.mark.asyncio
+    async def test_non_410_error_returned_without_retry(self, client):
+        """Non-410 errors are returned immediately, not retried."""
+        client._client.request = AsyncMock(
+            return_value=HttpResponse(status_code=500, data=None)
+        )
+        resp = await client._request_with_version_retry(
+            "get", "https://www.aula.dk/api/v22?method=test"
+        )
+        assert resp.status_code == 500
+        assert client._client.request.call_count == 1
+
+    @pytest.mark.asyncio
+    async def test_access_token_appended_to_url(self, client):
+        """Access token is appended as query parameter for Aula API URLs."""
+        client._client.request = AsyncMock(
+            return_value=HttpResponse(status_code=200, data=None)
+        )
+        await client._request_with_version_retry(
+            "get", "https://www.aula.dk/api/v22?method=test"
+        )
+        called_url = client._client.request.call_args[0][1]
+        assert "access_token=test_token" in called_url
+
+    @pytest.mark.asyncio
+    async def test_access_token_not_appended_for_external_urls(self, client):
+        """Access token is NOT appended for non-Aula URLs."""
+        client._client.request = AsyncMock(
+            return_value=HttpResponse(status_code=200, data=None)
+        )
+        await client._request_with_version_retry(
+            "get", "https://api.minuddannelse.net/aula/endpoint"
+        )
+        called_url = client._client.request.call_args[0][1]
+        assert "access_token" not in called_url
+
+    @pytest.mark.asyncio
+    async def test_access_token_added_to_params_dict(self, client):
+        """When params dict is provided, access_token is added to it."""
+        client._client.request = AsyncMock(
+            return_value=HttpResponse(status_code=200, data=None)
+        )
+        params = {"key": "value"}
+        await client._request_with_version_retry(
+            "get", "https://www.aula.dk/api/v22?method=test", params=params
+        )
+        assert params["access_token"] == "test_token"
+
+
+class TestGetProfile:
+    """Tests for AulaApiClient.get_profile method."""
+
+    @pytest.fixture
+    def client(self):
+        http_client = AsyncMock()
+        c = AulaApiClient(http_client=http_client, access_token="test_token")
+        return c
+
+    def _make_profile_response(self, profiles):
+        return HttpResponse(status_code=200, data={"data": {"profiles": profiles}})
+
+    @pytest.mark.asyncio
+    async def test_get_profile_happy_path(self, client):
+        """Valid profile response is parsed correctly."""
+        profile_data = {
+            "profileId": 123,
+            "displayName": "John Doe",
+            "children": [
+                {
+                    "id": 456,
+                    "profileId": 789,
+                    "name": "Jane Doe",
+                    "institutionProfiles": [
+                        {"id": 456, "institutionName": "School A"}
+                    ],
+                }
+            ],
+            "institutionProfiles": [{"id": 100}],
+        }
+        client._request_with_version_retry = AsyncMock(
+            return_value=self._make_profile_response([profile_data])
+        )
+        profile = await client.get_profile()
+        assert profile.profile_id == 123
+        assert profile.display_name == "John Doe"
+        assert len(profile.children) == 1
+        assert profile.children[0].id == 456
+
+    @pytest.mark.asyncio
+    async def test_get_profile_empty_profiles_raises(self, client):
+        """Empty profiles list raises ValueError."""
+        client._request_with_version_retry = AsyncMock(
+            return_value=self._make_profile_response([])
+        )
+        with pytest.raises(ValueError, match="No profile data found"):
+            await client.get_profile()
+
+    @pytest.mark.asyncio
+    async def test_get_profile_no_children(self, client):
+        """Profile with no children returns empty children list."""
+        profile_data = {
+            "profileId": 123,
+            "displayName": "John Doe",
+            "children": [],
+            "institutionProfiles": [],
+        }
+        client._request_with_version_retry = AsyncMock(
+            return_value=self._make_profile_response([profile_data])
+        )
+        profile = await client.get_profile()
+        assert profile.children == []
+
+    @pytest.mark.asyncio
+    async def test_get_profile_malformed_child_skipped(self, client):
+        """Malformed child entry is skipped with warning."""
+        profile_data = {
+            "profileId": 123,
+            "displayName": "John Doe",
+            "children": [
+                "not a dict",
+                {
+                    "id": 456,
+                    "profileId": 789,
+                    "name": "Jane Doe",
+                    "institutionProfiles": [
+                        {"id": 456, "institutionName": "School A"}
+                    ],
+                },
+            ],
+            "institutionProfiles": [],
+        }
+        client._request_with_version_retry = AsyncMock(
+            return_value=self._make_profile_response([profile_data])
+        )
+        profile = await client.get_profile()
+        assert len(profile.children) == 1
+
+    @pytest.mark.asyncio
+    async def test_get_profile_http_401_raises_auth_error(self, client):
+        """401 response raises AulaAuthenticationError."""
+        client._request_with_version_retry = AsyncMock(
+            return_value=HttpResponse(status_code=401, data=None)
+        )
+        with pytest.raises(AulaAuthenticationError):
+            await client.get_profile()
+
+    @pytest.mark.asyncio
+    async def test_get_profile_http_500_raises_server_error(self, client):
+        """500 response raises AulaServerError."""
+        client._request_with_version_retry = AsyncMock(
+            return_value=HttpResponse(status_code=500, data=None)
+        )
+        with pytest.raises(AulaServerError):
+            await client.get_profile()
+
+
+class TestIsLoggedIn:
+    """Tests for AulaApiClient.is_logged_in method."""
+
+    @pytest.fixture
+    def client(self):
+        http_client = AsyncMock()
+        return AulaApiClient(http_client=http_client, access_token="test_token")
+
+    @pytest.mark.asyncio
+    async def test_is_logged_in_returns_true(self, client):
+        """Returns True when get_profile succeeds."""
+        profile_data = {
+            "profileId": 123,
+            "displayName": "John",
+            "children": [],
+            "institutionProfiles": [],
+        }
+        client._request_with_version_retry = AsyncMock(
+            return_value=HttpResponse(
+                status_code=200,
+                data={"data": {"profiles": [profile_data]}},
+            )
+        )
+        assert await client.is_logged_in() is True
+
+    @pytest.mark.asyncio
+    async def test_is_logged_in_returns_false_on_error(self, client):
+        """Returns False when get_profile raises any exception."""
+        client._request_with_version_retry = AsyncMock(
+            return_value=HttpResponse(status_code=401, data=None)
+        )
+        assert await client.is_logged_in() is False
 
 
 class TestGetPresenceTemplates:
