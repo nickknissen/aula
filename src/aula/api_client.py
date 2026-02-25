@@ -46,8 +46,8 @@ class AulaApiClient:
     """Async client for Aula API endpoints.
 
     Transport-agnostic: accepts any HttpClient implementation (httpx, aiohttp, etc.).
-    Authentication is handled externally; this client only needs a ready HTTP
-    transport and a valid access token.
+    Authentication relies on the caller-provided HTTP session cookies plus
+    ``access_token`` query parameters for Aula API endpoints.
     """
 
     def __init__(
@@ -95,9 +95,8 @@ class AulaApiClient:
     ) -> HttpResponse:
         """Make an HTTP request with automatic API version bump on 410 Gone.
 
-        Automatically appends the access_token query parameter for Aula API URLs.
+        Aula API endpoints require ``access_token`` in query parameters.
         """
-        # Auto-append access token for Aula API requests
         if self._access_token and url.startswith(API_URL):
             if params is not None:
                 params = {**params, "access_token": self._access_token}

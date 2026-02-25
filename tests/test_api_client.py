@@ -122,9 +122,7 @@ class TestRequestWithVersionRetry:
         await client._request_with_version_retry(
             "get", "https://www.aula.dk/api/v22?method=test", params=params
         )
-        # Original dict must NOT be mutated
         assert "access_token" not in params
-        # Token must be passed in the request call
         called_params = client._client.request.call_args[1]["params"]
         assert called_params["access_token"] == "test_token"
         assert called_params["key"] == "value"

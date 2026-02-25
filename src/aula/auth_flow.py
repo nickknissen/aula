@@ -3,8 +3,7 @@
 Provides two entry points:
 
 - ``create_client``: Build a client from stored tokens and cookies.
-  Use this when you already have valid credentials (e.g. Home Assistant
-  integration startup).
+  Aula API requests use restored cookies and ``tokens.access_token`` query params.
 
 - ``authenticate_and_create_client``: Run the full MitID auth flow (or
   load cached tokens) and return a ready client.  Used by the CLI.
@@ -21,7 +20,7 @@ import qrcode
 from .api_client import AulaApiClient
 from .auth.exceptions import MitIDAuthError, OAuthError
 from .auth.mitid_client import MitIDAuthClient
-from .http import HttpClient
+from .http import AulaAuthenticationError, HttpClient
 from .http_httpx import HttpxHttpClient
 from .token_storage import TokenStorage
 
@@ -41,16 +40,18 @@ async def create_client(
 
     Args:
         token_data: Credential dict as returned by ``TokenStorage.load()``.
-            Must contain ``tokens.access_token``; may contain session cookies.
+            Must contain ``tokens.access_token`` and should include session
+            cookies used for Aula API authentication.
         http_client: Optional HTTP client implementing the ``HttpClient``
-            protocol.  When *None*, an ``HttpxHttpClient`` is created with the
+            protocol. When *None*, an ``HttpxHttpClient`` is created with the
             session cookies from ``token_data``.
 
     Returns:
         A ready-to-use ``AulaApiClient`` (``init()`` has been called).
 
     Raises:
-        ValueError: If ``token_data`` has no ``access_token``.
+        ValueError: If ``token_data`` has no ``access_token`` (compatibility
+            requirement for stored credential schema).
     """
     tokens = token_data.get("tokens", {})
     access_token = tokens.get("access_token")
@@ -58,6 +59,7 @@ async def create_client(
         raise ValueError("No access_token found in token_data")
 
     cookies = token_data.get("cookies", {})
+    # Csrfp-Token is expected from the restored cookie jar when available.
     csrf_token = cookies.get("Csrfp-Token")
 
     if http_client is None:
@@ -74,6 +76,7 @@ async def authenticate(
     on_qr_codes: Callable[[qrcode.QRCode, qrcode.QRCode], None] | None = None,
     on_login_required: Callable[[], None] | None = None,
     httpx_client: httpx.AsyncClient | None = None,
+    force_login: bool = False,
 ) -> dict[str, Any]:
     """Authenticate via MitID (or cached tokens) and return credential data.
 
@@ -95,20 +98,30 @@ async def authenticate(
             close it.  Useful for Home Assistant's shared web session
             (``get_async_client(hass)``).
 
+        force_login: When ``True``, bypass cached credentials and perform a
+            fresh MitID login to restore a valid session cookie jar.
     Returns:
         Credential dict suitable for passing to :func:`create_client`.
-        Contains ``tokens`` (with ``access_token``) and ``cookies``.
+        Contains ``tokens`` (with ``access_token`` for Aula API requests) and
+        ``cookies`` used for Aula session authentication.
     """
     async with MitIDAuthClient(
         mitid_username=mitid_username,
         on_qr_codes=on_qr_codes,
         httpx_client=httpx_client,
     ) as auth_client:
-        token_data = await token_storage.load() if token_storage else None
+        token_data = (
+            None
+            if force_login
+            else (await token_storage.load() if token_storage else None)
+        )
         tokens_valid = False
         cookies: dict[str, str] = {}
 
         result_data: dict[str, Any] = {}
+
+        if force_login:
+            _LOGGER.info("Force login requested; skipping cached token reuse")
 
         if token_data is not None:
             tokens = token_data.get("tokens", {})
@@ -181,7 +194,22 @@ async def authenticate_and_create_client(
     token_data = await authenticate(
         mitid_username, token_storage, on_qr_codes, on_login_required, httpx_client
     )
-    return await create_client(token_data)
+    try:
+        return await create_client(token_data)
+    except AulaAuthenticationError as err:
+        _LOGGER.warning(
+            "Cached session cookies were rejected (%s); retrying with fresh MitID login",
+            err,
+        )
+        fresh_token_data = await authenticate(
+            mitid_username,
+            token_storage,
+            on_qr_codes,
+            on_login_required,
+            httpx_client,
+            force_login=True,
+        )
+        return await create_client(fresh_token_data)
 
 
 def _build_token_data(
