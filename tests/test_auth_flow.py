@@ -133,6 +133,76 @@ class TestAuthenticate:
         assert "cookies" in result
         assert result["tokens"]["access_token"] == "fresh-tok"
 
+    @pytest.mark.asyncio
+    async def test_fresh_auth_returns_full_token_data(self, token_storage, mock_auth_client):
+        """Fresh auth returns full token data including expires_at and metadata."""
+        token_storage.load.return_value = None
+        mock_auth_client.tokens = {
+            "access_token": "fresh-tok",
+            "refresh_token": "fresh-refresh",
+            "expires_at": 9999999999.0,
+        }
+
+        with patch("aula.auth_flow.MitIDAuthClient", return_value=mock_auth_client):
+            result = await authenticate("user", token_storage)
+
+        assert result["tokens"]["access_token"] == "fresh-tok"
+        assert result["tokens"]["refresh_token"] == "fresh-refresh"
+        assert result["tokens"]["expires_at"] == 9999999999.0
+        assert result["username"] == "user"
+        assert "timestamp" in result
+
+    @pytest.mark.asyncio
+    async def test_refresh_returns_full_token_data(self, token_storage, mock_auth_client):
+        """Token refresh returns full token data including expires_at."""
+        token_storage.load.return_value = {
+            "tokens": {
+                "access_token": "expired-tok",
+                "refresh_token": "old-refresh",
+                "expires_at": time.time() - 100,
+            },
+            "cookies": {"Csrfp-Token": "csrf"},
+        }
+        new_tokens = {
+            "access_token": "refreshed-tok",
+            "refresh_token": "new-refresh",
+            "expires_at": 9999999999.0,
+        }
+        mock_auth_client.refresh_access_token = AsyncMock(return_value=new_tokens)
+        mock_auth_client.access_token = "refreshed-tok"
+
+        with patch("aula.auth_flow.MitIDAuthClient", return_value=mock_auth_client):
+            result = await authenticate("user", token_storage)
+
+        assert result["tokens"]["access_token"] == "refreshed-tok"
+        assert result["tokens"]["refresh_token"] == "new-refresh"
+        assert result["tokens"]["expires_at"] == 9999999999.0
+        assert result["username"] == "user"
+
+    @pytest.mark.asyncio
+    async def test_cached_returns_full_token_data(self, token_storage, mock_auth_client):
+        """Cached valid tokens return full token data including expires_at."""
+        cached = {
+            "tokens": {
+                "access_token": "cached-tok",
+                "refresh_token": "cached-refresh",
+                "expires_at": time.time() + 3600,
+            },
+            "cookies": {"Csrfp-Token": "csrf"},
+            "username": "user",
+            "timestamp": 1234567890.0,
+        }
+        token_storage.load.return_value = cached
+        mock_auth_client.access_token = "cached-tok"
+
+        with patch("aula.auth_flow.MitIDAuthClient", return_value=mock_auth_client):
+            result = await authenticate("user", token_storage)
+
+        assert result["tokens"]["refresh_token"] == "cached-refresh"
+        assert result["tokens"]["expires_at"] == cached["tokens"]["expires_at"]
+        assert result["username"] == "user"
+        assert result["timestamp"] == 1234567890.0
+
     # -- No token_storage → always runs full auth --
 
     @pytest.mark.asyncio
