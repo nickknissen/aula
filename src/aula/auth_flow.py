@@ -1,16 +1,13 @@
 """Authentication helpers for creating AulaApiClient instances.
 
-Provides three entry points:
-
-- ``authenticate``: Run the MitID auth flow (or load cached tokens) and
-  return raw credential data.  Callers decide where to persist tokens.
+Provides two entry points:
 
 - ``create_client``: Build a client from stored tokens and cookies.
   Use this when you already have valid credentials (e.g. Home Assistant
   integration startup).
 
-- ``authenticate_and_create_client``: Convenience wrapper combining
-  ``authenticate`` and ``create_client``.  Used by the CLI.
+- ``authenticate_and_create_client``: Run the full MitID auth flow (or
+  load cached tokens) and return a ready client.  Used by the CLI.
 """
 
 import logging
@@ -18,6 +15,7 @@ import time
 from collections.abc import Callable
 from typing import Any
 
+import httpx
 import qrcode
 
 from .api_client import AulaApiClient
@@ -75,6 +73,7 @@ async def authenticate(
     token_storage: TokenStorage | None = None,
     on_qr_codes: Callable[[qrcode.QRCode, qrcode.QRCode], None] | None = None,
     on_login_required: Callable[[], None] | None = None,
+    httpx_client: httpx.AsyncClient | None = None,
 ) -> dict[str, Any]:
     """Authenticate via MitID (or cached tokens) and return credential data.
 
@@ -91,13 +90,19 @@ async def authenticate(
             *None*, a fresh MitID login is always performed.
         on_qr_codes: Callback for displaying QR codes during MitID flow.
         on_login_required: Callback invoked when fresh login is needed.
+        httpx_client: Optional ``httpx.AsyncClient`` to use for the MitID
+            auth flow.  When provided, the caller retains ownership and must
+            close it.  Useful for Home Assistant's shared web session
+            (``get_async_client(hass)``).
 
     Returns:
         Credential dict suitable for passing to :func:`create_client`.
         Contains ``tokens`` (with ``access_token``) and ``cookies``.
     """
     async with MitIDAuthClient(
-        mitid_username=mitid_username, on_qr_codes=on_qr_codes
+        mitid_username=mitid_username,
+        on_qr_codes=on_qr_codes,
+        httpx_client=httpx_client,
     ) as auth_client:
         token_data = await token_storage.load() if token_storage else None
         tokens_valid = False
@@ -156,6 +161,7 @@ async def authenticate_and_create_client(
     token_storage: TokenStorage,
     on_qr_codes: Callable[[qrcode.QRCode, qrcode.QRCode], None] | None = None,
     on_login_required: Callable[[], None] | None = None,
+    httpx_client: httpx.AsyncClient | None = None,
 ) -> AulaApiClient:
     """Authenticate via MitID (or cached tokens) and return a ready-to-use client.
 
@@ -167,9 +173,10 @@ async def authenticate_and_create_client(
         token_storage: Storage backend for caching tokens.
         on_qr_codes: Callback for displaying QR codes during MitID flow.
         on_login_required: Callback invoked when fresh login is needed.
+        httpx_client: Optional ``httpx.AsyncClient`` for the auth flow.
     """
     token_data = await authenticate(
-        mitid_username, token_storage, on_qr_codes, on_login_required
+        mitid_username, token_storage, on_qr_codes, on_login_required, httpx_client
     )
     return await create_client(token_data)
 

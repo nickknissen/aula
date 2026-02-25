@@ -11,10 +11,22 @@ from .http import HttpResponse
 
 
 class HttpxHttpClient:
-    """HttpClient implementation backed by httpx.AsyncClient."""
+    """HttpClient implementation backed by httpx.AsyncClient.
 
-    def __init__(self, cookies: dict[str, str] | None = None) -> None:
-        self._client = httpx.AsyncClient(
+    Args:
+        cookies: Optional cookies to set on a new internal client.
+        httpx_client: Optional pre-configured ``httpx.AsyncClient``.  When
+            provided, the caller retains ownership and must close it.
+            The *cookies* parameter is ignored when *httpx_client* is given.
+    """
+
+    def __init__(
+        self,
+        cookies: dict[str, str] | None = None,
+        httpx_client: httpx.AsyncClient | None = None,
+    ) -> None:
+        self._owns_client = httpx_client is None
+        self._client = httpx_client or httpx.AsyncClient(
             follow_redirects=True,
             headers={"User-Agent": USER_AGENT},
             cookies=cookies,
@@ -57,4 +69,5 @@ class HttpxHttpClient:
         return self._client.cookies.get(name)
 
     async def close(self) -> None:
-        await self._client.aclose()
+        if self._owns_client:
+            await self._client.aclose()
