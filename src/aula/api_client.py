@@ -36,6 +36,9 @@ from .models import (
 # Logger
 _LOGGER = logging.getLogger(__name__)
 
+# Safety limit for paginated requests to prevent infinite loops
+MAX_PAGES = 100
+
 
 class AulaApiClient:
     """Async client for Aula API endpoints.
@@ -644,8 +647,16 @@ class AulaApiClient:
 
         all_messages: list[Message] = []
         offset = 0
+        pages_fetched = 0
 
         while True:
+            if pages_fetched >= MAX_PAGES:
+                _LOGGER.warning(
+                    "search_messages hit MAX_PAGES limit (%d), returning partial results",
+                    MAX_PAGES,
+                )
+                break
+
             payload = {
                 "text": text,
                 "typeahead": False,
@@ -693,6 +704,7 @@ class AulaApiClient:
 
             total = data.get("totalSize", 0)
             offset += limit
+            pages_fetched += 1
 
             if offset >= total or len(results) < limit:
                 break
@@ -703,7 +715,7 @@ class AulaApiClient:
         """Paginate messaging.getThreads until threads are older than cutoff_date."""
         all_threads: list[dict] = []
         page = 0
-        while True:
+        while page < MAX_PAGES:
             resp = await self._request_with_version_retry(
                 "get",
                 f"{self.api_url}?method=messaging.getThreads&sortOn=date&orderDirection=desc&page={page}",
@@ -725,6 +737,11 @@ class AulaApiClient:
                 all_threads.append(t)
 
             page += 1
+        else:
+            _LOGGER.warning(
+                "get_all_message_threads hit MAX_PAGES limit (%d), returning partial results",
+                MAX_PAGES,
+            )
 
         return all_threads
 
@@ -732,7 +749,7 @@ class AulaApiClient:
         """Paginate messaging.getMessagesForThread to get all messages."""
         all_messages: list[dict] = []
         page = 0
-        while True:
+        while page < MAX_PAGES:
             resp = await self._request_with_version_retry(
                 "get",
                 f"{self.api_url}?method=messaging.getMessagesForThread&threadId={thread_id}&page={page}",
@@ -744,6 +761,11 @@ class AulaApiClient:
 
             all_messages.extend(messages)
             page += 1
+        else:
+            _LOGGER.warning(
+                "get_all_messages_for_thread hit MAX_PAGES limit (%d), returning partial results",
+                MAX_PAGES,
+            )
 
         return all_messages
 
