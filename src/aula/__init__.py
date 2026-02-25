@@ -8,7 +8,7 @@ except PackageNotFoundError:
     __version__ = "0.1.0"
 
 from .api_client import AulaApiClient
-from .auth_flow import create_client
+from .auth_flow import authenticate, create_client
 from .http import (
     AulaAuthenticationError,
     AulaConnectionError,
@@ -32,6 +32,7 @@ from .token_storage import FileTokenStorage, TokenStorage
 
 __all__ = [
     "AulaApiClient",
+    "authenticate",
     "create_client",
     "AulaAuthenticationError",
     "AulaConnectionError",
