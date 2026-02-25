@@ -1590,10 +1590,15 @@ async def daily_summary(ctx, child, target_date):
 
         from .models import DayTemplate
 
+        # Find day template matching target date
+        target_date_str = today.date().isoformat()
         day_template_by_child: dict[int, DayTemplate] = {}
         for tmpl in presence_tmpl_list:
             if tmpl.institution_profile and tmpl.day_templates:
-                day_template_by_child[tmpl.institution_profile.id] = tmpl.day_templates[0]
+                # Filter to find the template matching the target date
+                matching = [d for d in tmpl.day_templates if d.by_date == target_date_str]
+                if matching:
+                    day_template_by_child[tmpl.institution_profile.id] = matching[0]
 
         # Daily overview only reflects today's actual state — skip for other dates
         is_today = today.date() == now.date()
