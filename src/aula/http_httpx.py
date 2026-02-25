@@ -52,5 +52,9 @@ class HttpxHttpClient:
         response.raise_for_status()
         return response.content
 
+    def get_cookie(self, name: str) -> str | None:
+        """Read a cookie from the underlying httpx session."""
+        return self._client.cookies.get(name)
+
     async def close(self) -> None:
         await self._client.aclose()
