@@ -1,13 +1,16 @@
 """Authentication helpers for creating AulaApiClient instances.
 
-Provides two entry points:
+Provides three entry points:
+
+- ``authenticate``: Run the MitID auth flow (or load cached tokens) and
+  return raw credential data.  Callers decide where to persist tokens.
 
 - ``create_client``: Build a client from stored tokens and cookies.
   Use this when you already have valid credentials (e.g. Home Assistant
   integration startup).
 
-- ``authenticate_and_create_client``: Run the full MitID auth flow (or
-  load cached tokens) and return a ready client.  Used by the CLI.
+- ``authenticate_and_create_client``: Convenience wrapper combining
+  ``authenticate`` and ``create_client``.  Used by the CLI.
 """
 
 import logging
@@ -67,27 +70,36 @@ async def create_client(
     return client
 
 
-async def authenticate_and_create_client(
+async def authenticate(
     mitid_username: str,
-    token_storage: TokenStorage,
+    token_storage: TokenStorage | None = None,
     on_qr_codes: Callable[[qrcode.QRCode, qrcode.QRCode], None] | None = None,
     on_login_required: Callable[[], None] | None = None,
-) -> AulaApiClient:
-    """Authenticate via MitID (or cached tokens) and return a ready-to-use client.
+) -> dict[str, Any]:
+    """Authenticate via MitID (or cached tokens) and return credential data.
 
-    Handles the full token lifecycle: load from cache, refresh if expired,
-    or run the interactive MitID flow as a last resort.
+    This is the low-level entry point that returns raw token data.  Callers
+    decide where to persist the result (file, HA ConfigEntry, etc.).
+
+    Use :func:`create_client` to build an ``AulaApiClient`` from the returned
+    dict, or :func:`authenticate_and_create_client` for a one-step convenience.
 
     Args:
         mitid_username: MitID username for authentication.
-        token_storage: Storage backend for caching tokens.
+        token_storage: Optional storage backend for caching tokens.  When
+            provided, cached tokens are loaded/saved automatically.  When
+            *None*, a fresh MitID login is always performed.
         on_qr_codes: Callback for displaying QR codes during MitID flow.
         on_login_required: Callback invoked when fresh login is needed.
+
+    Returns:
+        Credential dict suitable for passing to :func:`create_client`.
+        Contains ``tokens`` (with ``access_token``) and ``cookies``.
     """
     async with MitIDAuthClient(
         mitid_username=mitid_username, on_qr_codes=on_qr_codes
     ) as auth_client:
-        token_data = await token_storage.load()
+        token_data = await token_storage.load() if token_storage else None
         tokens_valid = False
         cookies: dict[str, str] = {}
 
@@ -104,19 +116,15 @@ async def authenticate_and_create_client(
                 try:
                     new_tokens = await auth_client.refresh_access_token(tokens["refresh_token"])
                     cookies = token_data.get("cookies", {})
-                    await token_storage.save(
-                        {
-                            "timestamp": time.time(),
-                            "created_at": time.strftime("%Y-%m-%d %H:%M:%S"),
-                            "username": mitid_username,
-                            "tokens": new_tokens,
-                            "cookies": cookies,
-                        }
-                    )
+                    result_data = _build_token_data(mitid_username, new_tokens, cookies)
+                    if token_storage:
+                        await token_storage.save(result_data)
                     tokens_valid = True
                     _LOGGER.info("Token refresh successful, tokens saved")
                 except (OAuthError, RuntimeError) as e:
-                    _LOGGER.warning("Token refresh failed, will require full authentication: %s", e)
+                    _LOGGER.warning(
+                        "Token refresh failed, will require full authentication: %s", e
+                    )
             else:
                 _LOGGER.info("Cached tokens are expired, no refresh token available")
 
@@ -128,15 +136,9 @@ async def authenticate_and_create_client(
             try:
                 await auth_client.authenticate()
                 cookies = dict(auth_client.cookies)
-                await token_storage.save(
-                    {
-                        "timestamp": time.time(),
-                        "created_at": time.strftime("%Y-%m-%d %H:%M:%S"),
-                        "username": mitid_username,
-                        "tokens": auth_client.tokens,
-                        "cookies": cookies,
-                    }
-                )
+                result_data = _build_token_data(mitid_username, auth_client.tokens, cookies)
+                if token_storage:
+                    await token_storage.save(result_data)
                 _LOGGER.info("Authentication successful! Tokens saved.")
             except AulaAuthenticationError as e:
                 _LOGGER.error("Authentication failed: %s", e)
@@ -146,4 +148,42 @@ async def authenticate_and_create_client(
         if not access_token:
             raise RuntimeError("No access token available after authentication")
 
-    return await create_client({"tokens": {"access_token": access_token}, "cookies": cookies})
+    return {"tokens": {"access_token": access_token}, "cookies": cookies}
+
+
+async def authenticate_and_create_client(
+    mitid_username: str,
+    token_storage: TokenStorage,
+    on_qr_codes: Callable[[qrcode.QRCode, qrcode.QRCode], None] | None = None,
+    on_login_required: Callable[[], None] | None = None,
+) -> AulaApiClient:
+    """Authenticate via MitID (or cached tokens) and return a ready-to-use client.
+
+    Convenience wrapper combining :func:`authenticate` and :func:`create_client`.
+    Used by the CLI.
+
+    Args:
+        mitid_username: MitID username for authentication.
+        token_storage: Storage backend for caching tokens.
+        on_qr_codes: Callback for displaying QR codes during MitID flow.
+        on_login_required: Callback invoked when fresh login is needed.
+    """
+    token_data = await authenticate(
+        mitid_username, token_storage, on_qr_codes, on_login_required
+    )
+    return await create_client(token_data)
+
+
+def _build_token_data(
+    username: str,
+    tokens: dict[str, Any] | None,
+    cookies: dict[str, str],
+) -> dict[str, Any]:
+    """Build the standard token data dict for storage."""
+    return {
+        "timestamp": time.time(),
+        "created_at": time.strftime("%Y-%m-%d %H:%M:%S"),
+        "username": username,
+        "tokens": tokens,
+        "cookies": cookies,
+    }
