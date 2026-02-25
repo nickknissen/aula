@@ -127,6 +127,12 @@ class AulaApiClient:
         raise RuntimeError(f"Failed to find working API version after {max_retries} attempts")
 
     async def get_profile(self) -> Profile:
+        """Fetch the authenticated user's profile with children.
+
+        Raises:
+            HttpRequestError: If the API returns a 4xx/5xx error.
+            ValueError: If no profile data is found.
+        """
         resp = await self._request_with_version_retry(
             "get", f"{self.api_url}?method=profiles.getProfilesByLogin"
         )
@@ -248,6 +254,7 @@ class AulaApiClient:
     async def get_message_threads(
         self, filter_on: str | None = None
     ) -> list[MessageThread]:
+        """Fetch the first page of message threads, sorted by date descending."""
         url = f"{self.api_url}?method=messaging.getThreads&sortOn=date&orderDirection=desc&page=0"
         if filter_on:
             url += f"&filterOn={filter_on}"
@@ -302,6 +309,7 @@ class AulaApiClient:
     async def get_calendar_events(
         self, institution_profile_ids: list[int], start: datetime, end: datetime
     ) -> list[CalendarEvent]:
+        """Fetch calendar events for the given profiles and date range."""
         data = {
             "instProfileIds": institution_profile_ids,
             "resourceIds": [],
