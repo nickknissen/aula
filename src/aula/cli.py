@@ -1603,6 +1603,22 @@ async def daily_summary(ctx, child, target_date):
 
         from .models import DayTemplate
 
+        # Log ID mapping for verification (debug only)
+        _log.debug("=== ID MAPPING VERIFICATION ===")
+        _log.debug("Children and their IDs:")
+        for c in children:
+            _log.debug("  Child: %s | id=%s | profile_id=%s", c.name, c.id, c.profile_id)
+        _log.debug("Presence templates and their institution profile IDs:")
+        for tmpl in presence_tmpl_list:
+            if tmpl.institution_profile:
+                _log.debug(
+                    "  Template: %s | id=%s | profile_id=%s",
+                    tmpl.institution_profile.name or "unknown",
+                    tmpl.institution_profile.id,
+                    tmpl.institution_profile.profile_id,
+                )
+        _log.debug("=== END ID MAPPING VERIFICATION ===")
+
         # Find day template matching target date
         target_date_str = today.date().isoformat()
         day_template_by_child: dict[int, DayTemplate] = {}
