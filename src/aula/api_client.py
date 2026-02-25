@@ -70,6 +70,14 @@ class AulaApiClient:
             f"{self.api_url}?method=profiles.getProfileContext&portalrole=guardian",
         )
 
+        # Capture CSRF token set by the server during the session setup.
+        # The Csrfp-Token cookie is not part of the stored auth credentials;
+        # it's set by Aula via Set-Cookie during these initial GET requests.
+        if self._csrf_token is None:
+            get_cookie = getattr(self._client, "get_cookie", None)
+            if callable(get_cookie):
+                self._csrf_token = get_cookie("Csrfp-Token")
+
     async def _set_correct_api_version(self) -> None:
         resp = await self._request_with_version_retry(
             "get",
