@@ -8,7 +8,16 @@ except PackageNotFoundError:
     __version__ = "0.1.0"
 
 from .api_client import AulaApiClient
-from .http import HttpClient, HttpRequestError, HttpResponse
+from .http import (
+    AulaAuthenticationError,
+    AulaConnectionError,
+    AulaNotFoundError,
+    AulaRateLimitError,
+    AulaServerError,
+    HttpClient,
+    HttpRequestError,
+    HttpResponse,
+)
 from .http_httpx import HttpxHttpClient
 from .models import (
     CalendarEvent,
@@ -22,6 +31,11 @@ from .token_storage import FileTokenStorage, TokenStorage
 
 __all__ = [
     "AulaApiClient",
+    "AulaAuthenticationError",
+    "AulaConnectionError",
+    "AulaNotFoundError",
+    "AulaRateLimitError",
+    "AulaServerError",
     "FileTokenStorage",
     "HttpClient",
     "HttpRequestError",
