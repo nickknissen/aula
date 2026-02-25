@@ -1486,8 +1486,14 @@ async def presence_templates(ctx, from_date, to_date):
 
         for tmpl in templates:
             ip = tmpl.institution_profile
-            name = ip.name if ip else "Unknown"
-            institution = ip.institution_name if ip else ""
+            if not ip:
+                _log = logging.getLogger(__name__)
+                _log.warning("Presence template has no institution profile")
+                name = "Unknown"
+                institution = ""
+            else:
+                name = ip.name
+                institution = ip.institution_name
 
             click.echo(f"{'=' * 60}")
             header = name
@@ -1601,11 +1607,19 @@ async def daily_summary(ctx, child, target_date):
         target_date_str = today.date().isoformat()
         day_template_by_child: dict[int, DayTemplate] = {}
         for tmpl in presence_tmpl_list:
-            if tmpl.institution_profile and tmpl.day_templates:
-                # Filter to find the template matching the target date
-                matching = [d for d in tmpl.day_templates if d.by_date == target_date_str]
-                if matching:
-                    day_template_by_child[tmpl.institution_profile.id] = matching[0]
+            if not tmpl.institution_profile:
+                _log.warning("Presence template has no institution profile, skipping")
+                continue
+            if not tmpl.day_templates:
+                _log.warning(
+                    "Presence template for %s has no day templates",
+                    tmpl.institution_profile.name if tmpl.institution_profile else "unknown",
+                )
+                continue
+            # Filter to find the template matching the target date
+            matching = [d for d in tmpl.day_templates if d.by_date == target_date_str]
+            if matching:
+                day_template_by_child[tmpl.institution_profile.id] = matching[0]
 
         # Daily overview only reflects today's actual state — skip for other dates
         is_today = today.date() == now.date()
