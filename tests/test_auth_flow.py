@@ -13,7 +13,6 @@ from aula.http import HttpResponse
 # Helpers
 # ---------------------------------------------------------------------------
 
-
 def _profile_response() -> HttpResponse:
     """Minimal valid response for get_profile / init calls."""
     return HttpResponse(
@@ -60,7 +59,6 @@ def _mock_auth_client_factory():
 # create_client
 # ---------------------------------------------------------------------------
 
-
 class TestCreateClient:
     """Tests for the create_client factory function."""
 
@@ -106,7 +104,6 @@ class TestCreateClient:
 # ---------------------------------------------------------------------------
 # authenticate (returns token_data dict)
 # ---------------------------------------------------------------------------
-
 
 class TestAuthenticate:
     """Tests for the authenticate function that returns raw token data."""
@@ -193,9 +190,7 @@ class TestAuthenticate:
         assert result["tokens"]["access_token"] == "cached-tok"
 
     @pytest.mark.asyncio
-    async def test_cached_tokens_no_expiry_treated_as_valid(
-        self, token_storage, mock_auth_client
-    ):
+    async def test_cached_tokens_no_expiry_treated_as_valid(self, token_storage, mock_auth_client):
         """Tokens without expires_at are treated as valid."""
         token_storage.load.return_value = {
             "tokens": {"access_token": "no-expiry-tok"},
@@ -311,7 +306,6 @@ class TestAuthenticate:
 # authenticate_and_create_client (convenience wrapper)
 # ---------------------------------------------------------------------------
 
-
 class TestAuthenticateAndCreateClient:
     """Tests for the convenience wrapper that returns an AulaApiClient."""
 
@@ -363,3 +357,79 @@ class TestAuthenticateAndCreateClient:
             )
 
         login_cb.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_httpx_client_passed_to_mitid_auth(self, token_storage, mock_auth_client):
+        """httpx_client is forwarded to MitIDAuthClient constructor."""
+        fake_httpx = MagicMock()
+
+        with (
+            patch("aula.auth_flow.MitIDAuthClient", return_value=mock_auth_client) as MockMitID,
+            patch("aula.auth_flow.create_client", new_callable=AsyncMock) as mock_create,
+        ):
+            mock_create.return_value = MagicMock()
+            await authenticate_and_create_client(
+                "user", token_storage, httpx_client=fake_httpx
+            )
+
+        MockMitID.assert_called_once_with(
+            mitid_username="user",
+            on_qr_codes=None,
+            httpx_client=fake_httpx,
+        )
+
+
+# ---------------------------------------------------------------------------
+# Client ownership (close behavior)
+# ---------------------------------------------------------------------------
+
+class TestClientOwnership:
+    """Tests for ownership semantics when injecting httpx clients."""
+
+    @pytest.mark.asyncio
+    async def test_mitid_client_closes_own_client(self):
+        """MitIDAuthClient closes its own httpx client."""
+        from aula.auth.mitid_client import MitIDAuthClient
+
+        with patch("aula.auth.mitid_client.httpx.AsyncClient") as MockClient:
+            mock_instance = AsyncMock()
+            MockClient.return_value = mock_instance
+            client = MitIDAuthClient(mitid_username="user")
+            await client.close()
+
+        mock_instance.aclose.assert_awaited_once()
+
+    @pytest.mark.asyncio
+    async def test_mitid_client_does_not_close_injected_client(self):
+        """MitIDAuthClient does NOT close an injected httpx client."""
+        from aula.auth.mitid_client import MitIDAuthClient
+
+        injected = AsyncMock()
+        client = MitIDAuthClient(mitid_username="user", httpx_client=injected)
+        await client.close()
+
+        injected.aclose.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    async def test_httpx_http_client_closes_own_client(self):
+        """HttpxHttpClient closes its own httpx client."""
+        from aula.http_httpx import HttpxHttpClient
+
+        with patch("aula.http_httpx.httpx.AsyncClient") as MockClient:
+            mock_instance = AsyncMock()
+            MockClient.return_value = mock_instance
+            client = HttpxHttpClient()
+            await client.close()
+
+        mock_instance.aclose.assert_awaited_once()
+
+    @pytest.mark.asyncio
+    async def test_httpx_http_client_does_not_close_injected_client(self):
+        """HttpxHttpClient does NOT close an injected httpx client."""
+        from aula.http_httpx import HttpxHttpClient
+
+        injected = AsyncMock()
+        client = HttpxHttpClient(httpx_client=injected)
+        await client.close()
+
+        injected.aclose.assert_not_awaited()

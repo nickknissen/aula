@@ -83,6 +83,7 @@ class MitIDAuthClient:
         on_qr_codes: Callable[[qrcode.QRCode, qrcode.QRCode], None] | None = None,
         httpx_client: httpx.AsyncClient | None = None,
     ):
+        self._owns_client = httpx_client is None
         self._client = httpx_client or httpx.AsyncClient(follow_redirects=False, timeout=timeout)
         self._mitid_username = mitid_username
         self._timeout = timeout
@@ -186,8 +187,13 @@ class MitIDAuthClient:
         return self._mitid_client
 
     async def close(self) -> None:
-        """Close the HTTP client."""
-        await self._client.aclose()
+        """Close the HTTP client if we own it.
+
+        When an external ``httpx_client`` was injected via the constructor,
+        the caller retains ownership and is responsible for closing it.
+        """
+        if self._owns_client:
+            await self._client.aclose()
 
     # -- Auth flow steps (private) --
 
