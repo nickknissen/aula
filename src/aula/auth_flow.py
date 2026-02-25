@@ -13,6 +13,7 @@ Provides two entry points:
 import logging
 import time
 from collections.abc import Callable
+from typing import Any
 
 import qrcode
 
@@ -27,31 +28,41 @@ _LOGGER = logging.getLogger(__name__)
 
 
 async def create_client(
-    access_token: str,
-    cookies: dict[str, str] | None = None,
+    token_data: dict[str, Any],
     http_client: HttpClient | None = None,
 ) -> AulaApiClient:
-    """Create an AulaApiClient from existing credentials.
+    """Create an AulaApiClient from stored credentials.
 
     This is the preferred entry point for Home Assistant integrations and other
-    callers that manage token storage themselves.
+    callers that manage token storage themselves.  The ``token_data`` dict is
+    the same opaque blob produced by ``TokenStorage.save()`` — callers should
+    store it as-is and pass it back here without inspecting its contents.
 
     Args:
-        access_token: A valid Aula access token.
-        cookies: Session cookies (PHPSESSID, Csrfp-Token, etc.). Required when
-            using the default HttpxHttpClient; ignored when a custom
-            ``http_client`` is provided (the caller is responsible for
-            configuring cookies on their own client).
+        token_data: Credential dict as returned by ``TokenStorage.load()``.
+            Must contain ``tokens.access_token``; may contain session cookies.
         http_client: Optional HTTP client implementing the ``HttpClient``
             protocol.  When *None*, an ``HttpxHttpClient`` is created with the
-            given ``cookies``.
+            session cookies from ``token_data``.
 
     Returns:
         A ready-to-use ``AulaApiClient`` (``init()`` has been called).
+
+    Raises:
+        ValueError: If ``token_data`` has no ``access_token``.
     """
+    tokens = token_data.get("tokens", {})
+    access_token = tokens.get("access_token")
+    if not access_token:
+        raise ValueError("No access_token found in token_data")
+
+    cookies = token_data.get("cookies", {})
+    csrf_token = cookies.get("Csrfp-Token")
+
     if http_client is None:
         http_client = HttpxHttpClient(cookies=cookies)
-    client = AulaApiClient(http_client, access_token)
+
+    client = AulaApiClient(http_client, access_token, csrf_token=csrf_token)
     await client.init()
     return client
 
@@ -135,4 +146,4 @@ async def authenticate_and_create_client(
         if not access_token:
             raise RuntimeError("No access token available after authentication")
 
-    return await create_client(access_token, cookies)
+    return await create_client({"tokens": {"access_token": access_token}, "cookies": cookies})

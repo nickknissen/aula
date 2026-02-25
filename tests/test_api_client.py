@@ -1,16 +1,14 @@
 """Tests for aula.api_client."""
 
-import asyncio
 from datetime import date
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from aula.api_client import MAX_PAGES, AulaApiClient
+from aula.api_client import AulaApiClient
 from aula.http import (
     AulaAuthenticationError,
     AulaServerError,
-    HttpRequestError,
     HttpResponse,
 )
 
@@ -735,7 +733,6 @@ class TestPaginationSafetyGuards:
     @pytest.fixture
     def client(self):
         http_client = AsyncMock()
-        http_client.get_cookie = MagicMock(return_value="csrf_token")
         return AulaApiClient(http_client=http_client, access_token="test_token")
 
     @pytest.mark.asyncio

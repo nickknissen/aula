@@ -52,8 +52,5 @@ class HttpxHttpClient:
         response.raise_for_status()
         return response.content
 
-    def get_cookie(self, name: str) -> str | None:
-        return self._client.cookies.get(name)
-
     async def close(self) -> None:
         await self._client.aclose()
