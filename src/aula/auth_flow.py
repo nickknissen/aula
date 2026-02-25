@@ -1,4 +1,14 @@
-"""Standalone authentication helper that wires MitID auth to AulaApiClient."""
+"""Authentication helpers for creating AulaApiClient instances.
+
+Provides two entry points:
+
+- ``create_client``: Build a client from stored tokens and cookies.
+  Use this when you already have valid credentials (e.g. Home Assistant
+  integration startup).
+
+- ``authenticate_and_create_client``: Run the full MitID auth flow (or
+  load cached tokens) and return a ready client.  Used by the CLI.
+"""
 
 import logging
 import time
@@ -16,23 +26,52 @@ from .token_storage import TokenStorage
 _LOGGER = logging.getLogger(__name__)
 
 
+async def create_client(
+    access_token: str,
+    cookies: dict[str, str] | None = None,
+    http_client: HttpClient | None = None,
+) -> AulaApiClient:
+    """Create an AulaApiClient from existing credentials.
+
+    This is the preferred entry point for Home Assistant integrations and other
+    callers that manage token storage themselves.
+
+    Args:
+        access_token: A valid Aula access token.
+        cookies: Session cookies (PHPSESSID, Csrfp-Token, etc.). Required when
+            using the default HttpxHttpClient; ignored when a custom
+            ``http_client`` is provided (the caller is responsible for
+            configuring cookies on their own client).
+        http_client: Optional HTTP client implementing the ``HttpClient``
+            protocol.  When *None*, an ``HttpxHttpClient`` is created with the
+            given ``cookies``.
+
+    Returns:
+        A ready-to-use ``AulaApiClient`` (``init()`` has been called).
+    """
+    if http_client is None:
+        http_client = HttpxHttpClient(cookies=cookies)
+    client = AulaApiClient(http_client, access_token)
+    await client.init()
+    return client
+
+
 async def authenticate_and_create_client(
     mitid_username: str,
     token_storage: TokenStorage,
     on_qr_codes: Callable[[qrcode.QRCode, qrcode.QRCode], None] | None = None,
     on_login_required: Callable[[], None] | None = None,
-    http_client: HttpClient | None = None,
 ) -> AulaApiClient:
     """Authenticate via MitID (or cached tokens) and return a ready-to-use client.
+
+    Handles the full token lifecycle: load from cache, refresh if expired,
+    or run the interactive MitID flow as a last resort.
 
     Args:
         mitid_username: MitID username for authentication.
         token_storage: Storage backend for caching tokens.
         on_qr_codes: Callback for displaying QR codes during MitID flow.
         on_login_required: Callback invoked when fresh login is needed.
-        http_client: Optional HTTP client for API requests. If None, creates
-            an HttpxHttpClient with session cookies. Home Assistant integrations
-            should pass their own HttpClient implementation here.
     """
     async with MitIDAuthClient(
         mitid_username=mitid_username, on_qr_codes=on_qr_codes
@@ -96,8 +135,4 @@ async def authenticate_and_create_client(
         if not access_token:
             raise RuntimeError("No access token available after authentication")
 
-    if http_client is None:
-        http_client = HttpxHttpClient(cookies=cookies)
-    client = AulaApiClient(http_client, access_token)
-    await client.init()
-    return client
+    return await create_client(access_token, cookies)
