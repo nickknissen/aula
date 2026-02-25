@@ -9,6 +9,7 @@ import qrcode
 from .api_client import AulaApiClient
 from .auth.exceptions import AulaAuthenticationError, OAuthError
 from .auth.mitid_client import MitIDAuthClient
+from .http import HttpClient
 from .http_httpx import HttpxHttpClient
 from .token_storage import TokenStorage
 
@@ -20,15 +21,18 @@ async def authenticate_and_create_client(
     token_storage: TokenStorage,
     on_qr_codes: Callable[[qrcode.QRCode, qrcode.QRCode], None] | None = None,
     on_login_required: Callable[[], None] | None = None,
+    http_client: HttpClient | None = None,
 ) -> AulaApiClient:
     """Authenticate via MitID (or cached tokens) and return a ready-to-use client.
 
-    Steps:
-        1. Load cached tokens + cookies from storage.
-        2. If expired/missing, run MitID auth and save tokens + cookies.
-        3. Create HttpxHttpClient with the cookies.
-        4. Create AulaApiClient and call init().
-        5. Return the client.
+    Args:
+        mitid_username: MitID username for authentication.
+        token_storage: Storage backend for caching tokens.
+        on_qr_codes: Callback for displaying QR codes during MitID flow.
+        on_login_required: Callback invoked when fresh login is needed.
+        http_client: Optional HTTP client for API requests. If None, creates
+            an HttpxHttpClient with session cookies. Home Assistant integrations
+            should pass their own HttpClient implementation here.
     """
     async with MitIDAuthClient(
         mitid_username=mitid_username, on_qr_codes=on_qr_codes
@@ -92,7 +96,8 @@ async def authenticate_and_create_client(
         if not access_token:
             raise RuntimeError("No access token available after authentication")
 
-    http_client = HttpxHttpClient(cookies=cookies)
+    if http_client is None:
+        http_client = HttpxHttpClient(cookies=cookies)
     client = AulaApiClient(http_client, access_token)
     await client.init()
     return client

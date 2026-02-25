@@ -80,8 +80,9 @@ class MitIDAuthClient:
         mitid_username: str,
         timeout: int = 30,
         on_qr_codes: Callable[[qrcode.QRCode, qrcode.QRCode], None] | None = None,
+        httpx_client: httpx.AsyncClient | None = None,
     ):
-        self._client = httpx.AsyncClient(follow_redirects=False, timeout=timeout)
+        self._client = httpx_client or httpx.AsyncClient(follow_redirects=False, timeout=timeout)
         self._mitid_username = mitid_username
         self._timeout = timeout
         self._on_qr_codes = on_qr_codes
