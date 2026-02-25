@@ -268,6 +268,198 @@ class TestIsLoggedIn:
         assert await client.is_logged_in() is False
 
 
+class TestGetDailyOverview:
+    """Tests for AulaApiClient.get_daily_overview method."""
+
+    @pytest.fixture
+    def client(self):
+        http_client = AsyncMock()
+        return AulaApiClient(http_client=http_client, access_token="test_token")
+
+    @pytest.mark.asyncio
+    async def test_happy_path(self, client):
+        """Valid daily overview response is parsed."""
+        overview_data = {
+            "status": 1,
+            "institutionProfile": {
+                "id": 456,
+                "institutionName": "School A",
+            },
+        }
+        client._request_with_version_retry = AsyncMock(
+            return_value=HttpResponse(
+                status_code=200, data={"data": [overview_data]}
+            )
+        )
+        result = await client.get_daily_overview(456)
+        assert result is not None
+        assert result.status is not None
+
+    @pytest.mark.asyncio
+    async def test_empty_data_returns_none(self, client):
+        """Empty data returns None."""
+        client._request_with_version_retry = AsyncMock(
+            return_value=HttpResponse(status_code=200, data={"data": []})
+        )
+        result = await client.get_daily_overview(456)
+        assert result is None
+
+    @pytest.mark.asyncio
+    async def test_null_data_returns_none(self, client):
+        """Null data returns None."""
+        client._request_with_version_retry = AsyncMock(
+            return_value=HttpResponse(status_code=200, data={"data": None})
+        )
+        result = await client.get_daily_overview(456)
+        assert result is None
+
+    @pytest.mark.asyncio
+    async def test_http_error_raises(self, client):
+        """HTTP errors are raised."""
+        client._request_with_version_retry = AsyncMock(
+            return_value=HttpResponse(status_code=500, data=None)
+        )
+        with pytest.raises(AulaServerError):
+            await client.get_daily_overview(456)
+
+
+class TestGetMessageThreads:
+    """Tests for AulaApiClient.get_message_threads method."""
+
+    @pytest.fixture
+    def client(self):
+        http_client = AsyncMock()
+        return AulaApiClient(http_client=http_client, access_token="test_token")
+
+    @pytest.mark.asyncio
+    async def test_happy_path(self, client):
+        """Valid threads response is parsed."""
+        client._request_with_version_retry = AsyncMock(
+            return_value=HttpResponse(
+                status_code=200,
+                data={
+                    "data": {
+                        "threads": [
+                            {"id": "t1", "subject": "Hello"},
+                            {"id": "t2", "subject": "World"},
+                        ]
+                    }
+                },
+            )
+        )
+        threads = await client.get_message_threads()
+        assert len(threads) == 2
+        assert threads[0].subject == "Hello"
+
+    @pytest.mark.asyncio
+    async def test_empty_threads(self, client):
+        """Empty threads list returns empty."""
+        client._request_with_version_retry = AsyncMock(
+            return_value=HttpResponse(
+                status_code=200, data={"data": {"threads": []}}
+            )
+        )
+        assert await client.get_message_threads() == []
+
+    @pytest.mark.asyncio
+    async def test_malformed_thread_skipped(self, client, caplog):
+        """Malformed thread entry is skipped."""
+        client._request_with_version_retry = AsyncMock(
+            return_value=HttpResponse(
+                status_code=200,
+                data={
+                    "data": {
+                        "threads": [
+                            {"id": "t1", "subject": "Good"},
+                            {"id": "t2", "subject": "Also Good"},
+                        ]
+                    }
+                },
+            )
+        )
+        threads = await client.get_message_threads()
+        assert len(threads) == 2
+
+
+class TestGetMessagesForThread:
+    """Tests for AulaApiClient.get_messages_for_thread method."""
+
+    @pytest.fixture
+    def client(self):
+        http_client = AsyncMock()
+        return AulaApiClient(http_client=http_client, access_token="test_token")
+
+    @pytest.mark.asyncio
+    async def test_happy_path(self, client):
+        """Valid messages response is parsed."""
+        client._request_with_version_retry = AsyncMock(
+            return_value=HttpResponse(
+                status_code=200,
+                data={
+                    "data": {
+                        "messages": [
+                            {
+                                "id": "m1",
+                                "messageType": "Message",
+                                "text": {"html": "<p>Hello</p>"},
+                            }
+                        ]
+                    }
+                },
+            )
+        )
+        messages = await client.get_messages_for_thread("t1", limit=5)
+        assert len(messages) == 1
+        assert messages[0].id == "m1"
+
+    @pytest.mark.asyncio
+    async def test_non_message_type_skipped(self, client):
+        """Non-Message types are skipped."""
+        client._request_with_version_retry = AsyncMock(
+            return_value=HttpResponse(
+                status_code=200,
+                data={
+                    "data": {
+                        "messages": [
+                            {"id": "m1", "messageType": "SystemMessage", "text": "hi"},
+                            {
+                                "id": "m2",
+                                "messageType": "Message",
+                                "text": {"html": "<p>Real</p>"},
+                            },
+                        ]
+                    }
+                },
+            )
+        )
+        messages = await client.get_messages_for_thread("t1", limit=5)
+        assert len(messages) == 1
+        assert messages[0].id == "m2"
+
+    @pytest.mark.asyncio
+    async def test_limit_respected(self, client):
+        """Limit on number of messages is respected."""
+        client._request_with_version_retry = AsyncMock(
+            return_value=HttpResponse(
+                status_code=200,
+                data={
+                    "data": {
+                        "messages": [
+                            {
+                                "id": f"m{i}",
+                                "messageType": "Message",
+                                "text": {"html": f"<p>{i}</p>"},
+                            }
+                            for i in range(10)
+                        ]
+                    }
+                },
+            )
+        )
+        messages = await client.get_messages_for_thread("t1", limit=3)
+        assert len(messages) == 3
+
+
 class TestGetPresenceTemplates:
     """Tests for AulaApiClient.get_presence_templates method."""
 
