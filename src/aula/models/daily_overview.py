@@ -10,6 +10,10 @@ from .presence import PresenceState
 
 _LOGGER = logging.getLogger(__name__)
 
+# Sleep intervals from the API are dicts with string keys (e.g. start/end times).
+# The exact shape is undocumented, so we use dict[str, str] as the best known type.
+SleepInterval = dict[str, str]
+
 
 @dataclass
 class DailyOverview(AulaDataClass):
@@ -18,14 +22,14 @@ class DailyOverview(AulaDataClass):
     main_group: MainGroup | None = None
     status: PresenceState | None = None
     location: str | None = None
-    sleep_intervals: list[Any] = dataclasses.field(default_factory=list)
+    sleep_intervals: list[SleepInterval] = dataclasses.field(default_factory=list)
     check_in_time: str | None = None
     check_out_time: str | None = None
     entry_time: str | None = None
     exit_time: str | None = None
     exit_with: str | None = None
     comment: str | None = None
-    _raw: dict | None = field(default=None, repr=False)
+    _raw: dict[str, Any] | None = field(default=None, repr=False)
 
     @classmethod
     def from_dict(cls, raw_data: dict[str, Any]) -> "DailyOverview":

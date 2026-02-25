@@ -8,6 +8,7 @@ import logging
 import secrets
 import time
 from collections.abc import Callable
+from types import TracebackType
 from typing import Any
 from urllib.parse import parse_qs, urlencode, urljoin, urlparse
 
@@ -108,13 +109,18 @@ class MitIDAuthClient:
         self._code_verifier: str | None = None
         self._code_challenge: str | None = None
         self._state: str | None = None
-        self._tokens: dict | None = None
+        self._tokens: dict[str, Any] | None = None
         self._mitid_client: BrowserClient | None = None
 
-    async def __aenter__(self):
+    async def __aenter__(self) -> "MitIDAuthClient":
         return self
 
-    async def __aexit__(self, exc_type, exc_val, exc_tb):
+    async def __aexit__(
+        self,
+        exc_type: type[BaseException] | None,
+        exc_val: BaseException | None,
+        exc_tb: TracebackType | None,
+    ) -> None:
         await self.close()
 
     # -- Public API --
@@ -160,12 +166,12 @@ class MitIDAuthClient:
         return bool(self._tokens and self._tokens.get("access_token"))
 
     @property
-    def tokens(self) -> dict | None:
+    def tokens(self) -> dict[str, Any] | None:
         """The raw token dict (available after authenticate)."""
         return self._tokens
 
     @tokens.setter
-    def tokens(self, value: dict) -> None:
+    def tokens(self, value: dict[str, Any]) -> None:
         """Set tokens directly (e.g. from a cached token store)."""
         self._tokens = value
 
@@ -225,7 +231,7 @@ class MitIDAuthClient:
         except httpx.HTTPError as e:
             raise NetworkError(f"Network error during OAuth flow: {e}") from e
 
-    async def _step2_follow_redirect_to_mitid(self, start_url: str) -> dict:
+    async def _step2_follow_redirect_to_mitid(self, start_url: str) -> dict[str, str]:
         """Step 2: Follow the redirect chain to MitID."""
         _LOGGER.info("Step 2/7: Following redirect chain to MitID")
 
@@ -274,7 +280,7 @@ class MitIDAuthClient:
         except httpx.HTTPError as e:
             raise NetworkError(f"Network error during redirect chain: {e}") from e
 
-    async def _handle_broker_page(self, soup: BeautifulSoup) -> dict:
+    async def _handle_broker_page(self, soup: BeautifulSoup) -> dict[str, str]:
         """Handle the broker page for MitID selection."""
         action, form_data = _extract_form_data(soup)
 
@@ -351,7 +357,7 @@ class MitIDAuthClient:
 
     async def _step4_complete_mitid_flow(
         self, verification_token: str, authorization_code: str
-    ) -> dict:
+    ) -> dict[str, str]:
         """Step 4: Complete MitID authentication and get SAML response."""
         _LOGGER.info("Step 4/7: Completing MitID flow")
 
@@ -388,7 +394,7 @@ class MitIDAuthClient:
         except httpx.HTTPError as e:
             raise NetworkError(f"Network error during MitID completion: {e}") from e
 
-    async def _step5_saml_broker_flow(self, saml_data: dict) -> dict:
+    async def _step5_saml_broker_flow(self, saml_data: dict[str, str]) -> dict[str, str]:
         """Step 5: Complete SAML broker authentication."""
         _LOGGER.info("Step 5/7: Processing SAML broker flow")
 
@@ -414,7 +420,7 @@ class MitIDAuthClient:
         except httpx.HTTPError as e:
             raise NetworkError(f"Network error during SAML broker flow: {e}") from e
 
-    async def _process_broker_response(self, response: httpx.Response) -> dict:
+    async def _process_broker_response(self, response: httpx.Response) -> dict[str, str]:
         """Process broker response and extract SAML for Aula."""
         _LOGGER.debug("Processing broker response from URL: %s", response.url)
 
@@ -453,7 +459,7 @@ class MitIDAuthClient:
             "form_action": str(saml_form.get("action", "")),
         }
 
-    async def _step6_complete_aula_login(self, saml_data: dict) -> str:
+    async def _step6_complete_aula_login(self, saml_data: dict[str, str]) -> str:
         """Step 6: Complete Aula login with SAML response."""
         _LOGGER.info("Step 6/7: Completing Aula login")
 
@@ -506,7 +512,7 @@ class MitIDAuthClient:
 
         raise OAuthError("Too many redirects without finding OAuth callback")
 
-    async def _step7_exchange_oauth_code(self, callback_url: str) -> dict:
+    async def _step7_exchange_oauth_code(self, callback_url: str) -> dict[str, Any]:
         """Step 7: Exchange OAuth authorization code for tokens."""
         _LOGGER.info("Step 7/7: Exchanging authorization code for tokens")
 
