@@ -6,7 +6,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from aula.api_client import AulaApiClient
+from aula.api_client import MAX_PAGES, AulaApiClient
 from aula.http import (
     AulaAuthenticationError,
     AulaServerError,
@@ -727,3 +727,131 @@ class TestGetPresenceTemplates:
 
         # Should skip non-dict items and return 2 valid templates
         assert len(result) == 2
+
+
+class TestPaginationSafetyGuards:
+    """Tests for MAX_PAGES safety guards in pagination methods."""
+
+    @pytest.fixture
+    def client(self):
+        http_client = AsyncMock()
+        http_client.get_cookie = MagicMock(return_value="csrf_token")
+        return AulaApiClient(http_client=http_client, access_token="test_token")
+
+    @pytest.mark.asyncio
+    async def test_get_all_message_threads_respects_max_pages(self, client):
+        """get_all_message_threads stops at MAX_PAGES."""
+        # Return threads with recent dates so cutoff never triggers
+        client._request_with_version_retry = AsyncMock(
+            return_value=HttpResponse(
+                status_code=200,
+                data={
+                    "data": {
+                        "threads": [
+                            {"id": "t1", "lastMessageDate": "2026-12-01T00:00:00"}
+                        ]
+                    }
+                },
+            )
+        )
+
+        with patch("aula.api_client.MAX_PAGES", 3):
+            result = await client.get_all_message_threads(date(2020, 1, 1))
+
+        assert client._request_with_version_retry.call_count == 3
+        assert len(result) == 3
+
+    @pytest.mark.asyncio
+    async def test_get_all_messages_for_thread_respects_max_pages(self, client):
+        """get_all_messages_for_thread stops at MAX_PAGES."""
+        client._request_with_version_retry = AsyncMock(
+            return_value=HttpResponse(
+                status_code=200,
+                data={
+                    "data": {
+                        "messages": [{"id": "m1", "text": "hello"}]
+                    }
+                },
+            )
+        )
+
+        with patch("aula.api_client.MAX_PAGES", 3):
+            result = await client.get_all_messages_for_thread("t1")
+
+        assert client._request_with_version_retry.call_count == 3
+        assert len(result) == 3
+
+    @pytest.mark.asyncio
+    async def test_search_messages_respects_max_pages(self, client):
+        """search_messages stops at MAX_PAGES."""
+        # Return results that never exhaust totalSize so pagination continues
+        client._request_with_version_retry = AsyncMock(
+            return_value=HttpResponse(
+                status_code=200,
+                data={
+                    "data": {
+                        "results": [
+                            {"id": "m1", "text": {"html": "<p>hi</p>"}}
+                        ],
+                        "totalSize": 99999,
+                    }
+                },
+            )
+        )
+
+        with patch("aula.api_client.MAX_PAGES", 3):
+            result = await client.search_messages(
+                institution_profile_ids=[1],
+                institution_codes=["INST1"],
+                text="test",
+                limit=1,
+            )
+
+        assert client._request_with_version_retry.call_count == 3
+        assert len(result) == 3
+
+    @pytest.mark.asyncio
+    async def test_get_all_message_threads_stops_on_empty(self, client):
+        """get_all_message_threads stops when no threads returned (before MAX_PAGES)."""
+        client._request_with_version_retry = AsyncMock(
+            side_effect=[
+                HttpResponse(
+                    status_code=200,
+                    data={
+                        "data": {
+                            "threads": [
+                                {"id": "t1", "lastMessageDate": "2026-12-01T00:00:00"}
+                            ]
+                        }
+                    },
+                ),
+                HttpResponse(
+                    status_code=200,
+                    data={"data": {"threads": []}},
+                ),
+            ]
+        )
+
+        result = await client.get_all_message_threads(date(2020, 1, 1))
+        assert client._request_with_version_retry.call_count == 2
+        assert len(result) == 1
+
+    @pytest.mark.asyncio
+    async def test_get_all_messages_for_thread_stops_on_empty(self, client):
+        """get_all_messages_for_thread stops when no messages returned."""
+        client._request_with_version_retry = AsyncMock(
+            side_effect=[
+                HttpResponse(
+                    status_code=200,
+                    data={"data": {"messages": [{"id": "m1", "text": "hi"}]}},
+                ),
+                HttpResponse(
+                    status_code=200,
+                    data={"data": {"messages": []}},
+                ),
+            ]
+        )
+
+        result = await client.get_all_messages_for_thread("t1")
+        assert client._request_with_version_retry.call_count == 2
+        assert len(result) == 1
