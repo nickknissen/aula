@@ -276,7 +276,7 @@ class TestAuthenticate:
     @pytest.mark.asyncio
     async def test_auth_failure_raises_runtime_error(self, token_storage, mock_auth_client):
         """MitID authentication failure raises RuntimeError."""
-        from aula.auth.exceptions import AulaAuthenticationError as AuthExc
+        from aula.auth.exceptions import MitIDAuthError as AuthExc
 
         token_storage.load.return_value = None
         mock_auth_client.authenticate = AsyncMock(side_effect=AuthExc("MitID timeout"))

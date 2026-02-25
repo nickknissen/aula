@@ -113,8 +113,8 @@ class TestRequestWithVersionRetry:
         assert "access_token" not in called_url
 
     @pytest.mark.asyncio
-    async def test_access_token_added_to_params_dict(self, client):
-        """When params dict is provided, access_token is added to it."""
+    async def test_access_token_added_to_params_without_mutating_original(self, client):
+        """When params dict is provided, access_token is sent but original dict is not mutated."""
         client._client.request = AsyncMock(
             return_value=HttpResponse(status_code=200, data=None)
         )
@@ -122,7 +122,12 @@ class TestRequestWithVersionRetry:
         await client._request_with_version_retry(
             "get", "https://www.aula.dk/api/v22?method=test", params=params
         )
-        assert params["access_token"] == "test_token"
+        # Original dict must NOT be mutated
+        assert "access_token" not in params
+        # Token must be passed in the request call
+        called_params = client._client.request.call_args[1]["params"]
+        assert called_params["access_token"] == "test_token"
+        assert called_params["key"] == "value"
 
 
 class TestGetProfile:

@@ -139,4 +139,12 @@ class HttpClient(Protocol):
 
     async def download_bytes(self, url: str) -> bytes: ...
 
+    def get_cookie(self, name: str) -> str | None:
+        """Read a cookie value by name from the underlying session.
+
+        Returns None by default. Implementations backed by a cookie-aware
+        HTTP client (e.g. httpx) should override this.
+        """
+        return None
+
     async def close(self) -> None: ...
