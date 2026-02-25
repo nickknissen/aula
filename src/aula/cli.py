@@ -1625,20 +1625,34 @@ async def daily_summary(ctx, child, target_date):
                 if ov.main_group:
                     click.echo(f"- Group: {ov.main_group.name}")
 
-            if day_tmpl:
-                if day_tmpl.entry_time:
-                    click.echo(f"- Planned entry: {day_tmpl.entry_time}")
-                if day_tmpl.exit_time:
-                    click.echo(f"- Planned exit: {day_tmpl.exit_time}")
-                if day_tmpl.exit_with:
-                    click.echo(f"- Picked up by: {day_tmpl.exit_with}")
-                if day_tmpl.spare_time_activity:
-                    sta = day_tmpl.spare_time_activity
+            # Show actual times from daily overview, with planned times as fallback
+            if ov is not None and ov.entry_time:
+                click.echo(f"- Entry: {ov.entry_time}")
+            elif day_tmpl and day_tmpl.entry_time:
+                click.echo(f"- Planned entry: {day_tmpl.entry_time}")
+
+            if ov is not None and ov.exit_time:
+                click.echo(f"- Exit: {ov.exit_time}")
+            elif day_tmpl and day_tmpl.exit_time:
+                click.echo(f"- Planned exit: {day_tmpl.exit_time}")
+
+            if ov is not None and ov.exit_with:
+                click.echo(f"- Picked up by: {ov.exit_with}")
+            elif day_tmpl and day_tmpl.exit_with:
+                click.echo(f"- Picked up by (planned): {day_tmpl.exit_with}")
+
+            if ov is not None and ov.comment:
+                click.echo(f"- Note: {ov.comment}")
+
+            if day_tmpl and day_tmpl.spare_time_activity:
+                sta = day_tmpl.spare_time_activity
+                if sta.start_time and sta.end_time:
                     activity_line = f"- Activity: {sta.start_time}–{sta.end_time}"
                     if sta.comment:
                         activity_line += f"  ({sta.comment})"
                     click.echo(activity_line)
-            elif ov is None:
+
+            if ov is None and not day_tmpl:
                 click.echo("- No data available")
 
             click.echo()
