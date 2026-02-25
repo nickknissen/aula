@@ -7,7 +7,7 @@ import pytest
 
 from aula.auth.exceptions import OAuthError
 from aula.auth_flow import authenticate, authenticate_and_create_client, create_client
-from aula.http import HttpResponse
+from aula.http import AulaAuthenticationError, HttpResponse
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -260,6 +260,21 @@ class TestAuthenticate:
         assert result["tokens"]["access_token"] == "cached-tok"
 
     @pytest.mark.asyncio
+    async def test_force_login_skips_cached_tokens(self, token_storage, mock_auth_client):
+        """force_login bypasses cached credentials and runs full MitID auth."""
+        token_storage.load.return_value = {
+            "tokens": {"access_token": "cached-tok", "expires_at": time.time() + 3600},
+            "cookies": {"PHPSESSID": "stale"},
+        }
+        with patch("aula.auth_flow.MitIDAuthClient", return_value=mock_auth_client):
+            result = await authenticate("user", token_storage, force_login=True)
+
+        token_storage.load.assert_not_awaited()
+        mock_auth_client.refresh_access_token.assert_not_awaited()
+        mock_auth_client.authenticate.assert_awaited_once()
+        assert result["tokens"]["access_token"] == "fresh-tok"
+
+    @pytest.mark.asyncio
     async def test_cached_tokens_no_expiry_treated_as_valid(self, token_storage, mock_auth_client):
         """Tokens without expires_at are treated as valid."""
         token_storage.load.return_value = {
@@ -407,6 +422,52 @@ class TestAuthenticateAndCreateClient:
         call_args = mock_create.call_args[0][0]
         assert call_args["tokens"]["access_token"] == "fresh-tok"
         assert result is mock_create.return_value
+
+    @pytest.mark.asyncio
+    async def test_retries_with_force_login_on_authentication_error(self, token_storage):
+        """create_client auth failure triggers forced re-auth and second create attempt."""
+        cached_token_data = {
+            "tokens": {"access_token": "cached-tok"},
+            "cookies": {"PHPSESSID": "stale"},
+        }
+        fresh_token_data = {
+            "tokens": {"access_token": "fresh-tok"},
+            "cookies": {"PHPSESSID": "fresh"},
+        }
+        recovered_client = MagicMock()
+
+        with (
+            patch("aula.auth_flow.authenticate", new_callable=AsyncMock) as mock_authenticate,
+            patch("aula.auth_flow.create_client", new_callable=AsyncMock) as mock_create,
+        ):
+            mock_authenticate.side_effect = [cached_token_data, fresh_token_data]
+            mock_create.side_effect = [
+                AulaAuthenticationError("HTTP 403", status_code=403),
+                recovered_client,
+            ]
+            result = await authenticate_and_create_client("user", token_storage)
+
+        assert mock_authenticate.await_count == 2
+        assert mock_authenticate.await_args_list[0].args == (
+            "user",
+            token_storage,
+            None,
+            None,
+            None,
+        )
+        assert "force_login" not in mock_authenticate.await_args_list[0].kwargs
+        assert mock_authenticate.await_args_list[1].args == (
+            "user",
+            token_storage,
+            None,
+            None,
+            None,
+        )
+        assert mock_authenticate.await_args_list[1].kwargs["force_login"] is True
+        assert mock_create.await_count == 2
+        assert mock_create.await_args_list[0].args[0] == cached_token_data
+        assert mock_create.await_args_list[1].args[0] == fresh_token_data
+        assert result is recovered_client
 
     @pytest.mark.asyncio
     async def test_passes_callbacks_through(self, token_storage, mock_auth_client):
