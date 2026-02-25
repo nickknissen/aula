@@ -75,9 +75,7 @@ class AulaApiClient:
         # The Csrfp-Token cookie is not part of the stored auth credentials;
         # it's set by Aula via Set-Cookie during these initial GET requests.
         if self._csrf_token is None:
-            get_cookie = getattr(self._client, "get_cookie", None)
-            if callable(get_cookie):
-                self._csrf_token = get_cookie("Csrfp-Token")
+            self._csrf_token = self._client.get_cookie("Csrfp-Token")
 
     async def _set_correct_api_version(self) -> None:
         resp = await self._request_with_version_retry(
@@ -102,7 +100,7 @@ class AulaApiClient:
         # Auto-append access token for Aula API requests
         if self._access_token and url.startswith(API_URL):
             if params is not None:
-                params["access_token"] = self._access_token
+                params = {**params, "access_token": self._access_token}
             else:
                 sep = "&" if "?" in url else "?"
                 url = f"{url}{sep}access_token={self._access_token}"
@@ -804,18 +802,6 @@ class AulaApiClient:
     async def download_file(self, url: str) -> bytes:
         """Download a file as raw bytes."""
         return await self._client.download_bytes(url)
-
-    def _parse_appointment(self, resp: HttpResponse) -> Appointment:
-        """Extract the first appointment from a widget API response."""
-        appointments = resp.json().get("data", {}).get("appointments", [])
-        if not appointments:
-            raise ValueError("No appointments found in widget response")
-        appointment = appointments[0]
-        return Appointment(
-            _raw=appointment,
-            appointment_id=appointment.get("appointmentId"),
-            title=appointment.get("title"),
-        )
 
     async def _get_bearer_token(self, widget_id: str) -> str:
         resp = await self._request_with_version_retry(

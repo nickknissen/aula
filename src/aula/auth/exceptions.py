@@ -1,31 +1,31 @@
 """Exception classes for MitID authentication."""
 
 
-class AulaAuthenticationError(Exception):
-    """Base exception for Aula authentication errors."""
+class MitIDAuthError(Exception):
+    """Base exception for MitID authentication errors."""
 
     pass
 
 
-class MitIDError(AulaAuthenticationError):
+class MitIDError(MitIDAuthError):
     """Exception raised for MitID-specific errors."""
 
     pass
 
 
-class NetworkError(AulaAuthenticationError):
+class NetworkError(MitIDAuthError):
     """Exception raised for network-related errors."""
 
     pass
 
 
-class SAMLError(AulaAuthenticationError):
+class SAMLError(MitIDAuthError):
     """Exception raised for SAML-related errors."""
 
     pass
 
 
-class OAuthError(AulaAuthenticationError):
+class OAuthError(MitIDAuthError):
     """Exception raised for OAuth-related errors."""
 
     pass

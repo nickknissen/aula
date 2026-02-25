@@ -19,7 +19,7 @@ import httpx
 import qrcode
 
 from .api_client import AulaApiClient
-from .auth.exceptions import AulaAuthenticationError, OAuthError
+from .auth.exceptions import MitIDAuthError, OAuthError
 from .auth.mitid_client import MitIDAuthClient
 from .http import HttpClient
 from .http_httpx import HttpxHttpClient
@@ -108,12 +108,15 @@ async def authenticate(
         tokens_valid = False
         cookies: dict[str, str] = {}
 
+        result_data: dict[str, Any] = {}
+
         if token_data is not None:
             tokens = token_data.get("tokens", {})
             expires_at = tokens.get("expires_at")
             if tokens.get("access_token") and (expires_at is None or time.time() < expires_at):
                 auth_client.tokens = tokens
                 cookies = token_data.get("cookies", {})
+                result_data = token_data
                 tokens_valid = True
                 _LOGGER.info("Loaded cached authentication tokens")
             elif tokens.get("refresh_token"):
@@ -145,7 +148,7 @@ async def authenticate(
                 if token_storage:
                     await token_storage.save(result_data)
                 _LOGGER.info("Authentication successful! Tokens saved.")
-            except AulaAuthenticationError as e:
+            except MitIDAuthError as e:
                 _LOGGER.error("Authentication failed: %s", e)
                 raise RuntimeError(f"MitID authentication failed: {e}") from e
 
@@ -153,7 +156,7 @@ async def authenticate(
         if not access_token:
             raise RuntimeError("No access token available after authentication")
 
-    return {"tokens": {"access_token": access_token}, "cookies": cookies}
+    return result_data
 
 
 async def authenticate_and_create_client(

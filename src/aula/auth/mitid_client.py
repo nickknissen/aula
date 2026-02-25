@@ -21,7 +21,7 @@ from ..const import (
 )
 from .browser_client import BrowserClient
 from .exceptions import (
-    AulaAuthenticationError,
+    MitIDAuthError,
     MitIDError,
     NetworkError,
     OAuthError,
@@ -146,10 +146,10 @@ class MitIDAuthClient:
 
             return {"success": True, "tokens": tokens}
 
-        except AulaAuthenticationError:
+        except MitIDAuthError:
             raise
         except Exception as e:
-            raise AulaAuthenticationError(f"Authentication failed: {e}") from e
+            raise MitIDAuthError(f"Authentication failed: {e}") from e
 
     @property
     def access_token(self) -> str | None:
