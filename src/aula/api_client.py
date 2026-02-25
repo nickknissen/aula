@@ -15,7 +15,7 @@ from .const import (
     WIDGET_HUSKELISTEN,
     WIDGET_MEEBOOK,
 )
-from .http import HttpClient, HttpResponse
+from .http import HttpClient, HttpRequestError, HttpResponse
 from .models import (
     Appointment,
     CalendarEvent,
@@ -163,7 +163,7 @@ class AulaApiClient:
         """Check if session is still authenticated."""
         try:
             await self.get_profile()
-        except Exception as e:
+        except (HttpRequestError, ValueError) as e:
             _LOGGER.debug("is_logged_in check failed: %s", e)
             return False
         return True
