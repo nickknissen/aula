@@ -1,7 +1,7 @@
 """Tests for aula.api_client."""
 
 import inspect
-from datetime import date
+from datetime import date, datetime
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -1129,3 +1129,494 @@ class TestBearerTokenCompatibilityWrapper:
             await client._get_bearer_token("widget-id")
 
         client.widgets._get_bearer_token.assert_awaited_once_with("widget-id")
+
+
+class TestGetCalendarEvents:
+    """Tests for AulaApiClient.get_calendar_events method."""
+
+    @pytest.fixture
+    def client(self):
+        http_client = AsyncMock()
+        c = AulaApiClient(http_client=http_client, access_token="test_token")
+        c._access_token = None
+        c._csrf_token = "csrf"
+        return c
+
+    @pytest.mark.asyncio
+    async def test_happy_path_with_lesson(self, client):
+        """Events with lesson participants are parsed correctly."""
+        raw_events = [
+            {
+                "id": 1,
+                "title": "Math",
+                "startDateTime": "2026-03-01T08:00:00+01:00",
+                "endDateTime": "2026-03-01T09:00:00+01:00",
+                "belongsToProfiles": [100],
+                "lesson": {
+                    "participants": [
+                        {"participantRole": "primaryTeacher", "teacherName": "Mrs. Jensen"},
+                        {"participantRole": "substituteTeacher", "teacherName": "Mr. Hansen"},
+                    ],
+                    "lessonStatus": "substitute",
+                    "primaryResource": {"name": "Room 101"},
+                },
+            }
+        ]
+        client._request_with_version_retry = AsyncMock(
+            return_value=HttpResponse(status_code=200, data={"data": raw_events})
+        )
+
+        events = await client.get_calendar_events(
+            [100], datetime(2026, 3, 1), datetime(2026, 3, 1)
+        )
+
+        assert len(events) == 1
+        assert events[0].title == "Math"
+        assert events[0].teacher_name == "Mrs. Jensen"
+        assert events[0].has_substitute is True
+        assert events[0].substitute_name == "Mr. Hansen"
+        assert events[0].location == "Room 101"
+        assert events[0].belongs_to == 100
+
+    @pytest.mark.asyncio
+    async def test_empty_events_list(self, client):
+        """Empty events list returns empty."""
+        client._request_with_version_retry = AsyncMock(
+            return_value=HttpResponse(status_code=200, data={"data": []})
+        )
+        events = await client.get_calendar_events(
+            [100], datetime(2026, 3, 1), datetime(2026, 3, 1)
+        )
+        assert events == []
+
+    @pytest.mark.asyncio
+    async def test_event_with_no_lesson(self, client):
+        """Event with no lesson data uses graceful defaults."""
+        raw_events = [
+            {
+                "id": 2,
+                "title": "Parent Meeting",
+                "startDateTime": "2026-03-02T14:00:00+01:00",
+                "endDateTime": "2026-03-02T15:00:00+01:00",
+                "belongsToProfiles": [],
+                "lesson": None,
+            }
+        ]
+        client._request_with_version_retry = AsyncMock(
+            return_value=HttpResponse(status_code=200, data={"data": raw_events})
+        )
+
+        events = await client.get_calendar_events(
+            [100], datetime(2026, 3, 2), datetime(2026, 3, 2)
+        )
+
+        assert len(events) == 1
+        assert events[0].teacher_name == ""
+        assert events[0].has_substitute is False
+        assert events[0].location is None
+
+    @pytest.mark.asyncio
+    async def test_malformed_event_skipped(self, client, caplog):
+        """Malformed event is skipped and logged."""
+        raw_events = [
+            {"id": 1, "title": "Bad", "startDateTime": "not-a-date"},
+            {
+                "id": 2,
+                "title": "Good",
+                "startDateTime": "2026-03-01T08:00:00+01:00",
+                "endDateTime": "2026-03-01T09:00:00+01:00",
+                "belongsToProfiles": [],
+            },
+        ]
+        client._request_with_version_retry = AsyncMock(
+            return_value=HttpResponse(status_code=200, data={"data": raw_events})
+        )
+
+        events = await client.get_calendar_events(
+            [100], datetime(2026, 3, 1), datetime(2026, 3, 1)
+        )
+        assert len(events) == 1
+        assert events[0].title == "Good"
+
+    @pytest.mark.asyncio
+    async def test_non_list_data_returns_empty(self, client):
+        """Non-list data format returns empty list."""
+        client._request_with_version_retry = AsyncMock(
+            return_value=HttpResponse(status_code=200, data={"data": "unexpected"})
+        )
+        events = await client.get_calendar_events(
+            [100], datetime(2026, 3, 1), datetime(2026, 3, 1)
+        )
+        assert events == []
+
+
+class TestGetPosts:
+    """Tests for AulaApiClient.get_posts method."""
+
+    @pytest.fixture
+    def client(self):
+        http_client = AsyncMock()
+        c = AulaApiClient(http_client=http_client, access_token="test_token")
+        return c
+
+    @pytest.mark.asyncio
+    async def test_happy_path(self, client):
+        """Posts with id and title are parsed via Post.from_dict."""
+        posts_data = [
+            {
+                "id": 10,
+                "title": "School Trip",
+                "content": {"html": "<p>Details</p>"},
+                "timestamp": "2026-03-01T10:00:00+01:00",
+                "ownerProfile": {"id": 1, "profileId": 2},
+                "attachments": [],
+            }
+        ]
+        client._request_with_version_retry = AsyncMock(
+            return_value=HttpResponse(
+                status_code=200, data={"data": {"posts": posts_data}}
+            )
+        )
+        posts = await client.get_posts([100])
+        assert len(posts) == 1
+        assert posts[0].id == 10
+        assert posts[0].title == "School Trip"
+
+    @pytest.mark.asyncio
+    async def test_posts_missing_required_fields_skipped(self, client):
+        """Posts without id or title are skipped."""
+        posts_data = [
+            {"title": "No ID"},
+            {"id": 10},
+            {
+                "id": 20,
+                "title": "Valid",
+                "content": {"html": ""},
+                "ownerProfile": {"id": 1, "profileId": 2},
+                "attachments": [],
+            },
+        ]
+        client._request_with_version_retry = AsyncMock(
+            return_value=HttpResponse(
+                status_code=200, data={"data": {"posts": posts_data}}
+            )
+        )
+        posts = await client.get_posts([100])
+        assert len(posts) == 1
+        assert posts[0].id == 20
+
+    @pytest.mark.asyncio
+    async def test_non_dict_post_data_skipped(self, client):
+        """Non-dict entries in posts list are skipped."""
+        posts_data = [
+            "not a dict",
+            {
+                "id": 30,
+                "title": "Valid Post",
+                "content": {"html": ""},
+                "ownerProfile": {"id": 1, "profileId": 2},
+                "attachments": [],
+            },
+        ]
+        client._request_with_version_retry = AsyncMock(
+            return_value=HttpResponse(
+                status_code=200, data={"data": {"posts": posts_data}}
+            )
+        )
+        posts = await client.get_posts([100])
+        assert len(posts) == 1
+        assert posts[0].id == 30
+
+    @pytest.mark.asyncio
+    async def test_empty_posts(self, client):
+        """Empty posts list returns empty."""
+        client._request_with_version_retry = AsyncMock(
+            return_value=HttpResponse(
+                status_code=200, data={"data": {"posts": []}}
+            )
+        )
+        posts = await client.get_posts([100])
+        assert posts == []
+
+
+class TestSearchMessages:
+    """Tests for AulaApiClient.search_messages method."""
+
+    @pytest.fixture
+    def client(self):
+        http_client = AsyncMock()
+        c = AulaApiClient(http_client=http_client, access_token="test_token")
+        c._access_token = None
+        c._csrf_token = "csrf"
+        return c
+
+    @pytest.mark.asyncio
+    async def test_single_page(self, client):
+        """Single page of results is returned."""
+        client._request_with_version_retry = AsyncMock(
+            return_value=HttpResponse(
+                status_code=200,
+                data={
+                    "data": {
+                        "results": [
+                            {"id": "m1", "text": {"html": "<p>Hello</p>"}},
+                            {"id": "m2", "text": "Plain text"},
+                        ],
+                        "totalSize": 2,
+                    }
+                },
+            )
+        )
+        messages = await client.search_messages([1], ["INST1"])
+        assert len(messages) == 2
+        assert messages[0].content_html == "<p>Hello</p>"
+        assert messages[1].content_html == "Plain text"
+
+    @pytest.mark.asyncio
+    async def test_multi_page_pagination(self, client):
+        """Pagination fetches multiple pages until offset >= totalSize."""
+        page1 = HttpResponse(
+            status_code=200,
+            data={
+                "data": {
+                    "results": [{"id": "m1", "text": "page1"}],
+                    "totalSize": 2,
+                }
+            },
+        )
+        page2 = HttpResponse(
+            status_code=200,
+            data={
+                "data": {
+                    "results": [{"id": "m2", "text": "page2"}],
+                    "totalSize": 2,
+                }
+            },
+        )
+        client._request_with_version_retry = AsyncMock(side_effect=[page1, page2])
+        messages = await client.search_messages([1], ["INST1"], limit=1)
+        assert len(messages) == 2
+        assert client._request_with_version_retry.call_count == 2
+
+    @pytest.mark.asyncio
+    async def test_text_as_dict_vs_string(self, client):
+        """Text field handled as dict with html key or as plain string."""
+        client._request_with_version_retry = AsyncMock(
+            return_value=HttpResponse(
+                status_code=200,
+                data={
+                    "data": {
+                        "results": [
+                            {"id": "m1", "text": {"html": "<b>bold</b>"}},
+                            {"id": "m2", "text": "plain"},
+                            {"id": "m3", "text": 12345},
+                        ],
+                        "totalSize": 3,
+                    }
+                },
+            )
+        )
+        messages = await client.search_messages([1], ["INST1"])
+        assert messages[0].content_html == "<b>bold</b>"
+        assert messages[1].content_html == "plain"
+        assert messages[2].content_html == ""
+
+    @pytest.mark.asyncio
+    async def test_empty_results_stops(self, client):
+        """Empty results stops pagination immediately."""
+        client._request_with_version_retry = AsyncMock(
+            return_value=HttpResponse(
+                status_code=200,
+                data={"data": {"results": [], "totalSize": 0}},
+            )
+        )
+        messages = await client.search_messages([1], ["INST1"])
+        assert messages == []
+        assert client._request_with_version_retry.call_count == 1
+
+
+class TestGetAllMessageThreads:
+    """Tests for AulaApiClient.get_all_message_threads cutoff logic."""
+
+    @pytest.fixture
+    def client(self):
+        http_client = AsyncMock()
+        c = AulaApiClient(http_client=http_client, access_token="test_token")
+        return c
+
+    @pytest.mark.asyncio
+    async def test_stops_at_cutoff(self, client):
+        """Stops collecting threads when thread date < cutoff_date."""
+        client._request_with_version_retry = AsyncMock(
+            return_value=HttpResponse(
+                status_code=200,
+                data={
+                    "data": {
+                        "threads": [
+                            {"id": "t1", "lastMessageDate": "2026-03-01T10:00:00"},
+                            {"id": "t2", "lastMessageDate": "2026-01-01T10:00:00"},
+                        ]
+                    }
+                },
+            )
+        )
+        result = await client.get_all_message_threads(date(2026, 2, 1))
+        # t1 (March) is after cutoff, collected; t2 (Jan) triggers early return
+        assert len(result) == 1
+        assert result[0]["id"] == "t1"
+
+    @pytest.mark.asyncio
+    async def test_handles_missing_dates(self, client):
+        """Threads with missing dates are still collected."""
+        client._request_with_version_retry = AsyncMock(
+            side_effect=[
+                HttpResponse(
+                    status_code=200,
+                    data={
+                        "data": {
+                            "threads": [
+                                {"id": "t1"},
+                                {"id": "t2", "lastMessageDate": ""},
+                            ]
+                        }
+                    },
+                ),
+                HttpResponse(
+                    status_code=200,
+                    data={"data": {"threads": []}},
+                ),
+            ]
+        )
+        result = await client.get_all_message_threads(date(2026, 2, 1))
+        assert len(result) == 2
+
+    @pytest.mark.asyncio
+    async def test_handles_malformed_dates(self, client):
+        """Threads with malformed dates are still collected."""
+        client._request_with_version_retry = AsyncMock(
+            side_effect=[
+                HttpResponse(
+                    status_code=200,
+                    data={
+                        "data": {
+                            "threads": [
+                                {"id": "t1", "lastMessageDate": "not-a-date"},
+                            ]
+                        }
+                    },
+                ),
+                HttpResponse(
+                    status_code=200,
+                    data={"data": {"threads": []}},
+                ),
+            ]
+        )
+        result = await client.get_all_message_threads(date(2026, 2, 1))
+        assert len(result) == 1
+
+
+class TestGetAllMessagesForThread:
+    """Tests for AulaApiClient.get_all_messages_for_thread pagination."""
+
+    @pytest.fixture
+    def client(self):
+        http_client = AsyncMock()
+        return AulaApiClient(http_client=http_client, access_token="test_token")
+
+    @pytest.mark.asyncio
+    async def test_collects_across_pages(self, client):
+        """Messages are collected across multiple pages."""
+        client._request_with_version_retry = AsyncMock(
+            side_effect=[
+                HttpResponse(
+                    status_code=200,
+                    data={"data": {"messages": [{"id": "m1"}, {"id": "m2"}]}},
+                ),
+                HttpResponse(
+                    status_code=200,
+                    data={"data": {"messages": [{"id": "m3"}]}},
+                ),
+                HttpResponse(
+                    status_code=200,
+                    data={"data": {"messages": []}},
+                ),
+            ]
+        )
+        result = await client.get_all_messages_for_thread("t1")
+        assert len(result) == 3
+        assert [m["id"] for m in result] == ["m1", "m2", "m3"]
+
+    @pytest.mark.asyncio
+    async def test_stops_on_empty_page(self, client):
+        """Stops immediately when first page is empty."""
+        client._request_with_version_retry = AsyncMock(
+            return_value=HttpResponse(
+                status_code=200,
+                data={"data": {"messages": []}},
+            )
+        )
+        result = await client.get_all_messages_for_thread("t1")
+        assert result == []
+        assert client._request_with_version_retry.call_count == 1
+
+
+class TestGetGalleryAlbums:
+    """Tests for AulaApiClient.get_gallery_albums response handling."""
+
+    @pytest.fixture
+    def client(self):
+        http_client = AsyncMock()
+        return AulaApiClient(http_client=http_client, access_token="test_token")
+
+    @pytest.mark.asyncio
+    async def test_data_is_list(self, client):
+        """When data is a list, returned directly."""
+        albums = [{"id": 1, "title": "Album 1"}]
+        client._request_with_version_retry = AsyncMock(
+            return_value=HttpResponse(status_code=200, data={"data": albums})
+        )
+        result = await client.get_gallery_albums([100])
+        assert result == albums
+
+    @pytest.mark.asyncio
+    async def test_data_is_dict_with_albums_key(self, client):
+        """When data is a dict, extracts albums key."""
+        albums = [{"id": 2, "title": "Album 2"}]
+        client._request_with_version_retry = AsyncMock(
+            return_value=HttpResponse(
+                status_code=200, data={"data": {"albums": albums}}
+            )
+        )
+        result = await client.get_gallery_albums([100])
+        assert result == albums
+
+
+class TestGetAlbumPictures:
+    """Tests for AulaApiClient.get_album_pictures response handling."""
+
+    @pytest.fixture
+    def client(self):
+        http_client = AsyncMock()
+        return AulaApiClient(http_client=http_client, access_token="test_token")
+
+    @pytest.mark.asyncio
+    async def test_data_is_list(self, client):
+        """When data is a list, returned directly."""
+        pics = [{"id": 1, "file": {"url": "http://example.com/pic.jpg"}}]
+        client._request_with_version_retry = AsyncMock(
+            return_value=HttpResponse(status_code=200, data={"data": pics})
+        )
+        result = await client.get_album_pictures([100], album_id=1)
+        assert result == pics
+
+    @pytest.mark.asyncio
+    async def test_data_is_dict_with_results_key(self, client):
+        """When data is a dict, extracts results key."""
+        pics = [{"id": 2, "file": {"url": "http://example.com/pic2.jpg"}}]
+        client._request_with_version_retry = AsyncMock(
+            return_value=HttpResponse(
+                status_code=200, data={"data": {"results": pics}}
+            )
+        )
+        result = await client.get_album_pictures([100], album_id=1)
+        assert result == pics
