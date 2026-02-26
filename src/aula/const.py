@@ -9,6 +9,7 @@ CICERO_API = "https://surf.cicero-suite.com/portal-api/rest/aula"
 
 # Widget IDs for third-party integrations
 WIDGET_EASYIQ = "0001"
+WIDGET_EASYIQ_WEEKPLAN = "0128"
 WIDGET_EASYIQ_HOMEWORK = "0142"
 WIDGET_BIBLIOTEKET = "0019"
 WIDGET_MIN_UDDANNELSE_UGEPLAN = "0029"
