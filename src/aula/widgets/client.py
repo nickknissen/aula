@@ -22,6 +22,7 @@ from ..models import (
     MomoUserCourses,
     MUTask,
     MUWeeklyPerson,
+    UserReminders,
 )
 
 
@@ -220,6 +221,35 @@ class AulaWidgetsClient:
         )
         resp.raise_for_status()
         return [MomoUserCourses.from_dict(u) for u in resp.json()]
+
+    async def get_momo_reminders(
+        self,
+        children: list[str],
+        institutions: list[str],
+        session_uuid: str,
+        from_date: str,
+        due_no_later_than: str,
+    ) -> list[UserReminders]:
+        token = await self._get_bearer_token(WIDGET_HUSKELISTEN)
+
+        params = {
+            "widgetVersion": "1.10",
+            "userProfile": "guardian",
+            "sessionId": session_uuid,
+            "children": children,
+            "institutions": institutions,
+            "from": from_date,
+            "dueNoLaterThan": due_no_later_than,
+        }
+
+        resp = await self._api_client._request_with_version_retry(
+            "get",
+            f"{SYSTEMATIC_API}/reminders/v1",
+            params=params,
+            headers={"Aula-Authorization": token},
+        )
+        resp.raise_for_status()
+        return [UserReminders.from_dict(u) for u in resp.json()]
 
     async def get_library_status(
         self,
