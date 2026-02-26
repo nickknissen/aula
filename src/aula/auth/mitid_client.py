@@ -619,9 +619,7 @@ class MitIDAuthClient:
     @staticmethod
     def _generate_pkce_parameters() -> tuple[str, str]:
         """Generate PKCE parameters for OAuth 2.0."""
-        code_verifier = (
-            base64.urlsafe_b64encode(secrets.token_bytes(32)).decode("utf-8").rstrip("=")
-        )
+        code_verifier = secrets.token_urlsafe(32)
         challenge = hashlib.sha256(code_verifier.encode("utf-8")).digest()
         code_challenge = base64.urlsafe_b64encode(challenge).decode("utf-8").rstrip("=")
         return code_verifier, code_challenge
@@ -629,4 +627,4 @@ class MitIDAuthClient:
     @staticmethod
     def _generate_state() -> str:
         """Generate OAuth state parameter."""
-        return base64.urlsafe_b64encode(secrets.token_bytes(16)).decode("utf-8").rstrip("=")
+        return secrets.token_urlsafe(16)
