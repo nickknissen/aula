@@ -1,6 +1,7 @@
 import inspect
 import logging
 import time
+import warnings
 from datetime import date, datetime
 from types import TracebackType
 from typing import Any
@@ -9,16 +10,8 @@ from zoneinfo import ZoneInfo
 from .const import (
     API_URL,
     API_VERSION,
-    CICERO_API,
     CSRF_TOKEN_COOKIE,
     CSRF_TOKEN_HEADER,
-    EASYIQ_API,
-    MEEBOOK_API,
-    MIN_UDDANNELSE_API,
-    SYSTEMATIC_API,
-    WIDGET_EASYIQ,
-    WIDGET_HUSKELISTEN,
-    WIDGET_MEEBOOK,
 )
 from .http import HttpClient, HttpRequestError, HttpResponse
 from .models import (
@@ -37,6 +30,7 @@ from .models import (
     PresenceWeekTemplate,
     Profile,
 )
+from .widgets import AulaWidgetsClient
 
 # Logger
 _LOGGER = logging.getLogger(__name__)
@@ -64,6 +58,7 @@ class AulaApiClient:
         self._access_token = access_token
         self._csrf_token = csrf_token
         self.api_url = f"{API_URL}{API_VERSION}"
+        self.widgets: AulaWidgetsClient = AulaWidgetsClient(self)
 
     async def init(self) -> None:
         """Discover the current API version and establish guardian role.
@@ -468,24 +463,19 @@ class AulaApiClient:
         session_uuid: str,
     ) -> list[MUTask]:
         """Fetch Min Uddannelse tasks (opgaver) for the given week."""
-        token = await self._get_bearer_token(widget_id)
-        params = {
-            "placement": "narrow",
-            "sessionUUID": session_uuid,
-            "userProfile": "guardian",
-            "currentWeekNumber": week,
-            "isMobileApp": "false",
-            "childFilter[]": child_filter,
-            "institutionFilter[]": institution_filter,
-        }
-
-        resp = await self._request_with_version_retry(
-            "get",
-            f"{MIN_UDDANNELSE_API}/opgaveliste",
-            params=params,
-            headers={"Authorization": token, "Accept": "application/json"},
+        warnings.warn(
+            "AulaApiClient.get_mu_tasks is deprecated; "
+            "use AulaApiClient.widgets.get_mu_tasks instead.",
+            DeprecationWarning,
+            stacklevel=2,
         )
-        return [MUTask.from_dict(o) for o in resp.json().get("opgaver", [])]
+        return await self.widgets.get_mu_tasks(
+            widget_id=widget_id,
+            child_filter=child_filter,
+            institution_filter=institution_filter,
+            week=week,
+            session_uuid=session_uuid,
+        )
 
     async def get_ugeplan(
         self,
@@ -496,53 +486,36 @@ class AulaApiClient:
         session_uuid: str,
     ) -> list[MUWeeklyPerson]:
         """Fetch Min Uddannelse weekly plans (ugebreve) for the given week."""
-        token = await self._get_bearer_token(widget_id)
-        params = {
-            "assuranceLevel": "3",
-            "childFilter": ",".join(child_filter),
-            "currentWeekNumber": week,
-            "institutionFilter": ",".join(institution_filter),
-            "isMobileApp": "false",
-            "placement": "narrow",
-            "sessionUUID": session_uuid,
-            "userProfile": "guardian",
-        }
-        resp = await self._request_with_version_retry(
-            "get",
-            f"{MIN_UDDANNELSE_API}/ugebrev",
-            params=params,
-            headers={"Authorization": token, "Accept": "application/json"},
+        warnings.warn(
+            "AulaApiClient.get_ugeplan is deprecated; "
+            "use AulaApiClient.widgets.get_ugeplan instead.",
+            DeprecationWarning,
+            stacklevel=2,
         )
-        return [MUWeeklyPerson.from_dict(p) for p in resp.json().get("personer", [])]
+        return await self.widgets.get_ugeplan(
+            widget_id=widget_id,
+            child_filter=child_filter,
+            institution_filter=institution_filter,
+            week=week,
+            session_uuid=session_uuid,
+        )
 
     async def get_easyiq_weekplan(
         self, week: str, session_uuid: str, institution_filter: list[str], child_id: str
     ) -> list[Appointment]:
         """Fetch EasyIQ weekly plan appointments for a child."""
-        token = await self._get_bearer_token(WIDGET_EASYIQ)
-        headers = {
-            "Authorization": token,
-            "x-aula-institutionfilter": ",".join(institution_filter),
-        }
-        payload = {
-            "sessionId": session_uuid,
-            "currentWeekNr": week,
-            "userProfile": "guardian",
-            "institutionFilter": institution_filter,
-            "childFilter": [child_id],
-        }
-        resp = await self._request_with_version_retry(
-            "post", f"{EASYIQ_API}/weekplaninfo", json=payload, headers=headers
+        warnings.warn(
+            "AulaApiClient.get_easyiq_weekplan is deprecated; "
+            "use AulaApiClient.widgets.get_easyiq_weekplan instead.",
+            DeprecationWarning,
+            stacklevel=2,
         )
-        appointments = resp.json().get("data", {}).get("appointments", [])
-        return [
-            Appointment(
-                _raw=a,
-                appointment_id=a.get("appointmentId"),
-                title=a.get("title"),
-            )
-            for a in appointments
-        ]
+        return await self.widgets.get_easyiq_weekplan(
+            week=week,
+            session_uuid=session_uuid,
+            institution_filter=institution_filter,
+            child_id=child_id,
+        )
 
     async def get_meebook_weekplan(
         self,
@@ -555,34 +528,18 @@ class AulaApiClient:
 
         Week format must be YYYY-Wnn (with leading zero), e.g. '2026-W08'.
         """
-        token = await self._get_bearer_token(WIDGET_MEEBOOK)
-
-        # Ensure week number has leading zero (YYYY-Wnn format)
-        parts = week.split("-W")
-        if len(parts) == 2:
-            week = f"{parts[0]}-W{int(parts[1]):02d}"
-
-        params = {
-            "currentWeekNumber": week,
-            "userProfile": "guardian",
-            "childFilter[]": child_filter,
-            "institutionFilter[]": institution_filter,
-        }
-
-        headers = {
-            "Authorization": token,
-            "Accept": "application/json",
-            "sessionUUID": session_uuid,
-            "X-Version": "1.0",
-        }
-
-        resp = await self._request_with_version_retry(
-            "get",
-            f"{MEEBOOK_API}/relatedweekplan/all",
-            params=params,
-            headers=headers,
+        warnings.warn(
+            "AulaApiClient.get_meebook_weekplan is deprecated; "
+            "use AulaApiClient.widgets.get_meebook_weekplan instead.",
+            DeprecationWarning,
+            stacklevel=2,
         )
-        return [MeebookStudentPlan.from_dict(s) for s in resp.json()]
+        return await self.widgets.get_meebook_weekplan(
+            child_filter=child_filter,
+            institution_filter=institution_filter,
+            week=week,
+            session_uuid=session_uuid,
+        )
 
     async def get_momo_courses(
         self,
@@ -591,23 +548,17 @@ class AulaApiClient:
         session_uuid: str,
     ) -> list[MomoUserCourses]:
         """Fetch MoMo courses (forløb) for children."""
-        token = await self._get_bearer_token(WIDGET_HUSKELISTEN)
-
-        params = {
-            "widgetVersion": "1.3",
-            "userProfile": "guardian",
-            "sessionId": session_uuid,
-            "children": children,
-            "institutions": institutions,
-        }
-
-        resp = await self._request_with_version_retry(
-            "get",
-            f"{SYSTEMATIC_API}/courses/v1",
-            params=params,
-            headers={"Aula-Authorization": token},
+        warnings.warn(
+            "AulaApiClient.get_momo_courses is deprecated; "
+            "use AulaApiClient.widgets.get_momo_courses instead.",
+            DeprecationWarning,
+            stacklevel=2,
         )
-        return [MomoUserCourses.from_dict(u) for u in resp.json()]
+        return await self.widgets.get_momo_courses(
+            children=children,
+            institutions=institutions,
+            session_uuid=session_uuid,
+        )
 
     async def get_library_status(
         self,
@@ -617,23 +568,18 @@ class AulaApiClient:
         session_uuid: str,
     ) -> LibraryStatus:
         """Fetch library status (loans, reservations) from Cicero."""
-        token = await self._get_bearer_token(widget_id)
-        params = {
-            "coverImageHeight": "160",
-            "widgetVersion": "1.6",
-            "userProfile": "guardian",
-            "sessionUUID": session_uuid,
-            "institutions": institutions,
-            "children": children,
-        }
-
-        resp = await self._request_with_version_retry(
-            "get",
-            f"{CICERO_API}/library/status/v3",
-            params=params,
-            headers={"Authorization": token, "Accept": "application/json"},
+        warnings.warn(
+            "AulaApiClient.get_library_status is deprecated; "
+            "use AulaApiClient.widgets.get_library_status instead.",
+            DeprecationWarning,
+            stacklevel=2,
         )
-        return LibraryStatus.from_dict(resp.json())
+        return await self.widgets.get_library_status(
+            widget_id=widget_id,
+            children=children,
+            institutions=institutions,
+            session_uuid=session_uuid,
+        )
 
     async def get_gallery_albums(
         self, institution_profile_ids: list[int], limit: int = 1000
@@ -824,11 +770,7 @@ class AulaApiClient:
         return await self._client.download_bytes(url)
 
     async def _get_bearer_token(self, widget_id: str) -> str:
-        resp = await self._request_with_version_retry(
-            "get", f"{self.api_url}?method=aulaToken.getAulaToken&widgetId={widget_id}"
-        )
-        token = "Bearer " + str(resp.json()["data"])
-        return token
+        return await self.widgets._get_bearer_token(widget_id)
 
     def _parse_date(self, date_str: str) -> datetime:
         return datetime.fromisoformat(date_str).astimezone(ZoneInfo("Europe/Copenhagen"))

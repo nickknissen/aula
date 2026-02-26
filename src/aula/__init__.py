@@ -29,9 +29,11 @@ from .models import (
     Profile,
 )
 from .token_storage import FileTokenStorage, TokenStorage
+from .widgets import AulaWidgetsClient
 
 __all__ = [
     "AulaApiClient",
+    "AulaWidgetsClient",
     "authenticate",
     "create_client",
     "AulaAuthenticationError",

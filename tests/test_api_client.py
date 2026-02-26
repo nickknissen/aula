@@ -1,5 +1,6 @@
 """Tests for aula.api_client."""
 
+import inspect
 from datetime import date
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -927,3 +928,204 @@ class TestPaginationSafetyGuards:
         result = await client.get_all_messages_for_thread("t1")
         assert client._request_with_version_retry.call_count == 2
         assert len(result) == 1
+
+
+class TestWidgetNamespaceSmoke:
+    """Smoke check for the transitional widgets namespace."""
+
+    @pytest.fixture
+    def client(self):
+        http_client = AsyncMock()
+        return AulaApiClient(http_client=http_client, access_token="test_token")
+
+    def test_client_exposes_widgets_namespace(self, client):
+        """AulaApiClient exposes a widgets namespace attribute."""
+        assert client.widgets is not None
+
+
+class TestLegacyWidgetMethodWrappers:
+    """Compatibility wrappers delegate to widgets with deprecation warnings."""
+
+    @pytest.fixture
+    def client(self):
+        http_client = AsyncMock()
+        return AulaApiClient(http_client=http_client, access_token="test_token")
+
+    @pytest.mark.asyncio
+    async def test_get_mu_tasks_delegates_and_warns(self, client):
+        expected = [MagicMock()]
+        client.widgets.get_mu_tasks = AsyncMock(return_value=expected)
+
+        with pytest.warns(DeprecationWarning, match="get_mu_tasks") as warning_info:
+            result = await client.get_mu_tasks(
+                widget_id="widget-id",
+                child_filter=["child-1"],
+                institution_filter=["inst-1"],
+                week="2026-W08",
+                session_uuid="session-uuid",
+            )
+
+        assert result == expected
+        client.widgets.get_mu_tasks.assert_awaited_once_with(
+            widget_id="widget-id",
+            child_filter=["child-1"],
+            institution_filter=["inst-1"],
+            week="2026-W08",
+            session_uuid="session-uuid",
+        )
+        assert warning_info[0].filename.endswith("test_api_client.py")
+
+    @pytest.mark.asyncio
+    async def test_get_library_status_delegates_and_warns(self, client):
+        expected = MagicMock()
+        client.widgets.get_library_status = AsyncMock(return_value=expected)
+
+        with pytest.warns(DeprecationWarning, match="get_library_status") as warning_info:
+            result = await client.get_library_status(
+                widget_id="widget-id",
+                children=["child-1"],
+                institutions=["inst-1"],
+                session_uuid="session-uuid",
+            )
+
+        assert result == expected
+        client.widgets.get_library_status.assert_awaited_once_with(
+            widget_id="widget-id",
+            children=["child-1"],
+            institutions=["inst-1"],
+            session_uuid="session-uuid",
+        )
+        assert warning_info[0].filename.endswith("test_api_client.py")
+
+    @pytest.mark.asyncio
+    async def test_get_ugeplan_delegates_and_warns_with_callsite_stacklevel(self, client):
+        expected = [MagicMock()]
+        client.widgets.get_ugeplan = AsyncMock(return_value=expected)
+
+        with pytest.warns(DeprecationWarning, match="get_ugeplan") as warning_info:
+            frame = inspect.currentframe()
+            assert frame is not None
+            call_line = frame.f_lineno + 1
+            result = await client.get_ugeplan(
+                widget_id="widget-id",
+                child_filter=["child-1"],
+                institution_filter=["inst-1"],
+                week="2026-W08",
+                session_uuid="session-uuid",
+            )
+
+        assert result == expected
+        client.widgets.get_ugeplan.assert_awaited_once_with(
+            widget_id="widget-id",
+            child_filter=["child-1"],
+            institution_filter=["inst-1"],
+            week="2026-W08",
+            session_uuid="session-uuid",
+        )
+        assert warning_info[0].filename.endswith("test_api_client.py")
+        assert warning_info[0].lineno == call_line
+
+    @pytest.mark.asyncio
+    async def test_get_easyiq_weekplan_delegates_and_warns_with_callsite_stacklevel(self, client):
+        expected = [MagicMock()]
+        client.widgets.get_easyiq_weekplan = AsyncMock(return_value=expected)
+
+        with pytest.warns(DeprecationWarning, match="get_easyiq_weekplan") as warning_info:
+            frame = inspect.currentframe()
+            assert frame is not None
+            call_line = frame.f_lineno + 1
+            result = await client.get_easyiq_weekplan(
+                week="2026-W08",
+                session_uuid="session-uuid",
+                institution_filter=["inst-1"],
+                child_id="child-1",
+            )
+
+        assert result == expected
+        client.widgets.get_easyiq_weekplan.assert_awaited_once_with(
+            week="2026-W08",
+            session_uuid="session-uuid",
+            institution_filter=["inst-1"],
+            child_id="child-1",
+        )
+        assert warning_info[0].filename.endswith("test_api_client.py")
+        assert warning_info[0].lineno == call_line
+
+    @pytest.mark.asyncio
+    async def test_get_meebook_weekplan_delegates_and_warns_with_callsite_stacklevel(self, client):
+        expected = [MagicMock()]
+        client.widgets.get_meebook_weekplan = AsyncMock(return_value=expected)
+
+        with pytest.warns(DeprecationWarning, match="get_meebook_weekplan") as warning_info:
+            frame = inspect.currentframe()
+            assert frame is not None
+            call_line = frame.f_lineno + 1
+            result = await client.get_meebook_weekplan(
+                child_filter=["child-1"],
+                institution_filter=["inst-1"],
+                week="2026-W08",
+                session_uuid="session-uuid",
+            )
+
+        assert result == expected
+        client.widgets.get_meebook_weekplan.assert_awaited_once_with(
+            child_filter=["child-1"],
+            institution_filter=["inst-1"],
+            week="2026-W08",
+            session_uuid="session-uuid",
+        )
+        assert warning_info[0].filename.endswith("test_api_client.py")
+        assert warning_info[0].lineno == call_line
+
+    @pytest.mark.asyncio
+    async def test_get_momo_courses_delegates_and_warns_with_callsite_stacklevel(self, client):
+        expected = [MagicMock()]
+        client.widgets.get_momo_courses = AsyncMock(return_value=expected)
+
+        with pytest.warns(DeprecationWarning, match="get_momo_courses") as warning_info:
+            frame = inspect.currentframe()
+            assert frame is not None
+            call_line = frame.f_lineno + 1
+            result = await client.get_momo_courses(
+                children=["child-1"],
+                institutions=["inst-1"],
+                session_uuid="session-uuid",
+            )
+
+        assert result == expected
+        client.widgets.get_momo_courses.assert_awaited_once_with(
+            children=["child-1"],
+            institutions=["inst-1"],
+            session_uuid="session-uuid",
+        )
+        assert warning_info[0].filename.endswith("test_api_client.py")
+        assert warning_info[0].lineno == call_line
+
+
+class TestBearerTokenCompatibilityWrapper:
+    """Compatibility wrapper should transparently delegate to widgets namespace."""
+
+    @pytest.fixture
+    def client(self):
+        http_client = AsyncMock()
+        return AulaApiClient(http_client=http_client, access_token="test_token")
+
+    @pytest.mark.asyncio
+    async def test_get_bearer_token_delegates_to_widgets(self, client):
+        client.widgets._get_bearer_token = AsyncMock(return_value="Bearer test-token")
+
+        token = await client._get_bearer_token("widget-id")
+
+        assert token == "Bearer test-token"
+        client.widgets._get_bearer_token.assert_awaited_once_with("widget-id")
+
+    @pytest.mark.asyncio
+    async def test_get_bearer_token_preserves_widget_status_handling(self, client):
+        client.widgets._get_bearer_token = AsyncMock(
+            side_effect=AulaAuthenticationError("HTTP 401", status_code=401)
+        )
+
+        with pytest.raises(AulaAuthenticationError):
+            await client._get_bearer_token("widget-id")
+
+        client.widgets._get_bearer_token.assert_awaited_once_with("widget-id")

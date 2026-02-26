@@ -57,6 +57,24 @@ asyncio.run(main())
 
 Key methods on `AulaApiClient`: `get_profile()`, `get_daily_overview(child_id)`, `get_message_threads()`, `get_messages_for_thread(thread_id)`, `get_calendar_events(...)`, `get_posts(...)`. See `src/aula/api_client.py` for the full list.
 
+### Widget API (Namespace)
+
+Widget integrations are available via the namespaced widgets client on `AulaApiClient`:
+
+```python
+tasks = await client.widgets.get_mu_tasks(
+    widget_id="0030",  # WIDGET_MIN_UDDANNELSE
+    child_filter=["12345"],
+    institution_filter=["5678"],
+    week="2026-W8",
+    session_uuid="guardian-user-id",
+)
+```
+
+Use the `client.widgets.*` namespace for widget calls (for example: `get_mu_tasks`, `get_ugeplan`, `get_easyiq_weekplan`, `get_meebook_weekplan`, `get_momo_courses`, `get_library_status`).
+
+Legacy direct widget methods on `AulaApiClient` are deprecated and will be removed in a future release. Migrate to `client.widgets.<method>(...)`.
+
 ## Authentication
 
 ### What You Need

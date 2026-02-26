@@ -89,13 +89,13 @@ def get_mitid_username(ctx: click.Context) -> str:
 def cli(ctx, username: str | None, verbose: int):
     """CLI for interacting with Aula API"""
     # Configure logging based on verbosity
-    log_level = logging.ERROR   # Default: errors only (no warnings in normal output)
+    log_level = logging.ERROR  # Default: errors only (no warnings in normal output)
     if verbose == 1:
         log_level = logging.WARNING  # -v: Show warnings and above
     elif verbose == 2:
-        log_level = logging.INFO     # -vv: Show info and above
+        log_level = logging.INFO  # -vv: Show info and above
     elif verbose >= 3:
-        log_level = logging.DEBUG    # -vvv: Show debug and above
+        log_level = logging.DEBUG  # -vvv: Show debug and above
 
     logging.basicConfig(
         level=log_level,
@@ -169,7 +169,8 @@ async def _get_client(ctx: click.Context) -> AulaApiClient:
 
 
 async def _get_widget_context(
-    client: AulaApiClient, prof: "Profile",
+    client: AulaApiClient,
+    prof: "Profile",
 ) -> tuple[list[str], list[str], str] | None:
     """Extract child IDs, institution codes, and session UUID for widget API calls.
 
@@ -341,9 +342,7 @@ async def messages(ctx, limit, unread, search):
             institution_codes: list[str] = []
             for child in prof.children:
                 if child._raw:
-                    code = child._raw.get("institutionProfile", {}).get(
-                        "institutionCode", ""
-                    )
+                    code = child._raw.get("institutionProfile", {}).get("institutionCode", "")
                     if code and str(code) not in institution_codes:
                         institution_codes.append(str(code))
 
@@ -389,9 +388,7 @@ async def messages(ctx, limit, unread, search):
 
         try:
             filter_on = "unread" if unread else None
-            threads: list[MessageThread] = await client.get_message_threads(
-                filter_on=filter_on
-            )
+            threads: list[MessageThread] = await client.get_message_threads(filter_on=filter_on)
             threads = threads[:limit]
         except Exception as e:
             click.echo(f"Error fetching message threads: {e}")
@@ -600,7 +597,7 @@ async def mu_opgaver(ctx, week):
         from .const import WIDGET_MIN_UDDANNELSE
 
         try:
-            opgaver = await client.get_mu_tasks(
+            opgaver = await client.widgets.get_mu_tasks(
                 WIDGET_MIN_UDDANNELSE,
                 child_filter,
                 institution_filter,
@@ -665,7 +662,7 @@ async def mu_ugeplan(ctx, week):
         from .utils.html import html_to_plain
 
         try:
-            personer = await client.get_ugeplan(
+            personer = await client.widgets.get_ugeplan(
                 WIDGET_MIN_UDDANNELSE_UGEPLAN,
                 child_filter,
                 institution_filter,
@@ -736,7 +733,7 @@ async def easyiq_ugeplan(ctx, week):
             child_id = str(child._raw["userId"])
 
             try:
-                appointments = await client.get_easyiq_weekplan(
+                appointments = await client.widgets.get_easyiq_weekplan(
                     week, session_uuid, institution_filter, child_id
                 )
             except Exception as e:
@@ -814,7 +811,7 @@ async def meebook_ugeplan(ctx, week):
             return
 
         try:
-            students = await client.get_meebook_weekplan(
+            students = await client.widgets.get_meebook_weekplan(
                 child_filter, institution_filter, week, session_uuid
             )
         except Exception as e:
@@ -893,7 +890,9 @@ async def momo_course(ctx):
             return
 
         try:
-            users_with_courses = await client.get_momo_courses(children, institutions, session_uuid)
+            users_with_courses = await client.widgets.get_momo_courses(
+                children, institutions, session_uuid
+            )
         except Exception as e:
             click.echo(f"Error fetching MoMo courses: {e}")
             return
@@ -978,7 +977,11 @@ async def download_images(ctx, output, since, source, tags):
         if source in ("all", "gallery"):
             click.echo("Gallery")
             dl, sk = await download_gallery_images(
-                client, institution_profile_ids, output_path, cutoff, tag_list,
+                client,
+                institution_profile_ids,
+                output_path,
+                cutoff,
+                tag_list,
                 on_progress=click.echo,
             )
             click.echo(f"  Done: {dl} downloaded, {sk} skipped\n")
@@ -988,7 +991,10 @@ async def download_images(ctx, output, since, source, tags):
         if source in ("all", "posts"):
             click.echo("Posts")
             dl, sk = await download_post_images(
-                client, institution_profile_ids, output_path, cutoff,
+                client,
+                institution_profile_ids,
+                output_path,
+                cutoff,
                 on_progress=click.echo,
             )
             click.echo(f"  Done: {dl} downloaded, {sk} skipped\n")
@@ -998,7 +1004,11 @@ async def download_images(ctx, output, since, source, tags):
         if source in ("all", "messages"):
             click.echo("Messages")
             dl, sk = await download_message_images(
-                client, children_inst_ids, institution_codes, output_path, cutoff,
+                client,
+                children_inst_ids,
+                institution_codes,
+                output_path,
+                cutoff,
                 on_progress=click.echo,
             )
             click.echo(f"  Done: {dl} downloaded, {sk} skipped\n")
@@ -1032,7 +1042,7 @@ async def library_status(ctx):
         from .const import WIDGET_BIBLIOTEKET
 
         try:
-            status = await client.get_library_status(
+            status = await client.widgets.get_library_status(
                 WIDGET_BIBLIOTEKET,
                 children,
                 institutions,
@@ -1132,12 +1142,12 @@ async def weekly_summary(ctx, child, week, providers):
                 enabled.add(provider)
 
     year_num, week_num = week.split("-W")
-    week_start = datetime.datetime.fromisocalendar(
-        int(year_num), int(week_num), 1
-    ).replace(tzinfo=ZoneInfo("Europe/Copenhagen"))
-    week_end = datetime.datetime.fromisocalendar(
-        int(year_num), int(week_num), 5
-    ).replace(tzinfo=ZoneInfo("Europe/Copenhagen"), hour=23, minute=59, second=59)
+    week_start = datetime.datetime.fromisocalendar(int(year_num), int(week_num), 1).replace(
+        tzinfo=ZoneInfo("Europe/Copenhagen")
+    )
+    week_end = datetime.datetime.fromisocalendar(int(year_num), int(week_num), 5).replace(
+        tzinfo=ZoneInfo("Europe/Copenhagen"), hour=23, minute=59, second=59
+    )
 
     async with await _get_client(ctx) as client:
         try:
@@ -1188,9 +1198,7 @@ async def weekly_summary(ctx, child, week, providers):
 
             for day_offset in range(5):
                 day = (week_start + datetime.timedelta(days=day_offset)).date()
-                day_label = (week_start + datetime.timedelta(days=day_offset)).strftime(
-                    "%A, %d %B"
-                )
+                day_label = (week_start + datetime.timedelta(days=day_offset)).strftime("%A, %d %B")
                 day_events = sorted(by_day.get(day, []), key=lambda e: e.start_datetime)
                 click.echo(f"### {day_label}")
                 if day_events:
@@ -1199,9 +1207,7 @@ async def weekly_summary(ctx, child, week, providers):
                     for ev in day_events:
                         slots[(ev.start_datetime, ev.end_datetime)].append(ev)
                     for (start_dt, end_dt), evs in sorted(slots.items()):
-                        time_range = (
-                            f"{start_dt.strftime('%H:%M')}–{end_dt.strftime('%H:%M')}"
-                        )
+                        time_range = f"{start_dt.strftime('%H:%M')}–{end_dt.strftime('%H:%M')}"
                         titles = " / ".join(dict.fromkeys(ev.title or "Untitled" for ev in evs))
                         locations = list(dict.fromkeys(ev.location for ev in evs if ev.location))
                         teachers = list(
@@ -1264,9 +1270,7 @@ async def weekly_summary(ctx, child, week, providers):
                                 click.echo(line)
                         click.echo()
                 except Exception as e:
-                    _log.warning(
-                        "Could not fetch messages for thread %s: %s", thread.thread_id, e
-                    )
+                    _log.warning("Could not fetch messages for thread %s: %s", thread.thread_id, e)
                     click.echo()
 
         if not enabled:
@@ -1282,9 +1286,7 @@ async def weekly_summary(ctx, child, week, providers):
         # Filter child_filter to selected children only
         if child:
             selected_user_ids = {
-                str(c._raw["userId"])
-                for c in children
-                if c._raw and "userId" in c._raw
+                str(c._raw["userId"]) for c in children if c._raw and "userId" in c._raw
             }
             child_filter = [uid for uid in child_filter if uid in selected_user_ids]
 
@@ -1293,7 +1295,7 @@ async def weekly_summary(ctx, child, week, providers):
             from .const import WIDGET_MIN_UDDANNELSE
 
             try:
-                tasks = await client.get_mu_tasks(
+                tasks = await client.widgets.get_mu_tasks(
                     WIDGET_MIN_UDDANNELSE,
                     child_filter,
                     institution_filter,
@@ -1330,7 +1332,7 @@ async def weekly_summary(ctx, child, week, providers):
             from .const import WIDGET_MIN_UDDANNELSE_UGEPLAN
 
             try:
-                mu_persons = await client.get_ugeplan(
+                mu_persons = await client.widgets.get_ugeplan(
                     WIDGET_MIN_UDDANNELSE_UGEPLAN,
                     child_filter,
                     institution_filter,
@@ -1356,7 +1358,7 @@ async def weekly_summary(ctx, child, week, providers):
         # ── Meebook – Weekly Plan ────────────────────────────────────────────
         if WeeklySummaryProvider.MEEBOOK in enabled:
             try:
-                meebook_students = await client.get_meebook_weekplan(
+                meebook_students = await client.widgets.get_meebook_weekplan(
                     child_filter, institution_filter, week, session_uuid
                 )
             except Exception as e:
@@ -1397,7 +1399,7 @@ async def weekly_summary(ctx, child, week, providers):
                     c_institutions.append(str(inst_code))
 
                 try:
-                    appointments = await client.get_easyiq_weekplan(
+                    appointments = await client.widgets.get_easyiq_weekplan(
                         week, session_uuid, c_institutions or institution_filter, c_user_id
                     )
                 except Exception as e:
@@ -1722,9 +1724,7 @@ async def daily_summary(ctx, child, target_date):
                 teachers = list(dict.fromkeys(ev.teacher_name for ev in evs if ev.teacher_name))
                 substitutes = list(
                     dict.fromkeys(
-                        ev.substitute_name
-                        for ev in evs
-                        if ev.has_substitute and ev.substitute_name
+                        ev.substitute_name for ev in evs if ev.has_substitute and ev.substitute_name
                     )
                 )
                 parts = [time_range, titles]
@@ -1746,16 +1746,14 @@ async def daily_summary(ctx, child, target_date):
 
             if child:
                 selected_user_ids = {
-                    str(c._raw["userId"])
-                    for c in children
-                    if c._raw and "userId" in c._raw
+                    str(c._raw["userId"]) for c in children if c._raw and "userId" in c._raw
                 }
                 child_filter = [uid for uid in child_filter if uid in selected_user_ids]
 
             from .const import WIDGET_MIN_UDDANNELSE
 
             try:
-                all_tasks = await client.get_mu_tasks(
+                all_tasks = await client.widgets.get_mu_tasks(
                     WIDGET_MIN_UDDANNELSE, child_filter, institution_filter, week, session_uuid
                 )
             except Exception as e:
@@ -1816,9 +1814,7 @@ async def daily_summary(ctx, child, target_date):
                                 click.echo(line)
                         click.echo()
                 except Exception as e:
-                    _log.warning(
-                        "Could not fetch messages for thread %s: %s", thread.thread_id, e
-                    )
+                    _log.warning("Could not fetch messages for thread %s: %s", thread.thread_id, e)
                     click.echo()
 
 
