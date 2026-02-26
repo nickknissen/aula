@@ -988,6 +988,109 @@ async def momo_course(ctx):
             click.echo()
 
 
+@cli.command("momo:huskeliste")
+@click.pass_context
+@async_cmd
+async def momo_reminders(ctx):
+    """Fetch MoMo reminders (huskelisten) for children."""
+    async with await _get_client(ctx) as client:
+        try:
+            prof: Profile = await client.get_profile()
+        except Exception as e:
+            click.echo(f"Error fetching profile: {e}")
+            return
+
+        if not prof.children:
+            click.echo("No children found in profile.")
+            return
+
+        children = [
+            str(child._raw["userId"])
+            for child in prof.children
+            if child._raw and "userId" in child._raw
+        ]
+        if not children:
+            click.echo("No child user IDs found in profile data.")
+            return
+
+        institutions: list[str] = []
+        for child in prof.children:
+            if child._raw:
+                inst_code = child._raw.get("institutionProfile", {}).get("institutionCode", "")
+                if inst_code and str(inst_code) not in institutions:
+                    institutions.append(str(inst_code))
+
+        try:
+            profile_context = await client.get_profile_context()
+            session_uuid = profile_context["data"]["userId"]
+        except Exception as e:
+            click.echo(f"Error fetching profile context: {e}")
+            return
+
+        today = datetime.date.today()
+        from_date = today.isoformat()
+        due_no_later_than = (today + datetime.timedelta(days=7)).isoformat()
+
+        try:
+            users = await client.widgets.get_momo_reminders(
+                children, institutions, session_uuid, from_date, due_no_later_than
+            )
+        except Exception as e:
+            click.echo(f"Error fetching reminders: {e}")
+            return
+
+        if not users:
+            click.echo("No reminders found.")
+            return
+
+        tz = ZoneInfo("Europe/Copenhagen")
+        for user in users:
+            name = user.user_name.split()[0] if user.user_name else "Unknown"
+
+            click.echo(f"{'=' * 60}")
+            click.echo(f"  {name}  |  Huskelisten")
+            click.echo(f"{'=' * 60}")
+
+            all_reminders = user.team_reminders + user.assignment_reminders
+            if not all_reminders:
+                click.echo("  Ingen påmindelser.")
+                click.echo()
+                continue
+
+            for r in user.team_reminders:
+                due = ""
+                if r.due_date:
+                    try:
+                        dt = datetime.datetime.fromisoformat(
+                            r.due_date.replace("Z", "+00:00")
+                        ).astimezone(tz)
+                        due = dt.strftime("%A %d. %B")
+                    except ValueError:
+                        due = r.due_date
+                click.echo(f"\n  {due}")
+                click.echo(f"  {r.subject_name} — af {r.created_by}")
+                click.echo(f"  {r.team_name}")
+                click.echo(f"  {r.reminder_text}")
+
+            for r in user.assignment_reminders:
+                due = ""
+                if r.due_date:
+                    try:
+                        dt = datetime.datetime.fromisoformat(
+                            r.due_date.replace("Z", "+00:00")
+                        ).astimezone(tz)
+                        due = dt.strftime("%A %d. %B")
+                    except ValueError:
+                        due = r.due_date
+                teams = ", ".join(r.team_names) if r.team_names else ""
+                click.echo(f"\n  {due}")
+                if teams:
+                    click.echo(f"  {teams}")
+                click.echo(f"  {r.assignment_text}")
+
+            click.echo()
+
+
 @cli.command("download-images")
 @click.option(
     "--output",

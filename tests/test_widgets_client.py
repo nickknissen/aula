@@ -352,6 +352,87 @@ class TestWidgetsClient:
         assert momo_response.method_calls == [call.raise_for_status(), call.json()]
 
     @pytest.mark.asyncio
+    async def test_get_momo_reminders_uses_token_and_expected_request_shape(self, client):
+        token_response = Mock()
+        token_response.raise_for_status = Mock()
+        token_response.json = Mock(return_value={"data": "token-momo"})
+
+        reminders_response = Mock()
+        reminders_response.raise_for_status = Mock()
+        reminders_response.json = Mock(
+            return_value=[
+                {
+                    "userId": 164625,
+                    "userName": "Emilie Efternavn",
+                    "courseReminders": [],
+                    "assignmentReminders": [
+                        {
+                            "id": 1,
+                            "institutionName": "Holme Skole",
+                            "institutionId": 183,
+                            "dueDate": "2026-03-01T11:00:00Z",
+                            "courseId": 297469,
+                            "teamNames": ["5A"],
+                            "teamIds": [65271],
+                            "courseSubjects": [],
+                            "assignmentId": 5027904,
+                            "assignmentText": "Skriv en novelle",
+                        }
+                    ],
+                    "teamReminders": [
+                        {
+                            "id": 76169,
+                            "institutionName": "Holme Skole",
+                            "institutionId": 183,
+                            "dueDate": "2026-02-28T23:00:00Z",
+                            "teamId": 65240,
+                            "teamName": "2A",
+                            "reminderText": "Lektie: Matematikfessor",
+                            "createdBy": "Peter",
+                            "lastEditBy": "Peter",
+                            "subjectName": "Matematik",
+                        }
+                    ],
+                }
+            ]
+        )
+
+        client._request_with_version_retry = AsyncMock(
+            side_effect=[token_response, reminders_response]
+        )
+
+        users = await client.widgets.get_momo_reminders(
+            children=["child-1"],
+            institutions=["inst-1"],
+            session_uuid="session-1",
+            from_date="2026-02-26",
+            due_no_later_than="2026-03-05",
+        )
+
+        assert len(users) == 1
+        assert users[0].user_name == "Emilie Efternavn"
+        assert len(users[0].team_reminders) == 1
+        assert users[0].team_reminders[0].subject_name == "Matematik"
+        assert len(users[0].assignment_reminders) == 1
+        assert users[0].assignment_reminders[0].assignment_text == "Skriv en novelle"
+
+        calls = client._request_with_version_retry.await_args_list
+        assert calls[1].args == ("get", f"{SYSTEMATIC_API}/reminders/v1")
+        assert calls[1].kwargs["params"] == {
+            "widgetVersion": "1.10",
+            "userProfile": "guardian",
+            "sessionId": "session-1",
+            "children": ["child-1"],
+            "institutions": ["inst-1"],
+            "from": "2026-02-26",
+            "dueNoLaterThan": "2026-03-05",
+        }
+        assert calls[1].kwargs["headers"] == {
+            "Aula-Authorization": "Bearer token-momo",
+        }
+        assert reminders_response.method_calls == [call.raise_for_status(), call.json()]
+
+    @pytest.mark.asyncio
     async def test_get_library_status_uses_token_and_expected_request_shape(self, client):
         token_response = Mock()
         token_response.raise_for_status = Mock()
