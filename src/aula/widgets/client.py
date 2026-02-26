@@ -112,9 +112,14 @@ class AulaWidgetsClient:
         return [MUWeeklyPerson.from_dict(p) for p in resp.json().get("personer", [])]
 
     async def get_easyiq_weekplan(
-        self, week: str, session_uuid: str, institution_filter: list[str], child_id: str
+        self,
+        week: str,
+        session_uuid: str,
+        institution_filter: list[str],
+        child_id: str,
+        widget_id: str = WIDGET_EASYIQ,
     ) -> list[Appointment]:
-        token = await self._get_bearer_token(WIDGET_EASYIQ)
+        token = await self._get_bearer_token(widget_id)
         headers = {
             "Authorization": token,
             "x-aula-institutionfilter": ",".join(institution_filter),
