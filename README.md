@@ -119,6 +119,10 @@ aula --username johndoe messages --limit 5
 uvx aula --username johndoe messages --limit 5
 ```
 
+## Attribution
+
+EasyIQ widget integration (weekplan and homework) was informed by the [esbenwiberg/easyiq](https://github.com/esbenwiberg/easyiq) Home Assistant integration.
+
 ## License
 
 MIT
