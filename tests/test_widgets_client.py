@@ -143,6 +143,10 @@ class TestWidgetsClient:
                         {
                             "appointmentId": "apt-1",
                             "title": "Math",
+                            "start": "2026-02-24 08:00",
+                            "end": "2026-02-24 09:00",
+                            "description": "<p>Algebra</p>",
+                            "itemType": 9,
                         }
                     ]
                 }
@@ -161,6 +165,10 @@ class TestWidgetsClient:
         )
 
         assert [appointment.appointment_id for appointment in appointments] == ["apt-1"]
+        assert appointments[0].start == "2026-02-24 08:00"
+        assert appointments[0].end == "2026-02-24 09:00"
+        assert appointments[0].description == "<p>Algebra</p>"
+        assert appointments[0].item_type == 9
         calls = client._request_with_version_retry.await_args_list
         assert calls[1].args == ("post", f"{EASYIQ_API}/weekplaninfo")
         assert calls[1].kwargs["headers"] == {
@@ -175,6 +183,65 @@ class TestWidgetsClient:
             "childFilter": ["child-1"],
         }
         assert easyiq_response.method_calls == [call.raise_for_status(), call.json()]
+
+    @pytest.mark.asyncio
+    async def test_get_easyiq_homework_uses_token_and_expected_request_shape(self, client):
+        token_response = Mock()
+        token_response.raise_for_status = Mock()
+        token_response.json = Mock(return_value={"data": "token-easy-hw"})
+
+        homework_response = Mock()
+        homework_response.raise_for_status = Mock()
+        homework_response.json = Mock(
+            return_value={
+                "data": {
+                    "homework": [
+                        {
+                            "id": "hw-1",
+                            "title": "Read chapter 5",
+                            "description": "<p>Pages 40-55</p>",
+                            "dueDate": "2026-02-28",
+                            "subject": "Danish",
+                            "isCompleted": False,
+                        }
+                    ]
+                }
+            }
+        )
+
+        client._request_with_version_retry = AsyncMock(
+            side_effect=[token_response, homework_response]
+        )
+
+        homework = await client.widgets.get_easyiq_homework(
+            week="2026-W09",
+            session_uuid="session-1",
+            institution_filter=["inst-1", "inst-2"],
+            child_id="child-1",
+        )
+
+        assert len(homework) == 1
+        assert homework[0].id == "hw-1"
+        assert homework[0].title == "Read chapter 5"
+        assert homework[0].description == "<p>Pages 40-55</p>"
+        assert homework[0].due_date == "2026-02-28"
+        assert homework[0].subject == "Danish"
+        assert homework[0].is_completed is False
+
+        calls = client._request_with_version_retry.await_args_list
+        assert calls[1].args == ("post", f"{EASYIQ_API}/homeworkinfo")
+        assert calls[1].kwargs["headers"] == {
+            "Authorization": "Bearer token-easy-hw",
+            "x-aula-institutionfilter": "inst-1,inst-2",
+        }
+        assert calls[1].kwargs["json"] == {
+            "sessionId": "session-1",
+            "currentWeekNr": "2026-W09",
+            "userProfile": "guardian",
+            "institutionFilter": ["inst-1", "inst-2"],
+            "childFilter": ["child-1"],
+        }
+        assert homework_response.method_calls == [call.raise_for_status(), call.json()]
 
     @pytest.mark.asyncio
     async def test_get_meebook_weekplan_uses_token_and_expected_request_shape(self, client):

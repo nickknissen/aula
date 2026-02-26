@@ -2,6 +2,7 @@ from .appointment import Appointment as Appointment
 from .calendar_event import CalendarEvent as CalendarEvent
 from .child import Child as Child
 from .daily_overview import DailyOverview as DailyOverview
+from .easyiq_homework import EasyIQHomework as EasyIQHomework
 from .library import LibraryLoan as LibraryLoan
 from .library import LibraryStatus as LibraryStatus
 from .meebook_weekplan import MeebookStudentPlan as MeebookStudentPlan
