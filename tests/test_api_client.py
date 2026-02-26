@@ -68,9 +68,7 @@ class TestRequestWithVersionRetry:
     @pytest.mark.asyncio
     async def test_max_retries_exceeded_raises_runtime_error(self, client):
         """5 consecutive 410s raises RuntimeError."""
-        client._client.request = AsyncMock(
-            return_value=HttpResponse(status_code=410, data=None)
-        )
+        client._client.request = AsyncMock(return_value=HttpResponse(status_code=410, data=None))
         with pytest.raises(RuntimeError, match="Failed to find working API version"):
             await client._request_with_version_retry(
                 "get", "https://www.aula.dk/api/v22?method=test"
@@ -80,9 +78,7 @@ class TestRequestWithVersionRetry:
     @pytest.mark.asyncio
     async def test_non_410_error_returned_without_retry(self, client):
         """Non-410 errors are returned immediately, not retried."""
-        client._client.request = AsyncMock(
-            return_value=HttpResponse(status_code=500, data=None)
-        )
+        client._client.request = AsyncMock(return_value=HttpResponse(status_code=500, data=None))
         resp = await client._request_with_version_retry(
             "get", "https://www.aula.dk/api/v22?method=test"
         )
@@ -92,12 +88,8 @@ class TestRequestWithVersionRetry:
     @pytest.mark.asyncio
     async def test_access_token_appended_during_init(self, client):
         """Access token is appended as query parameter before init clears it."""
-        client._client.request = AsyncMock(
-            return_value=HttpResponse(status_code=200, data=None)
-        )
-        await client._request_with_version_retry(
-            "get", "https://www.aula.dk/api/v22?method=test"
-        )
+        client._client.request = AsyncMock(return_value=HttpResponse(status_code=200, data=None))
+        await client._request_with_version_retry("get", "https://www.aula.dk/api/v22?method=test")
         called_url = client._client.request.call_args[0][1]
         assert "access_token=test_token" in called_url
 
@@ -105,21 +97,15 @@ class TestRequestWithVersionRetry:
     async def test_access_token_not_appended_after_init(self, client):
         """After init clears the token, access_token is NOT in URLs."""
         client._access_token = None  # simulate post-init state
-        client._client.request = AsyncMock(
-            return_value=HttpResponse(status_code=200, data=None)
-        )
-        await client._request_with_version_retry(
-            "get", "https://www.aula.dk/api/v22?method=test"
-        )
+        client._client.request = AsyncMock(return_value=HttpResponse(status_code=200, data=None))
+        await client._request_with_version_retry("get", "https://www.aula.dk/api/v22?method=test")
         called_url = client._client.request.call_args[0][1]
         assert "access_token" not in called_url
 
     @pytest.mark.asyncio
     async def test_access_token_not_appended_for_external_urls(self, client):
         """Access token is NOT appended for non-Aula URLs."""
-        client._client.request = AsyncMock(
-            return_value=HttpResponse(status_code=200, data=None)
-        )
+        client._client.request = AsyncMock(return_value=HttpResponse(status_code=200, data=None))
         await client._request_with_version_retry(
             "get", "https://api.minuddannelse.net/aula/endpoint"
         )
@@ -129,9 +115,7 @@ class TestRequestWithVersionRetry:
     @pytest.mark.asyncio
     async def test_access_token_in_params_not_mutating_original(self, client):
         """When params dict is provided, access_token is sent but original dict is not mutated."""
-        client._client.request = AsyncMock(
-            return_value=HttpResponse(status_code=200, data=None)
-        )
+        client._client.request = AsyncMock(return_value=HttpResponse(status_code=200, data=None))
         params = {"key": "value"}
         await client._request_with_version_retry(
             "get", "https://www.aula.dk/api/v22?method=test", params=params
@@ -145,9 +129,7 @@ class TestRequestWithVersionRetry:
     async def test_post_auto_adds_csrf_header(self):
         """POST requests to Aula API auto-include csrfp-token and content-type headers."""
         http_client = AsyncMock()
-        http_client.request = AsyncMock(
-            return_value=HttpResponse(status_code=200, data=None)
-        )
+        http_client.request = AsyncMock(return_value=HttpResponse(status_code=200, data=None))
         client = AulaApiClient(http_client=http_client, csrf_token="csrf-value")
         client._access_token = None  # post-init state
         await client._request_with_version_retry(
@@ -158,12 +140,28 @@ class TestRequestWithVersionRetry:
         assert called_headers["content-type"] == "application/json"
 
     @pytest.mark.asyncio
+    async def test_post_refreshes_csrf_header_from_cookie(self):
+        """POST requests refresh csrfp-token from cookie when it changes."""
+        http_client = AsyncMock()
+        http_client.request = AsyncMock(return_value=HttpResponse(status_code=200, data=None))
+        http_client.get_cookie = MagicMock(return_value="csrf-fresh")
+
+        client = AulaApiClient(http_client=http_client, csrf_token="csrf-old")
+        client._access_token = None
+
+        await client._request_with_version_retry(
+            "post", "https://www.aula.dk/api/v22?method=test", json={"data": 1}
+        )
+
+        called_headers = http_client.request.call_args[1]["headers"]
+        assert called_headers[CSRF_TOKEN_HEADER] == "csrf-fresh"
+        assert client._csrf_token == "csrf-fresh"
+
+    @pytest.mark.asyncio
     async def test_post_does_not_override_explicit_headers(self):
         """Explicit headers are not overridden by auto-added ones."""
         http_client = AsyncMock()
-        http_client.request = AsyncMock(
-            return_value=HttpResponse(status_code=200, data=None)
-        )
+        http_client.request = AsyncMock(return_value=HttpResponse(status_code=200, data=None))
         client = AulaApiClient(http_client=http_client, csrf_token="csrf-value")
         client._access_token = None
         await client._request_with_version_retry(
@@ -179,9 +177,7 @@ class TestRequestWithVersionRetry:
     async def test_post_no_csrf_when_token_is_none(self):
         """POST requests don't add csrfp-token header when csrf_token is None."""
         http_client = AsyncMock()
-        http_client.request = AsyncMock(
-            return_value=HttpResponse(status_code=200, data=None)
-        )
+        http_client.request = AsyncMock(return_value=HttpResponse(status_code=200, data=None))
         client = AulaApiClient(http_client=http_client, csrf_token=None)
         client._access_token = None
         await client._request_with_version_retry(
@@ -194,14 +190,10 @@ class TestRequestWithVersionRetry:
     async def test_get_does_not_add_csrf_header(self):
         """GET requests do NOT auto-include csrfp-token header."""
         http_client = AsyncMock()
-        http_client.request = AsyncMock(
-            return_value=HttpResponse(status_code=200, data=None)
-        )
+        http_client.request = AsyncMock(return_value=HttpResponse(status_code=200, data=None))
         client = AulaApiClient(http_client=http_client, csrf_token="csrf-value")
         client._access_token = None
-        await client._request_with_version_retry(
-            "get", "https://www.aula.dk/api/v22?method=test"
-        )
+        await client._request_with_version_retry("get", "https://www.aula.dk/api/v22?method=test")
         called_headers = http_client.request.call_args[1]["headers"]
         assert called_headers is None
 
@@ -209,9 +201,7 @@ class TestRequestWithVersionRetry:
     async def test_post_external_url_no_csrf_header(self):
         """POST requests to non-Aula URLs don't auto-include csrfp-token."""
         http_client = AsyncMock()
-        http_client.request = AsyncMock(
-            return_value=HttpResponse(status_code=200, data=None)
-        )
+        http_client.request = AsyncMock(return_value=HttpResponse(status_code=200, data=None))
         client = AulaApiClient(http_client=http_client, csrf_token="csrf-value")
         client._access_token = None
         await client._request_with_version_retry(
@@ -271,9 +261,7 @@ class TestGetProfile:
                     "id": 456,
                     "profileId": 789,
                     "name": "Jane Doe",
-                    "institutionProfiles": [
-                        {"id": 456, "institutionName": "School A"}
-                    ],
+                    "institutionProfiles": [{"id": 456, "institutionName": "School A"}],
                 }
             ],
             "institutionProfiles": [{"id": 100}],
@@ -290,9 +278,7 @@ class TestGetProfile:
     @pytest.mark.asyncio
     async def test_get_profile_empty_profiles_raises(self, client):
         """Empty profiles list raises ValueError."""
-        client._request_with_version_retry = AsyncMock(
-            return_value=self._make_profile_response([])
-        )
+        client._request_with_version_retry = AsyncMock(return_value=self._make_profile_response([]))
         with pytest.raises(ValueError, match="No profile data found"):
             await client.get_profile()
 
@@ -323,9 +309,7 @@ class TestGetProfile:
                     "id": 456,
                     "profileId": 789,
                     "name": "Jane Doe",
-                    "institutionProfiles": [
-                        {"id": 456, "institutionName": "School A"}
-                    ],
+                    "institutionProfiles": [{"id": 456, "institutionName": "School A"}],
                 },
             ],
             "institutionProfiles": [],
@@ -408,9 +392,7 @@ class TestGetDailyOverview:
             },
         }
         client._request_with_version_retry = AsyncMock(
-            return_value=HttpResponse(
-                status_code=200, data={"data": [overview_data]}
-            )
+            return_value=HttpResponse(status_code=200, data={"data": [overview_data]})
         )
         result = await client.get_daily_overview(456)
         assert result is not None
@@ -476,9 +458,7 @@ class TestGetMessageThreads:
     async def test_empty_threads(self, client):
         """Empty threads list returns empty."""
         client._request_with_version_retry = AsyncMock(
-            return_value=HttpResponse(
-                status_code=200, data={"data": {"threads": []}}
-            )
+            return_value=HttpResponse(status_code=200, data={"data": {"threads": []}})
         )
         assert await client.get_message_threads() == []
 
@@ -642,11 +622,7 @@ class TestGetPresenceTemplates:
     @pytest.mark.asyncio
     async def test_get_presence_templates_empty_list(self, mock_client):
         """Test fetching with empty templates list."""
-        response_data = {
-            "data": {
-                "presenceWeekTemplates": []
-            }
-        }
+        response_data = {"data": {"presenceWeekTemplates": []}}
 
         mock_client._request_with_version_retry = AsyncMock()
         mock_response = HttpResponse(status_code=200, data=response_data)
@@ -664,9 +640,7 @@ class TestGetPresenceTemplates:
     @pytest.mark.asyncio
     async def test_get_presence_templates_null_data(self, mock_client):
         """Test handling when data field is null."""
-        response_data = {
-            "data": None
-        }
+        response_data = {"data": None}
 
         mock_client._request_with_version_retry = AsyncMock()
         mock_response = HttpResponse(status_code=200, data=response_data)
@@ -684,11 +658,7 @@ class TestGetPresenceTemplates:
     @pytest.mark.asyncio
     async def test_get_presence_templates_null_presenceWeekTemplates(self, mock_client):
         """Test handling when presenceWeekTemplates is null."""
-        response_data = {
-            "data": {
-                "presenceWeekTemplates": None
-            }
-        }
+        response_data = {"data": {"presenceWeekTemplates": None}}
 
         mock_client._request_with_version_retry = AsyncMock()
         mock_response = HttpResponse(status_code=200, data=response_data)
@@ -776,11 +746,7 @@ class TestGetPresenceTemplates:
     @pytest.mark.asyncio
     async def test_get_presence_templates_non_dict_presenceWeekTemplates(self, mock_client):
         """Test handling when presenceWeekTemplates is not a list."""
-        response_data = {
-            "data": {
-                "presenceWeekTemplates": "not a list"
-            }
-        }
+        response_data = {"data": {"presenceWeekTemplates": "not a list"}}
 
         mock_client._request_with_version_retry = AsyncMock()
         mock_response = HttpResponse(status_code=200, data=response_data)
@@ -798,9 +764,7 @@ class TestGetPresenceTemplates:
     @pytest.mark.asyncio
     async def test_get_presence_templates_string_data(self, mock_client):
         """Test handling when data is a string instead of dict."""
-        response_data = {
-            "data": "string instead of dict"
-        }
+        response_data = {"data": "string instead of dict"}
 
         mock_client._request_with_version_retry = AsyncMock()
         mock_response = HttpResponse(status_code=200, data=response_data)
@@ -866,11 +830,7 @@ class TestPaginationSafetyGuards:
             return_value=HttpResponse(
                 status_code=200,
                 data={
-                    "data": {
-                        "threads": [
-                            {"id": "t1", "lastMessageDate": "2026-12-01T00:00:00"}
-                        ]
-                    }
+                    "data": {"threads": [{"id": "t1", "lastMessageDate": "2026-12-01T00:00:00"}]}
                 },
             )
         )
@@ -887,11 +847,7 @@ class TestPaginationSafetyGuards:
         client._request_with_version_retry = AsyncMock(
             return_value=HttpResponse(
                 status_code=200,
-                data={
-                    "data": {
-                        "messages": [{"id": "m1", "text": "hello"}]
-                    }
-                },
+                data={"data": {"messages": [{"id": "m1", "text": "hello"}]}},
             )
         )
 
@@ -910,9 +866,7 @@ class TestPaginationSafetyGuards:
                 status_code=200,
                 data={
                     "data": {
-                        "results": [
-                            {"id": "m1", "text": {"html": "<p>hi</p>"}}
-                        ],
+                        "results": [{"id": "m1", "text": {"html": "<p>hi</p>"}}],
                         "totalSize": 99999,
                     }
                 },
@@ -939,9 +893,7 @@ class TestPaginationSafetyGuards:
                     status_code=200,
                     data={
                         "data": {
-                            "threads": [
-                                {"id": "t1", "lastMessageDate": "2026-12-01T00:00:00"}
-                            ]
+                            "threads": [{"id": "t1", "lastMessageDate": "2026-12-01T00:00:00"}]
                         }
                     },
                 ),

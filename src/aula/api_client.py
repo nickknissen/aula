@@ -1,3 +1,4 @@
+import inspect
 import logging
 import time
 from datetime import date, datetime
@@ -124,10 +125,17 @@ class AulaApiClient:
         # Auto-add csrfp-token header for POST requests to Aula API.
         # The browser sends this header on every POST; centralising it here
         # ensures new endpoints get it automatically.
-        if method.lower() == "post" and url.startswith(API_URL) and self._csrf_token:
-            headers = dict(headers) if headers else {}
-            headers.setdefault(CSRF_TOKEN_HEADER, self._csrf_token)
-            headers.setdefault("content-type", "application/json")
+        if method.lower() == "post" and url.startswith(API_URL):
+            get_cookie = getattr(self._client, "get_cookie", None)
+            if callable(get_cookie) and not inspect.iscoroutinefunction(get_cookie):
+                csrf_from_cookie = get_cookie(CSRF_TOKEN_COOKIE)
+                if isinstance(csrf_from_cookie, str) and csrf_from_cookie:
+                    self._csrf_token = csrf_from_cookie
+
+            if self._csrf_token:
+                headers = dict(headers) if headers else {}
+                headers.setdefault(CSRF_TOKEN_HEADER, self._csrf_token)
+                headers.setdefault("content-type", "application/json")
 
         max_retries = 5
         for _attempt in range(max_retries):
@@ -288,9 +296,7 @@ class AulaApiClient:
                 )
         return result
 
-    async def get_message_threads(
-        self, filter_on: str | None = None
-    ) -> list[MessageThread]:
+    async def get_message_threads(self, filter_on: str | None = None) -> list[MessageThread]:
         """Fetch the first page of message threads, sorted by date descending."""
         url = f"{self.api_url}?method=messaging.getThreads&sortOn=date&orderDirection=desc&page=0"
         if filter_on:
