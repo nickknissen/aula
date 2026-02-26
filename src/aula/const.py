@@ -17,13 +17,13 @@ WIDGET_HUSKELISTEN = "0062"
 
 USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/135.0.0.0 Safari/537.36"  # noqa: E501
 
-# Auth endpoints (validated against decompiled Android app v2.14.4)
+# Auth endpoints (validated against Android app network traffic)
 AUTH_BASE_URL = "https://login.aula.dk"
 OAUTH_AUTHORIZE_PATH = "/simplesaml/module.php/oidc/authorize.php"
 OAUTH_TOKEN_PATH = "/simplesaml/module.php/oidc/token.php"
 APP_REDIRECT_URI = "https://app-private.aula.dk"
 
-# OAuth client (from Conf.cs — Level 3 = full MitID access)
+# OAuth client (Level 3 = full MitID access)
 OAUTH_CLIENT_ID = "_99949a54b8b65423862aac1bf629599ed64231607a"
 OAUTH_SCOPE = "aula-sensitive"
 

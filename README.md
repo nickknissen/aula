@@ -72,6 +72,10 @@ On first run you'll be prompted to approve the login in your MitID app. You may 
 
 Tokens provide full access to your Aula account — treat them like passwords and never commit token files to version control.
 
+### How It Works
+
+For a detailed breakdown of the authentication flow (OAuth + SAML + MitID), session cookies, and how this library differs from the browser login, see [docs/aula-authentication.md](docs/aula-authentication.md).
+
 ## CLI
 
 ```bash
