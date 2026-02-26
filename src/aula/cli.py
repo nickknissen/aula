@@ -43,6 +43,7 @@ class WeeklySummaryProvider(str, enum.Enum):
     MU_UGEPLAN = "mu_ugeplan"
     MEEBOOK = "meebook"
     EASYIQ = "easyiq"
+    EASYIQ_HOMEWORK = "easyiq_homework"
 
 
 def get_mitid_username(ctx: click.Context) -> str:
@@ -749,17 +750,86 @@ async def easyiq_ugeplan(ctx, week):
             else:
                 for appt in appointments:
                     click.echo(f"\n  {appt.title}")
-                    if appt._raw:
-                        start = appt._raw.get("start", "")
-                        end = appt._raw.get("end", "")
-                        if start or end:
-                            click.echo(f"  {start} - {end}")
-                        description = appt._raw.get("description", "")
-                        if description:
-                            from .utils.html import html_to_plain
+                    if appt.start or appt.end:
+                        click.echo(f"  {appt.start} - {appt.end}")
+                    if appt.description:
+                        from .utils.html import html_to_plain
 
-                            for line in html_to_plain(description).splitlines():
-                                click.echo(f"    {line}")
+                        for line in html_to_plain(appt.description).splitlines():
+                            click.echo(f"    {line}")
+
+            click.echo()
+
+
+@cli.command("easyiq:homework")
+@click.option(
+    "--week",
+    type=str,
+    default=None,
+    help="Week number (e.g. 8) or full format (2026-W8). Defaults to current week.",
+)
+@click.pass_context
+@async_cmd
+async def easyiq_homework(ctx, week):
+    """Fetch EasyIQ homework assignments for children."""
+    week = _resolve_week(week)
+    async with await _get_client(ctx) as client:
+        try:
+            prof: Profile = await client.get_profile()
+        except Exception as e:
+            click.echo(f"Error fetching profile: {e}")
+            return
+
+        if not prof.children:
+            click.echo("No children found in profile.")
+            return
+
+        institution_filter: list[str] = []
+        for child in prof.children:
+            if child._raw:
+                inst_code = child._raw.get("institutionProfile", {}).get("institutionCode", "")
+                if inst_code and str(inst_code) not in institution_filter:
+                    institution_filter.append(str(inst_code))
+
+        try:
+            profile_context = await client.get_profile_context()
+            session_uuid = profile_context["data"]["userId"]
+        except Exception as e:
+            click.echo(f"Error fetching profile context: {e}")
+            return
+
+        from .utils.html import html_to_plain
+
+        for child in prof.children:
+            if not child._raw or "userId" not in child._raw:
+                continue
+            child_id = str(child._raw["userId"])
+
+            try:
+                homework = await client.widgets.get_easyiq_homework(
+                    week, session_uuid, institution_filter, child_id
+                )
+            except Exception as e:
+                click.echo(f"Error fetching EasyIQ homework for {child.name}: {e}")
+                continue
+
+            click.echo(f"{'=' * 60}")
+            click.echo(f"  {child.name}  |  EasyIQ Homework  [{week}]")
+            click.echo(f"{'=' * 60}")
+
+            if not homework:
+                click.echo("  No homework found.")
+            else:
+                for hw in homework:
+                    status = "[x]" if hw.is_completed else "[ ]"
+                    click.echo(f"\n  {status} {hw.title}")
+                    if hw.subject:
+                        click.echo(f"      Subject: {hw.subject}")
+                    if hw.due_date:
+                        click.echo(f"      Due: {hw.due_date}")
+                    if hw.description:
+                        for line in html_to_plain(hw.description).splitlines():
+                            click.echo(f"      {line}")
 
             click.echo()
 
@@ -1418,16 +1488,55 @@ async def weekly_summary(ctx, child, week, providers):
                 click.echo()
                 for appt in appointments:
                     click.echo(f"- {appt.title}")
-                    if appt._raw:
-                        start = appt._raw.get("start", "")
-                        end = appt._raw.get("end", "")
-                        if start or end:
-                            click.echo(f"  {start} – {end}")
-                        description = appt._raw.get("description", "")
-                        if description:
-                            for line in html_to_plain(description).splitlines():
-                                if line.strip():
-                                    click.echo(f"  {line}")
+                    if appt.start or appt.end:
+                        click.echo(f"  {appt.start} – {appt.end}")
+                    if appt.description:
+                        for line in html_to_plain(appt.description).splitlines():
+                            if line.strip():
+                                click.echo(f"  {line}")
+                click.echo()
+
+        # ── EasyIQ – Homework ──────────────────────────────────────────────────
+        if WeeklySummaryProvider.EASYIQ_HOMEWORK in enabled:
+            easyiq_hw_any = False
+            for c in children:
+                if not c._raw or "userId" not in c._raw:
+                    continue
+                c_user_id = str(c._raw["userId"])
+                c_institutions: list[str] = []
+                inst_code = c._raw.get("institutionProfile", {}).get("institutionCode", "")
+                if inst_code:
+                    c_institutions.append(str(inst_code))
+
+                try:
+                    homework = await client.widgets.get_easyiq_homework(
+                        week, session_uuid, c_institutions or institution_filter, c_user_id
+                    )
+                except Exception as e:
+                    _log.warning("Could not fetch EasyIQ homework for %s: %s", c.name, e)
+                    continue
+
+                if not homework:
+                    continue
+
+                if not easyiq_hw_any:
+                    click.echo("## Homework (EasyIQ)")
+                    click.echo()
+                    easyiq_hw_any = True
+
+                click.echo(f"### {c.name}")
+                click.echo()
+                for hw in homework:
+                    status = "[x]" if hw.is_completed else "[ ]"
+                    click.echo(f"- {status} {hw.title}")
+                    if hw.subject:
+                        click.echo(f"  Subject: {hw.subject}")
+                    if hw.due_date:
+                        click.echo(f"  Due: {hw.due_date}")
+                    if hw.description:
+                        for line in html_to_plain(hw.description).splitlines():
+                            if line.strip():
+                                click.echo(f"  {line}")
                 click.echo()
 
 

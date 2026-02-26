@@ -9,12 +9,14 @@ from ..const import (
     MIN_UDDANNELSE_API,
     SYSTEMATIC_API,
     WIDGET_EASYIQ,
+    WIDGET_EASYIQ_HOMEWORK,
     WIDGET_HUSKELISTEN,
     WIDGET_MEEBOOK,
 )
 from ..http import HttpResponse
 from ..models import (
     Appointment,
+    EasyIQHomework,
     LibraryStatus,
     MeebookStudentPlan,
     MomoUserCourses,
@@ -129,14 +131,29 @@ class AulaWidgetsClient:
         )
         resp.raise_for_status()
         appointments = resp.json().get("data", {}).get("appointments", [])
-        return [
-            Appointment(
-                _raw=a,
-                appointment_id=a.get("appointmentId"),
-                title=a.get("title"),
-            )
-            for a in appointments
-        ]
+        return [Appointment.from_dict(a) for a in appointments]
+
+    async def get_easyiq_homework(
+        self, week: str, session_uuid: str, institution_filter: list[str], child_id: str
+    ) -> list[EasyIQHomework]:
+        token = await self._get_bearer_token(WIDGET_EASYIQ_HOMEWORK)
+        headers = {
+            "Authorization": token,
+            "x-aula-institutionfilter": ",".join(institution_filter),
+        }
+        payload = {
+            "sessionId": session_uuid,
+            "currentWeekNr": week,
+            "userProfile": "guardian",
+            "institutionFilter": institution_filter,
+            "childFilter": [child_id],
+        }
+        resp = await self._api_client._request_with_version_retry(
+            "post", f"{EASYIQ_API}/homeworkinfo", json=payload, headers=headers
+        )
+        resp.raise_for_status()
+        items = resp.json().get("data", {}).get("homework", [])
+        return [EasyIQHomework.from_dict(h) for h in items]
 
     async def get_meebook_weekplan(
         self,
