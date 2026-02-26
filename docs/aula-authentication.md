@@ -149,7 +149,7 @@ Observed from network traffic analysis of the official Android app:
 
 The Android app **never clears the access_token** — it unconditionally appends `?access_token=...` to every API request URL.
 
-Our library clears the token after `init()` and relies on cookies only. Both approaches work because the Aula server accepts either mechanism.
+Our library clears the token after `init()` and relies on cookies only. Both approaches work because the Aula server accepts either mechanism. We deliberately clear the token for security — keeping it in every URL risks leaking it through server logs, browser history, referer headers, and proxy logs.
 
 ### HTTP Headers
 
@@ -218,7 +218,7 @@ This library uses a **mobile app OAuth 2.0 + PKCE flow** matching the Android ap
 | **User-Agent** | `"Android"` | Desktop Chrome string |
 | **Token storage** | Encrypted local storage | FileTokenStorage (JSON file) |
 
-Our session-based approach (clear token after init, use cookies) works because the Aula server establishes a full PHP session during the first API calls. The Android app's approach of always sending the token is more conservative but exposes the token in every URL.
+Our session-based approach (clear token after init, use cookies) works because the Aula server establishes a full PHP session during the first API calls. The Android app's approach of always sending the token is simpler but less secure — the token is exposed in every URL, where it can leak via server access logs, HTTP referer headers, proxy logs, and browser history.
 
 ### Why access_token Is Needed During init()
 
