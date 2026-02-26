@@ -7,6 +7,7 @@ import pytest
 
 from aula.auth.exceptions import OAuthError
 from aula.auth_flow import authenticate, authenticate_and_create_client, create_client
+from aula.const import CSRF_TOKEN_COOKIE
 from aula.http import AulaAuthenticationError, HttpResponse
 
 # ---------------------------------------------------------------------------
@@ -46,7 +47,7 @@ def _mock_auth_client_factory():
     auth = AsyncMock()
     auth.tokens = {"access_token": "fresh-tok"}
     auth.access_token = "fresh-tok"
-    auth.cookies = {"PHPSESSID": "sess1", "Csrfp-Token": "csrf1"}
+    auth.cookies = {"PHPSESSID": "sess1", CSRF_TOKEN_COOKIE: "csrf1"}
     auth.authenticate = AsyncMock()
     auth.refresh_access_token = AsyncMock()
     auth.close = AsyncMock()
@@ -64,14 +65,15 @@ class TestCreateClient:
 
     @pytest.mark.asyncio
     async def test_happy_path(self):
-        """Valid token_data returns a configured AulaApiClient."""
+        """Valid token_data returns a configured AulaApiClient with token cleared after init."""
         http = _mock_http_client()
         token_data = {
             "tokens": {"access_token": "tok123"},
-            "cookies": {"Csrfp-Token": "csrf-tok"},
+            "cookies": {CSRF_TOKEN_COOKIE: "csrf-tok"},
         }
         client = await create_client(token_data, http_client=http)
-        assert client._access_token == "tok123"
+        # access_token is cleared after init()
+        assert client._access_token is None
         assert client._csrf_token == "csrf-tok"
 
     @pytest.mark.asyncio
@@ -98,7 +100,8 @@ class TestCreateClient:
             MockHttpx.return_value = mock_instance
             client = await create_client(token_data)
             MockHttpx.assert_called_once_with(cookies={"PHPSESSID": "sess1"})
-            assert client._access_token == "tok123"
+            # access_token cleared after init
+            assert client._access_token is None
 
 
 # ---------------------------------------------------------------------------
@@ -161,7 +164,7 @@ class TestAuthenticate:
                 "refresh_token": "old-refresh",
                 "expires_at": time.time() - 100,
             },
-            "cookies": {"Csrfp-Token": "csrf"},
+            "cookies": {CSRF_TOKEN_COOKIE: "csrf"},
         }
         new_tokens = {
             "access_token": "refreshed-tok",
@@ -188,7 +191,7 @@ class TestAuthenticate:
                 "refresh_token": "cached-refresh",
                 "expires_at": time.time() + 3600,
             },
-            "cookies": {"Csrfp-Token": "csrf"},
+            "cookies": {CSRF_TOKEN_COOKIE: "csrf"},
             "username": "user",
             "timestamp": 1234567890.0,
         }
@@ -248,7 +251,7 @@ class TestAuthenticate:
                 "access_token": "cached-tok",
                 "expires_at": time.time() + 3600,
             },
-            "cookies": {"Csrfp-Token": "csrf-cached"},
+            "cookies": {CSRF_TOKEN_COOKIE: "csrf-cached"},
         }
         mock_auth_client.access_token = "cached-tok"
 
@@ -299,7 +302,7 @@ class TestAuthenticate:
                 "refresh_token": "refresh-tok",
                 "expires_at": time.time() - 100,
             },
-            "cookies": {"Csrfp-Token": "csrf-old"},
+            "cookies": {CSRF_TOKEN_COOKIE: "csrf-old"},
         }
         new_tokens = {"access_token": "refreshed-tok", "refresh_token": "new-refresh"}
         mock_auth_client.refresh_access_token = AsyncMock(return_value=new_tokens)

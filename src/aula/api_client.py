@@ -9,6 +9,8 @@ from .const import (
     API_URL,
     API_VERSION,
     CICERO_API,
+    CSRF_TOKEN_COOKIE,
+    CSRF_TOKEN_HEADER,
     EASYIQ_API,
     MEEBOOK_API,
     MIN_UDDANNELSE_API,
@@ -46,14 +48,15 @@ class AulaApiClient:
     """Async client for Aula API endpoints.
 
     Transport-agnostic: accepts any HttpClient implementation (httpx, aiohttp, etc.).
-    Authentication relies on the caller-provided HTTP session cookies plus
-    ``access_token`` query parameters for Aula API endpoints.
+    Authentication uses ``access_token`` as a query parameter during ``init()``
+    to establish a server-side session, then relies on session cookies for all
+    subsequent API requests.
     """
 
     def __init__(
         self,
         http_client: HttpClient,
-        access_token: str,
+        access_token: str | None = None,
         csrf_token: str | None = None,
     ) -> None:
         self._client = http_client
@@ -62,7 +65,12 @@ class AulaApiClient:
         self.api_url = f"{API_URL}{API_VERSION}"
 
     async def init(self) -> None:
-        """Discover the current API version and establish guardian role."""
+        """Discover the current API version and establish guardian role.
+
+        Uses ``access_token`` as a query parameter for these initial requests
+        to establish a server-side session. After init completes, the access
+        token is cleared and all subsequent requests rely on session cookies.
+        """
         await self._set_correct_api_version()
 
         # Establish guardian role in the session (required for child-specific endpoints)
@@ -71,11 +79,14 @@ class AulaApiClient:
             f"{self.api_url}?method=profiles.getProfileContext&portalrole=guardian",
         )
 
+        # Session is now established via cookies; access_token no longer needed.
+        self._access_token = None
+
         # Capture CSRF token set by the server during the session setup.
         # The Csrfp-Token cookie is not part of the stored auth credentials;
         # it's set by Aula via Set-Cookie during these initial GET requests.
         if self._csrf_token is None:
-            self._csrf_token = self._client.get_cookie("Csrfp-Token")
+            self._csrf_token = self._client.get_cookie(CSRF_TOKEN_COOKIE)
 
     async def _set_correct_api_version(self) -> None:
         resp = await self._request_with_version_retry(
@@ -95,7 +106,13 @@ class AulaApiClient:
     ) -> HttpResponse:
         """Make an HTTP request with automatic API version bump on 410 Gone.
 
-        Aula API endpoints require ``access_token`` in query parameters.
+        During ``init()``, ``access_token`` is appended as a query parameter
+        to establish the server-side session. After init clears the token,
+        requests rely on session cookies only.
+
+        For POST requests to the Aula API, the ``csrfp-token`` header is
+        automatically included (matching the browser's behavior where every
+        POST carries this header).
         """
         if self._access_token and url.startswith(API_URL):
             if params is not None:
@@ -103,6 +120,14 @@ class AulaApiClient:
             else:
                 sep = "&" if "?" in url else "?"
                 url = f"{url}{sep}access_token={self._access_token}"
+
+        # Auto-add csrfp-token header for POST requests to Aula API.
+        # The browser sends this header on every POST; centralising it here
+        # ensures new endpoints get it automatically.
+        if method.lower() == "post" and url.startswith(API_URL) and self._csrf_token:
+            headers = dict(headers) if headers else {}
+            headers.setdefault(CSRF_TOKEN_HEADER, self._csrf_token)
+            headers.setdefault("content-type", "application/json")
 
         max_retries = 5
         for _attempt in range(max_retries):
@@ -329,14 +354,9 @@ class AulaApiClient:
             "end": end.strftime("%Y-%m-%d 23:59:59.0000%z"),
         }
 
-        req_headers = {"content-type": "application/json"}
-        if self._csrf_token:
-            req_headers["csrfp-token"] = self._csrf_token
-
         resp = await self._request_with_version_retry(
             "post",
             f"{self.api_url}?method=calendar.getEventsByProfileIdsAndResourceIds",
-            headers=req_headers,
             json=data,
         )
 
@@ -670,10 +690,6 @@ class AulaApiClient:
 
         Paginates automatically to fetch all matching results.
         """
-        headers: dict[str, str] = {"content-type": "application/json"}
-        if self._csrf_token:
-            headers["csrfp-token"] = self._csrf_token
-
         all_messages: list[Message] = []
         offset = 0
         pages_fetched = 0
@@ -710,7 +726,6 @@ class AulaApiClient:
             resp = await self._request_with_version_retry(
                 "post",
                 f"{self.api_url}?method=search.findMessage",
-                headers=headers,
                 json=payload,
             )
             resp.raise_for_status()
