@@ -17,6 +17,14 @@ import qrcode
 from bs4 import BeautifulSoup, Tag
 
 from ..const import (
+    APP_REDIRECT_URI,
+    AUTH_BASE_URL,
+    BROKER_URL,
+    MITID_BASE_URL,
+    OAUTH_AUTHORIZE_PATH,
+    OAUTH_CLIENT_ID,
+    OAUTH_SCOPE,
+    OAUTH_TOKEN_PATH,
     USER_AGENT,
 )
 from .browser_client import BrowserClient
@@ -69,12 +77,7 @@ class MitIDAuthClient:
             # access_token is now available on client
     """
 
-    # Aula OAuth configuration
-    _AUTH_BASE_URL = "https://login.aula.dk"
-    _BROKER_URL = "https://broker.unilogin.dk"
-    _APP_REDIRECT_URI = "https://app-private.aula.dk"
-    _CLIENT_ID = "_99949a54b8b65423862aac1bf629599ed64231607a"
-    _SCOPE = "aula-sensitive"
+    # Auth constants imported from const.py (validated against Android app v2.14.4)
 
     def __init__(
         self,
@@ -89,22 +92,9 @@ class MitIDAuthClient:
         self._timeout = timeout
         self._on_qr_codes = on_qr_codes
 
-        # Mobile app user agent
-        self._client.headers.update(
-            {
-                "User-Agent": USER_AGENT,
-                "Accept": (
-                    "text/html,application/xhtml+xml,application/xml;q=0.9,"
-                    "image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.7"
-                ),
-                "Accept-Language": "en-US,en;q=0.9",
-                "Accept-Encoding": "gzip, deflate, br",
-                "Upgrade-Insecure-Requests": "1",
-                "sec-ch-ua": '"Google Chrome";v="113", "Chromium";v="113", "Not-A.Brand";v="24"',
-                "sec-ch-ua-mobile": "?1",
-                "sec-ch-ua-platform": '"Android"',
-            }
-        )
+        # The real Android app just sends User-Agent: Android — the server
+        # doesn't validate browser-style headers (sec-ch-ua, etc.).
+        self._client.headers["User-Agent"] = USER_AGENT
 
         # Session state
         self._code_verifier: str | None = None
@@ -207,15 +197,15 @@ class MitIDAuthClient:
 
             auth_params = {
                 "response_type": "code",
-                "client_id": self._CLIENT_ID,
-                "scope": self._SCOPE,
-                "redirect_uri": self._APP_REDIRECT_URI,
+                "client_id": OAUTH_CLIENT_ID,
+                "scope": OAUTH_SCOPE,
+                "redirect_uri": APP_REDIRECT_URI,
                 "state": self._state,
                 "code_challenge": self._code_challenge,
                 "code_challenge_method": "S256",
             }
 
-            auth_url = f"{self._AUTH_BASE_URL}/simplesaml/module.php/oidc/authorize.php"
+            auth_url = f"{AUTH_BASE_URL}{OAUTH_AUTHORIZE_PATH}"
             full_auth_url = f"{auth_url}?{urlencode(auth_params)}"
 
             response = await self._client.get(full_auth_url)
@@ -257,7 +247,7 @@ class MitIDAuthClient:
                 if response.is_success:
                     soup = BeautifulSoup(response.text, "html.parser")
 
-                    if "broker.unilogin.dk" in str(response.url):
+                    if BROKER_URL in str(response.url):
                         _LOGGER.debug("Reached UniLogin broker")
                         return await self._handle_broker_page(soup)
 
@@ -306,12 +296,12 @@ class MitIDAuthClient:
         """Step 3: Perform MitID authentication with the app."""
         _LOGGER.info("Step 3/7: Authenticating with MitID app")
 
-        post_url = "https://nemlog-in.mitid.dk/login/mitid/initialize"
+        post_url = f"{MITID_BASE_URL}/login/mitid/initialize"
         post_headers = {
             "accept": "*/*",
             "content-type": "application/x-www-form-urlencoded; charset=UTF-8",
-            "origin": "https://nemlog-in.mitid.dk",
-            "referer": "https://nemlog-in.mitid.dk/login/mitid",
+            "origin": MITID_BASE_URL,
+            "referer": f"{MITID_BASE_URL}/login/mitid",
             "x-requested-with": "XMLHttpRequest",
         }
 
@@ -382,7 +372,7 @@ class MitIDAuthClient:
                 "SessionStorageActiveChallenge": challenge,
             }
 
-            request = await self._client.post("https://nemlog-in.mitid.dk/login/mitid", data=params)
+            request = await self._client.post(f"{MITID_BASE_URL}/login/mitid", data=params)
 
             soup = BeautifulSoup(request.text, features="html.parser")
 
@@ -411,7 +401,7 @@ class MitIDAuthClient:
             }
 
             broker_response = await self._client.post(
-                "https://broker.unilogin.dk/auth/realms/broker/broker/nemlogin3/endpoint",
+                f"{BROKER_URL}/auth/realms/broker/broker/nemlogin3/endpoint",
                 data=params,
             )
 
@@ -477,7 +467,7 @@ class MitIDAuthClient:
 
             saml_endpoint = saml_data.get(
                 "form_action",
-                "https://login.aula.dk/simplesaml/module.php/saml/sp/saml2-acs.php/uni-sp",
+                f"{AUTH_BASE_URL}/simplesaml/module.php/saml/sp/saml2-acs.php/uni-sp",
             )
 
             aula_response = await self._client.post(saml_endpoint, data=aula_saml_data)
@@ -500,17 +490,17 @@ class MitIDAuthClient:
 
             # Check if this is the OAuth callback
             response_url = str(redirect_response.url)
-            if self._APP_REDIRECT_URI in response_url and "code=" in response_url:
+            if APP_REDIRECT_URI in response_url and "code=" in response_url:
                 _LOGGER.debug("Found OAuth callback URL")
                 return response_url
 
             if "Location" in redirect_response.headers:
                 location = redirect_response.headers["Location"]
-                if self._APP_REDIRECT_URI in location and "code=" in location:
+                if APP_REDIRECT_URI in location and "code=" in location:
                     return location
                 redirect_url = urljoin(response_url, location)
             elif redirect_response.is_success:
-                if self._APP_REDIRECT_URI in response_url and "code=" in response_url:
+                if APP_REDIRECT_URI in response_url and "code=" in response_url:
                     return response_url
                 raise OAuthError(f"Did not receive OAuth callback URL. Final: {response_url}")
             else:
@@ -536,13 +526,13 @@ class MitIDAuthClient:
                 if returned_state != self._state:
                     raise OAuthError("State parameter mismatch")
 
-            token_url = f"{self._AUTH_BASE_URL}/simplesaml/module.php/oidc/token.php"
+            token_url = f"{AUTH_BASE_URL}{OAUTH_TOKEN_PATH}"
 
             token_data = {
                 "grant_type": "authorization_code",
                 "code": auth_code,
-                "client_id": self._CLIENT_ID,
-                "redirect_uri": self._APP_REDIRECT_URI,
+                "client_id": OAUTH_CLIENT_ID,
+                "redirect_uri": APP_REDIRECT_URI,
                 "code_verifier": self._code_verifier,
             }
 
@@ -591,14 +581,14 @@ class MitIDAuthClient:
         """
         _LOGGER.info("Refreshing access token")
 
-        token_url = f"{self._AUTH_BASE_URL}/simplesaml/module.php/oidc/token.php"
+        token_url = f"{AUTH_BASE_URL}{OAUTH_TOKEN_PATH}"
 
         try:
             response = await self._client.post(
                 token_url,
                 data={
                     "grant_type": "refresh_token",
-                    "client_id": self._CLIENT_ID,
+                    "client_id": OAUTH_CLIENT_ID,
                     "refresh_token": refresh_token,
                 },
                 headers={

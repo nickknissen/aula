@@ -3,7 +3,7 @@
 Provides two entry points:
 
 - ``create_client``: Build a client from stored tokens and cookies.
-  Aula API requests use restored cookies and ``tokens.access_token`` query params.
+  Uses ``access_token`` during init to establish a session, then cookies only.
 
 - ``authenticate_and_create_client``: Run the full MitID auth flow (or
   load cached tokens) and return a ready client.  Used by the CLI.
@@ -20,6 +20,7 @@ import qrcode
 from .api_client import AulaApiClient
 from .auth.exceptions import MitIDAuthError, OAuthError
 from .auth.mitid_client import MitIDAuthClient
+from .const import CSRF_TOKEN_COOKIE
 from .http import AulaAuthenticationError, HttpClient
 from .http_httpx import HttpxHttpClient
 from .token_storage import TokenStorage
@@ -48,6 +49,8 @@ async def create_client(
 
     Returns:
         A ready-to-use ``AulaApiClient`` (``init()`` has been called).
+        After ``init()``, the access token is cleared and the client relies
+        on session cookies established during initialization.
 
     Raises:
         ValueError: If ``token_data`` has no ``access_token`` (compatibility
@@ -60,12 +63,12 @@ async def create_client(
 
     cookies = token_data.get("cookies", {})
     # Csrfp-Token is expected from the restored cookie jar when available.
-    csrf_token = cookies.get("Csrfp-Token")
+    csrf_token = cookies.get(CSRF_TOKEN_COOKIE)
 
     if http_client is None:
         http_client = HttpxHttpClient(cookies=cookies)
 
-    client = AulaApiClient(http_client, access_token, csrf_token=csrf_token)
+    client = AulaApiClient(http_client, access_token=access_token, csrf_token=csrf_token)
     await client.init()
     return client
 
@@ -102,8 +105,8 @@ async def authenticate(
             fresh MitID login to restore a valid session cookie jar.
     Returns:
         Credential dict suitable for passing to :func:`create_client`.
-        Contains ``tokens`` (with ``access_token`` for Aula API requests) and
-        ``cookies`` used for Aula session authentication.
+        Contains ``tokens`` (with ``access_token`` used during init to
+        establish the session) and ``cookies`` for Aula session auth.
     """
     async with MitIDAuthClient(
         mitid_username=mitid_username,

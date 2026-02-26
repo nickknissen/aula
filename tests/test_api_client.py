@@ -6,6 +6,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 
 from aula.api_client import AulaApiClient
+from aula.const import CSRF_TOKEN_HEADER
 from aula.http import (
     AulaAuthenticationError,
     AulaServerError,
@@ -89,8 +90,8 @@ class TestRequestWithVersionRetry:
         assert client._client.request.call_count == 1
 
     @pytest.mark.asyncio
-    async def test_access_token_appended_to_url(self, client):
-        """Access token is appended as query parameter for Aula API URLs."""
+    async def test_access_token_appended_during_init(self, client):
+        """Access token is appended as query parameter before init clears it."""
         client._client.request = AsyncMock(
             return_value=HttpResponse(status_code=200, data=None)
         )
@@ -99,6 +100,19 @@ class TestRequestWithVersionRetry:
         )
         called_url = client._client.request.call_args[0][1]
         assert "access_token=test_token" in called_url
+
+    @pytest.mark.asyncio
+    async def test_access_token_not_appended_after_init(self, client):
+        """After init clears the token, access_token is NOT in URLs."""
+        client._access_token = None  # simulate post-init state
+        client._client.request = AsyncMock(
+            return_value=HttpResponse(status_code=200, data=None)
+        )
+        await client._request_with_version_retry(
+            "get", "https://www.aula.dk/api/v22?method=test"
+        )
+        called_url = client._client.request.call_args[0][1]
+        assert "access_token" not in called_url
 
     @pytest.mark.asyncio
     async def test_access_token_not_appended_for_external_urls(self, client):
@@ -113,7 +127,7 @@ class TestRequestWithVersionRetry:
         assert "access_token" not in called_url
 
     @pytest.mark.asyncio
-    async def test_access_token_added_to_params_without_mutating_original(self, client):
+    async def test_access_token_in_params_not_mutating_original(self, client):
         """When params dict is provided, access_token is sent but original dict is not mutated."""
         client._client.request = AsyncMock(
             return_value=HttpResponse(status_code=200, data=None)
@@ -126,6 +140,112 @@ class TestRequestWithVersionRetry:
         called_params = client._client.request.call_args[1]["params"]
         assert called_params["access_token"] == "test_token"
         assert called_params["key"] == "value"
+
+    @pytest.mark.asyncio
+    async def test_post_auto_adds_csrf_header(self):
+        """POST requests to Aula API auto-include csrfp-token and content-type headers."""
+        http_client = AsyncMock()
+        http_client.request = AsyncMock(
+            return_value=HttpResponse(status_code=200, data=None)
+        )
+        client = AulaApiClient(http_client=http_client, csrf_token="csrf-value")
+        client._access_token = None  # post-init state
+        await client._request_with_version_retry(
+            "post", "https://www.aula.dk/api/v22?method=test", json={"data": 1}
+        )
+        called_headers = http_client.request.call_args[1]["headers"]
+        assert called_headers[CSRF_TOKEN_HEADER] == "csrf-value"
+        assert called_headers["content-type"] == "application/json"
+
+    @pytest.mark.asyncio
+    async def test_post_does_not_override_explicit_headers(self):
+        """Explicit headers are not overridden by auto-added ones."""
+        http_client = AsyncMock()
+        http_client.request = AsyncMock(
+            return_value=HttpResponse(status_code=200, data=None)
+        )
+        client = AulaApiClient(http_client=http_client, csrf_token="csrf-value")
+        client._access_token = None
+        await client._request_with_version_retry(
+            "post",
+            "https://www.aula.dk/api/v22?method=test",
+            headers={"csrfp-token": "explicit", "content-type": "text/plain"},
+        )
+        called_headers = http_client.request.call_args[1]["headers"]
+        assert called_headers[CSRF_TOKEN_HEADER] == "explicit"
+        assert called_headers["content-type"] == "text/plain"
+
+    @pytest.mark.asyncio
+    async def test_post_no_csrf_when_token_is_none(self):
+        """POST requests don't add csrfp-token header when csrf_token is None."""
+        http_client = AsyncMock()
+        http_client.request = AsyncMock(
+            return_value=HttpResponse(status_code=200, data=None)
+        )
+        client = AulaApiClient(http_client=http_client, csrf_token=None)
+        client._access_token = None
+        await client._request_with_version_retry(
+            "post", "https://www.aula.dk/api/v22?method=test", json={"data": 1}
+        )
+        called_headers = http_client.request.call_args[1]["headers"]
+        assert called_headers is None
+
+    @pytest.mark.asyncio
+    async def test_get_does_not_add_csrf_header(self):
+        """GET requests do NOT auto-include csrfp-token header."""
+        http_client = AsyncMock()
+        http_client.request = AsyncMock(
+            return_value=HttpResponse(status_code=200, data=None)
+        )
+        client = AulaApiClient(http_client=http_client, csrf_token="csrf-value")
+        client._access_token = None
+        await client._request_with_version_retry(
+            "get", "https://www.aula.dk/api/v22?method=test"
+        )
+        called_headers = http_client.request.call_args[1]["headers"]
+        assert called_headers is None
+
+    @pytest.mark.asyncio
+    async def test_post_external_url_no_csrf_header(self):
+        """POST requests to non-Aula URLs don't auto-include csrfp-token."""
+        http_client = AsyncMock()
+        http_client.request = AsyncMock(
+            return_value=HttpResponse(status_code=200, data=None)
+        )
+        client = AulaApiClient(http_client=http_client, csrf_token="csrf-value")
+        client._access_token = None
+        await client._request_with_version_retry(
+            "post", "https://api.minuddannelse.net/endpoint", json={"data": 1}
+        )
+        called_headers = http_client.request.call_args[1]["headers"]
+        assert called_headers is None
+
+    @pytest.mark.asyncio
+    async def test_init_clears_access_token(self):
+        """init() clears access_token after establishing the session."""
+        http_client = AsyncMock()
+        http_client.request = AsyncMock(
+            return_value=HttpResponse(
+                status_code=200,
+                data={
+                    "data": {
+                        "profiles": [
+                            {
+                                "profileId": 1,
+                                "displayName": "Test",
+                                "children": [],
+                                "institutionProfiles": [],
+                            }
+                        ]
+                    }
+                },
+            )
+        )
+        http_client.get_cookie = MagicMock(return_value="csrf-tok")
+        client = AulaApiClient(http_client=http_client, access_token="test_token")
+        assert client._access_token == "test_token"
+        await client.init()
+        assert client._access_token is None
 
 
 class TestGetProfile:
