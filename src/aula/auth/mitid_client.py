@@ -77,7 +77,7 @@ class MitIDAuthClient:
             # access_token is now available on client
     """
 
-    # Auth constants imported from const.py (validated against Android app v2.14.4)
+    # Auth constants imported from const.py
 
     def __init__(
         self,
