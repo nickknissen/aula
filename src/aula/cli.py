@@ -282,7 +282,7 @@ async def overview(ctx, child_id):
                     data.institution_profile.name if data.institution_profile else f"Child {c_id}"
                 )
                 name = child_names.get(c_id, fallback)
-                status = data.status.name.replace("_", " ").title() if data.status else "Unknown"
+                status = data.status.display_name if data.status else "Unknown"
                 ip = data.institution_profile
                 institution = ip.institution_name if ip else None
                 group = data.main_group.name if data.main_group else None
@@ -1768,7 +1768,7 @@ async def daily_summary(ctx, child, target_date):
             click.echo(f"**{c.name}**")
 
             if ov is not None:
-                status = ov.status.name.replace("_", " ").title() if ov.status else "Unknown"
+                status = ov.status.display_name if ov.status else "Unknown"
                 click.echo(f"- Status: {status}")
                 if ov.check_in_time:
                     click.echo(f"- Check-in: {ov.check_in_time}")
