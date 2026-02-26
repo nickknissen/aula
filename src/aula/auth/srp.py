@@ -3,7 +3,7 @@
 import hashlib
 import secrets
 
-from Crypto.Cipher import AES
+from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 
 from ._utils import bytes_to_hex, hex_to_int, int_to_bytes
 
@@ -101,9 +101,9 @@ class CustomSRP:
             IV + ciphertext + GCM tag.
         """
         iv = secrets.token_bytes(16)
-        cipher = AES.new(self._session_key_bytes, AES.MODE_GCM, iv)
-        ciphertext, tag = cipher.encrypt_and_digest(plain_text)
-        return iv + ciphertext + tag
+        aesgcm = AESGCM(self._session_key_bytes)
+        ciphertext_and_tag = aesgcm.encrypt(iv, plain_text, None)
+        return iv + ciphertext_and_tag
 
     @property
     def session_key_bytes(self) -> bytes:

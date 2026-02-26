@@ -88,7 +88,7 @@ cli.py → api_client.py → auth/mitid_client.py → auth/browser_client.py →
 - **`api_client.py`** — `AulaApiClient`: async context manager wrapping `httpx.AsyncClient`. Handles login, API version auto-retry (bumps version on 410 Gone, up to 5 retries), and all endpoint methods.
 - **`auth/mitid_client.py`** — `MitIDAuthClient`: 7-step auth flow (OAuth+PKCE → SAML broker → MitID app auth → SAML back → token exchange).
 - **`auth/browser_client.py`** — `BrowserClient`: low-level MitID protocol (QR codes, OTP, SRP handshake).
-- **`auth/srp.py`** — `CustomSRP`: Secure Remote Password protocol with AES-GCM via pycryptodome.
+- **`auth/srp.py`** — `CustomSRP`: Secure Remote Password protocol with AES-GCM via cryptography.
 - **`models/`** — Dataclasses inheriting `AulaDataClass` (one file per model). Every model carries an optional `_raw: dict` preserving original API response. Uses `from_dict()` classmethods for parsing.
 - **`token_storage.py`** — `TokenStorage` ABC with `load()`/`save()` async methods; `FileTokenStorage` is the JSON file implementation.
 - **`cli.py`** — Click command group. Uses `@async_cmd` decorator to bridge sync Click to async via `asyncio.run()`. Sets `WindowsSelectorEventLoopPolicy` on Windows.
