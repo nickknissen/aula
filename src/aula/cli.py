@@ -18,7 +18,7 @@ if sys.platform.startswith("win"):
 from .api_client import AulaApiClient
 from .auth_flow import authenticate_and_create_client
 from .config import CONFIG_FILE, DEFAULT_TOKEN_FILE, load_config, save_config
-from .models import DailyOverview, Message, MessageThread, Profile
+from .models import DailyOverview, Message, MessageThread, Notification, Profile
 from .token_storage import FileTokenStorage
 
 
@@ -429,6 +429,77 @@ async def messages(ctx, limit, unread, search):
                 click.echo(f"  Error: {e}")
 
             if i < len(threads) - 1:
+                click.echo()
+
+
+@cli.command()
+@click.option("--offset", type=int, default=0, show_default=True, help="Pagination offset.")
+@click.option("--limit", type=int, default=20, show_default=True, help="Maximum items to fetch.")
+@click.option("--module", type=str, default=None, help="Optional module filter.")
+@click.pass_context
+@async_cmd
+async def notifications(ctx, offset, limit, module):
+    """Fetch notifications for the active profile."""
+    async with await _get_client(ctx) as client:
+        try:
+            items: list[Notification] = await client.get_notifications_for_active_profile(
+                offset=offset,
+                limit=limit,
+                module=module,
+            )
+        except Exception as e:
+            click.echo(f"Error fetching notifications: {e}")
+            return
+
+        if not items:
+            click.echo("No notifications found.")
+            return
+
+        for i, item in enumerate(items):
+            created = item.created_at or ""
+            module_name = item.module or "unknown"
+            read_flag = "unknown"
+            if item.is_read is True:
+                read_flag = "read"
+            elif item.is_read is False:
+                read_flag = "unread"
+            click.echo(f"[{item.id}] {item.title}")
+
+            line1 = f"module={module_name}"
+            if item.event_type:
+                line1 = f"{line1} event={item.event_type}"
+            if item.notification_type:
+                line1 = f"{line1} type={item.notification_type}"
+            line1 = f"{line1} status={read_flag}"
+            click.echo(f"  {line1}")
+
+            line2 = ""
+            if created:
+                line2 = f"triggered={created}"
+            if item.expires_at:
+                line2 = f"{line2} expires={item.expires_at}".strip()
+            if line2:
+                click.echo(f"  {line2}")
+
+            line3 = ""
+            if item.institution_code:
+                line3 = f"institution={item.institution_code}"
+            if item.related_child_name:
+                line3 = f"{line3} child={item.related_child_name}".strip()
+            if line3:
+                click.echo(f"  {line3}")
+
+            refs: list[str] = []
+            if item.post_id is not None:
+                refs.append(f"post={item.post_id}")
+            if item.album_id is not None:
+                refs.append(f"album={item.album_id}")
+            if item.media_id is not None:
+                refs.append(f"media={item.media_id}")
+            if refs:
+                click.echo(f"  {' '.join(refs)}")
+
+            if i < len(items) - 1:
                 click.echo()
 
 
@@ -1703,9 +1774,9 @@ async def presence_templates(ctx, from_date, to_date):
                 institution = ip.institution_name
 
             click.echo(f"{'=' * 60}")
-            header = name
+            header = name or "Unknown"
             if institution:
-                header += f"  |  {institution}"
+                header = f"{header}  |  {institution}"
             click.echo(f"  {header}")
             click.echo(f"{'=' * 60}")
 
@@ -1717,7 +1788,7 @@ async def presence_templates(ctx, from_date, to_date):
                     if day.entry_time or day.exit_time:
                         times = f"  {day.entry_time or '?'} → {day.exit_time or '?'}"
                         if day.exit_with:
-                            times += f"  (picked up by: {day.exit_with})"
+                            times = f"{times}  (picked up by: {day.exit_with})"
                         click.echo(times)
                     if day.spare_time_activity:
                         sta = day.spare_time_activity
@@ -1843,7 +1914,9 @@ async def daily_summary(ctx, child, target_date):
             # Filter to find the template matching the target date
             matching = [d for d in tmpl.day_templates if d.by_date == target_date_str]
             if matching:
-                day_template_by_child[tmpl.institution_profile.id] = matching[0]
+                profile_id = tmpl.institution_profile.id
+                if profile_id is not None:
+                    day_template_by_child[profile_id] = matching[0]
 
         # Daily overview only reflects today's actual state — skip for other dates
         is_today = today.date() == now.date()
@@ -1899,7 +1972,7 @@ async def daily_summary(ctx, child, target_date):
                 if sta.start_time and sta.end_time:
                     activity_line = f"- Activity: {sta.start_time}–{sta.end_time}"
                     if sta.comment:
-                        activity_line += f"  ({sta.comment})"
+                        activity_line = f"{activity_line}  ({sta.comment})"
                     click.echo(activity_line)
 
             if ov is None and not day_tmpl:

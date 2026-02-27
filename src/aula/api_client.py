@@ -1,10 +1,12 @@
 import inspect
+import json
 import logging
 import time
 import warnings
 from datetime import date, datetime
 from types import TracebackType
 from typing import Any
+from urllib.parse import parse_qs, urlparse
 from zoneinfo import ZoneInfo
 
 from .const import (
@@ -26,6 +28,7 @@ from .models import (
     MomoUserCourses,
     MUTask,
     MUWeeklyPerson,
+    Notification,
     Post,
     PresenceWeekTemplate,
     Profile,
@@ -37,6 +40,31 @@ _LOGGER = logging.getLogger(__name__)
 
 # Safety limit for paginated requests to prevent infinite loops
 MAX_PAGES = 100
+
+
+def _extract_api_method(url: str, params: dict[str, Any] | None) -> str | None:
+    method = None
+    if params and isinstance(params.get("method"), str):
+        method = params["method"]
+    if method:
+        return method
+
+    parsed = urlparse(url)
+    query = parse_qs(parsed.query)
+    raw_method = query.get("method", [None])[0]
+    if isinstance(raw_method, str) and raw_method:
+        return raw_method
+    return None
+
+
+def _compact_payload_for_log(payload: Any, *, max_chars: int = 4000) -> str:
+    try:
+        rendered = json.dumps(payload, ensure_ascii=True, separators=(",", ":"), default=str)
+    except (TypeError, ValueError):
+        rendered = str(payload)
+    if len(rendered) > max_chars:
+        return f"{rendered[:max_chars]}...<truncated>"
+    return rendered
 
 
 class AulaApiClient:
@@ -134,6 +162,7 @@ class AulaApiClient:
 
         max_retries = 5
         for _attempt in range(max_retries):
+            api_method = _extract_api_method(url, params)
             start = time.monotonic()
             response = await self._client.request(
                 method, url, headers=headers, params=params, json=json
@@ -141,12 +170,20 @@ class AulaApiClient:
             elapsed = time.monotonic() - start
 
             _LOGGER.debug(
-                "%s %s → %d (%.2fs)",
+                "%s %s method=%s -> %d (%.2fs)",
                 method.upper(),
                 url.split("?")[0],
+                api_method or "unknown",
                 response.status_code,
                 elapsed,
             )
+
+            if _LOGGER.isEnabledFor(logging.DEBUG):
+                _LOGGER.debug(
+                    "Response method=%s: %s",
+                    api_method or "unknown",
+                    _compact_payload_for_log(response.json()),
+                )
 
             if response.status_code == 410:
                 current_version = int(self.api_url.split("/v")[-1])
@@ -290,6 +327,43 @@ class AulaApiClient:
                     "Skipping presence week template due to parsing error: %s - Data: %s", e, t
                 )
         return result
+
+    async def get_notifications_for_active_profile(
+        self,
+        *,
+        offset: int = 0,
+        limit: int = 50,
+        module: str | None = None,
+    ) -> list[Notification]:
+        """Fetch notifications for the active profile."""
+        params: dict[str, Any] = {
+            "method": "notifications.getNotificationsForActiveProfile",
+            "offset": offset,
+            "limit": limit,
+        }
+        if module:
+            params["module"] = module
+
+        resp = await self._request_with_version_retry("get", self.api_url, params=params)
+        resp.raise_for_status()
+
+        payload = resp.json().get("data", [])
+        if not isinstance(payload, list):
+            return []
+
+        notifications: list[Notification] = []
+        for item in payload:
+            if not isinstance(item, dict):
+                continue
+            try:
+                notifications.append(Notification.from_dict(item))
+            except (TypeError, ValueError) as e:
+                _LOGGER.warning(
+                    "Skipping notification due to parsing error: %s - Data: %s", e, item
+                )
+        if limit > 0:
+            return notifications[:limit]
+        return notifications
 
     async def get_message_threads(self, filter_on: str | None = None) -> list[MessageThread]:
         """Fetch the first page of message threads, sorted by date descending."""

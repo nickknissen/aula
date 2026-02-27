@@ -12,6 +12,7 @@ from .momo_huskeliste import MomoUserCourses as MomoUserCourses
 from .momo_huskeliste import UserReminders as UserReminders
 from .mu_task import MUTask as MUTask
 from .mu_weekly_letter import MUWeeklyPerson as MUWeeklyPerson
+from .notification import Notification as Notification
 from .post import Post as Post
 from .presence_template import DayTemplate as DayTemplate
 from .presence_template import PresenceWeekTemplate as PresenceWeekTemplate
