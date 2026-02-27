@@ -10,6 +10,8 @@ from aula.utils.output import (
     format_message_lines,
     format_notification_lines,
     format_post_lines,
+    format_record_lines,
+    format_report_intro_lines,
     format_row,
 )
 
@@ -209,4 +211,53 @@ class TestFormatCalendarContextLines:
             "  Start: 2026-03-01",
             "  End: 2026-03-07",
             "  Profiles: 2",
+        ]
+
+
+class TestFormatRecordLines:
+    def test_formats_record_with_properties_and_body(self):
+        lines = format_record_lines(
+            title="Task title",
+            properties=[("Student", "Ada"), ("Type", "Homework")],
+            body_lines=["Read chapter 2", "Solve 3 questions"],
+            body_label="Body",
+        )
+
+        assert lines == [
+            "Task title",
+            "  Student: Ada",
+            "  Type: Homework",
+            "  Body:",
+            "  Read chapter 2",
+            "  Solve 3 questions",
+        ]
+
+    def test_omits_empty_values_and_handles_empty_body(self):
+        lines = format_record_lines(
+            title="Task title",
+            properties=[("Student", ""), ("Type", "Homework")],
+            body_lines=[],
+            body_label="Body",
+            empty_body_text="(no body)",
+        )
+
+        assert lines == [
+            "Task title",
+            "  Type: Homework",
+            "  Body:",
+            "  (no body)",
+        ]
+
+
+class TestFormatReportIntroLines:
+    def test_formats_report_intro(self):
+        lines = format_report_intro_lines(
+            title="Weekly overview",
+            properties=[("Generated", "2026-03-02"), ("Period", "Mon-Fri")],
+        )
+
+        assert lines == [
+            "Weekly overview",
+            "  Generated: 2026-03-02",
+            "  Period: Mon-Fri",
         ]
