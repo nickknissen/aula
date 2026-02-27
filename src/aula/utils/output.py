@@ -118,3 +118,30 @@ def format_notification_lines(
         lines.append(f"  Media: {item.media_id}")
 
     return lines
+
+
+def format_post_lines(
+    title: str,
+    author: str,
+    date: str,
+    body: str,
+    attachments_count: int,
+) -> list[str]:
+    """Format a post as title plus indented metadata/body lines."""
+    lines = [clip(title) if title.strip() else "(No title)"]
+    if author.strip():
+        lines.append(f"  Author: {author}")
+    if date.strip():
+        lines.append(f"  Date: {date}")
+
+    body_text = body.strip()
+    lines.append("  Body:")
+    if body_text:
+        lines.extend(f"  {clip(line)}" for line in body_text.splitlines())
+    else:
+        lines.append("  (no post body)")
+
+    if attachments_count > 0:
+        lines.append(f"  Attachments: {attachments_count}")
+
+    return lines

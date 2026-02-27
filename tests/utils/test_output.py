@@ -6,6 +6,7 @@ from aula.utils.output import (
     format_heading_lines,
     format_message_lines,
     format_notification_lines,
+    format_post_lines,
     format_row,
 )
 
@@ -154,4 +155,40 @@ class TestFormatMessageLines:
             "  Date: 2026-03-01",
             "  Body:",
             "  Body",
+        ]
+
+
+class TestFormatPostLines:
+    def test_formats_post_with_metadata_and_body(self):
+        lines = format_post_lines(
+            title="School trip",
+            author="Class Teacher",
+            date="2026-03-02 08:30",
+            body="Bring lunch\nWear boots",
+            attachments_count=2,
+        )
+
+        assert lines == [
+            "School trip",
+            "  Author: Class Teacher",
+            "  Date: 2026-03-02 08:30",
+            "  Body:",
+            "  Bring lunch",
+            "  Wear boots",
+            "  Attachments: 2",
+        ]
+
+    def test_omits_empty_optional_fields(self):
+        lines = format_post_lines(
+            title="Title",
+            author="",
+            date="",
+            body="",
+            attachments_count=0,
+        )
+
+        assert lines == [
+            "Title",
+            "  Body:",
+            "  (no post body)",
         ]
