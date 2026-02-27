@@ -20,6 +20,15 @@ from .auth_flow import authenticate_and_create_client
 from .config import CONFIG_FILE, DEFAULT_TOKEN_FILE, load_config, save_config
 from .models import DailyOverview, Message, MessageThread, Notification, Profile
 from .token_storage import FileTokenStorage
+from .utils.output import (
+    clip,
+    format_message_lines,
+    format_notification_lines,
+    format_row,
+    print_empty,
+    print_error,
+    print_heading,
+)
 
 
 # Decorator to run async functions within Click commands
@@ -215,28 +224,29 @@ async def profile(ctx):
         try:
             prof: Profile = await client.get_profile()
         except ValueError as e:
-            click.echo(f"Error fetching or parsing profile data: {e}")
+            print_error(f"fetching or parsing profile data: {e}")
             return
         except Exception as e:
-            click.echo(f"An unexpected error occurred: {e}")
+            print_error(f"unexpected failure: {e}")
             return
 
-        click.echo(f"Profile: {prof.display_name} (ID: {prof.profile_id})")
+        print_heading("Profile")
+        click.echo(format_row(prof.display_name, f"ID {prof.profile_id}"))
 
         if prof.institution_profile_ids:
             ids = ", ".join(str(i) for i in prof.institution_profile_ids)
-            click.echo(f"  Institution Profile IDs: {ids}")
+            click.echo(format_row("Institution profile IDs", ids))
 
         if prof.children:
-            click.echo(f"\nChildren ({len(prof.children)}):")
+            click.echo(f"Children ({len(prof.children)}):")
             for child in prof.children:
-                click.echo(f"  {child.name}")
-                click.echo(f"    ID:          {child.id}")
-                click.echo(f"    Profile ID:  {child.profile_id}")
+                click.echo(
+                    f"- {format_row(child.name, f'ID {child.id}', f'Profile {child.profile_id}')}"
+                )
                 if child.institution_name:
-                    click.echo(f"    Institution: {child.institution_name}")
+                    click.echo(f"  Institution: {child.institution_name}")
         else:
-            click.echo("\nNo children associated with this profile.")
+            print_empty("children")
 
 
 @cli.command()
@@ -261,30 +271,32 @@ async def overview(ctx, child_id):
                     child_ids.append(child.id)
                     child_names[child.id] = child.name
             except Exception as e:
-                click.echo(f"Error fetching profile: {e}")
+                print_error(f"fetching profile: {e}")
                 return
 
         for i, c_id in enumerate(child_ids):
             try:
                 data: DailyOverview | None = await client.get_daily_overview(c_id)
                 if data is None:
-                    click.echo(f"{child_names.get(c_id, f'Child {c_id}')}: unavailable")
+                    click.echo(f"- {child_names.get(c_id, f'Child {c_id}')}: unavailable")
                     continue
 
                 fallback = (
                     data.institution_profile.name if data.institution_profile else f"Child {c_id}"
                 )
                 name = child_names.get(c_id, fallback)
+                display_name = name or fallback or f"Child {c_id}"
                 status = data.status.display_name if data.status else "Unknown"
                 ip = data.institution_profile
                 institution = ip.institution_name if ip else None
                 group = data.main_group.name if data.main_group else None
 
-                click.echo(f"{'=' * 50}")
-                click.echo(f"  {name}  [{status}]")
+                if i == 0:
+                    print_heading("Overview")
+
+                click.echo(format_row(display_name, status))
                 if institution or group:
                     click.echo(f"  {' / '.join(filter(None, [institution, group]))}")
-                click.echo(f"{'=' * 50}")
 
                 details = []
                 if data.check_in_time:
@@ -312,7 +324,7 @@ async def overview(ctx, child_id):
                     click.echo()
 
             except Exception as e:
-                click.echo(f"Error fetching overview for child {c_id}: {e}")
+                print_error(f"fetching overview for child {c_id}: {e}")
 
 
 @cli.command()
@@ -325,12 +337,12 @@ async def messages(ctx, limit, unread, search):
     """Fetch the latest message threads and their messages."""
     async with await _get_client(ctx) as client:
         if search:
-            click.echo(f'Searching messages for "{search}"...\n')
+            print_heading(f'Messages: "{search}"')
 
             try:
                 prof: Profile = await client.get_profile()
             except Exception as e:
-                click.echo(f"Error fetching profile: {e}")
+                print_error(f"fetching profile: {e}")
                 return
 
             institution_codes: list[str] = []
@@ -348,11 +360,11 @@ async def messages(ctx, limit, unread, search):
                     limit=limit,
                 )
             except Exception as e:
-                click.echo(f"Error searching messages: {e}")
+                print_error(f"searching messages: {e}")
                 return
 
             if not results:
-                click.echo("No messages found.")
+                print_empty("messages")
                 return
 
             for i, msg in enumerate(results):
@@ -361,35 +373,26 @@ async def messages(ctx, limit, unread, search):
                 send_date = msg_raw.get("sendDateTime", "")
                 subject = msg_raw.get("threadSubject", "")
 
-                click.echo(f"{'=' * 60}")
-                if subject:
-                    click.echo(f"  {subject}")
-                click.echo(f"  {sender}  {send_date}")
-                click.echo(f"  {'-' * 40}")
-                content = msg.content.strip()
-                if content:
-                    for line in content.splitlines():
-                        click.echo(f"  {line}")
-                else:
-                    click.echo("  (no message body)")
+                for line in format_message_lines(subject, sender, send_date, msg.content):
+                    click.echo(line)
 
                 if i < len(results) - 1:
                     click.echo()
             return
 
         filter_label = "unread" if unread else "latest"
-        click.echo(f"Fetching the {filter_label} {limit} message threads...\n")
+        print_heading(f"Message threads: {filter_label}")
 
         try:
             filter_on = "unread" if unread else None
             threads: list[MessageThread] = await client.get_message_threads(filter_on=filter_on)
             threads = threads[:limit]
         except Exception as e:
-            click.echo(f"Error fetching message threads: {e}")
+            print_error(f"fetching message threads: {e}")
             return
 
         if not threads:
-            click.echo("No message threads found.")
+            print_empty("message threads")
             return
 
         for i, thread in enumerate(threads):
@@ -398,16 +401,14 @@ async def messages(ctx, limit, unread, search):
             last_updated = raw.get("lastUpdatedDate", "")
 
             # Thread header
-            click.echo(f"{'=' * 60}")
-            click.echo(f"  {thread.subject}")
+            click.echo(clip(thread.subject))
             meta_parts = []
             if participants:
                 meta_parts.append(", ".join(participants))
             if last_updated:
                 meta_parts.append(last_updated)
             if meta_parts:
-                click.echo(f"  {' | '.join(meta_parts)}")
-            click.echo(f"{'=' * 60}")
+                click.echo(f"  {clip(' | '.join(meta_parts))}")
 
             try:
                 messages_list: list[Message] = await client.get_messages_for_thread(
@@ -420,13 +421,18 @@ async def messages(ctx, limit, unread, search):
                         msg_raw = msg._raw or {}
                         sender = msg_raw.get("sender", {}).get("fullName", "Unknown")
                         send_date = msg_raw.get("sendDateTime", "")
-
-                        click.echo(f"\n  {sender}  {send_date}")
-                        click.echo(f"  {'-' * 40}")
-                        for line in msg.content.splitlines():
-                            click.echo(f"  {line}")
+                        message_title = msg_raw.get("threadSubject", "")
+                        for line in format_message_lines(
+                            message_title,
+                            sender,
+                            send_date,
+                            msg.content,
+                            fallback_title=thread.subject,
+                            include_title=False,
+                        ):
+                            click.echo(f"{line}")
             except Exception as e:
-                click.echo(f"  Error: {e}")
+                print_error(str(e))
 
             if i < len(threads) - 1:
                 click.echo()
@@ -441,6 +447,21 @@ async def messages(ctx, limit, unread, search):
 async def notifications(ctx, offset, limit, module):
     """Fetch notifications for the active profile."""
     async with await _get_client(ctx) as client:
+        institution_names: dict[str, str] = {}
+        try:
+            prof: Profile = await client.get_profile()
+            for child in prof.children:
+                if not child._raw:
+                    continue
+                institution = child._raw.get("institutionProfile", {})
+                code = institution.get("institutionCode")
+                name = institution.get("institutionName")
+                if code and name and str(code) not in institution_names:
+                    institution_names[str(code)] = str(name)
+        except Exception:
+            # Keep notifications usable even if profile lookup fails.
+            institution_names = {}
+
         try:
             items: list[Notification] = await client.get_notifications_for_active_profile(
                 offset=offset,
@@ -448,56 +469,18 @@ async def notifications(ctx, offset, limit, module):
                 module=module,
             )
         except Exception as e:
-            click.echo(f"Error fetching notifications: {e}")
+            print_error(f"fetching notifications: {e}")
             return
 
         if not items:
-            click.echo("No notifications found.")
+            print_empty("notifications")
             return
 
+        print_heading("Notifications")
+
         for i, item in enumerate(items):
-            created = item.created_at or ""
-            module_name = item.module or "unknown"
-            read_flag = "unknown"
-            if item.is_read is True:
-                read_flag = "read"
-            elif item.is_read is False:
-                read_flag = "unread"
-            click.echo(f"[{item.id}] {item.title}")
-
-            line1 = f"module={module_name}"
-            if item.event_type:
-                line1 = f"{line1} event={item.event_type}"
-            if item.notification_type:
-                line1 = f"{line1} type={item.notification_type}"
-            line1 = f"{line1} status={read_flag}"
-            click.echo(f"  {line1}")
-
-            line2 = ""
-            if created:
-                line2 = f"triggered={created}"
-            if item.expires_at:
-                line2 = f"{line2} expires={item.expires_at}".strip()
-            if line2:
-                click.echo(f"  {line2}")
-
-            line3 = ""
-            if item.institution_code:
-                line3 = f"institution={item.institution_code}"
-            if item.related_child_name:
-                line3 = f"{line3} child={item.related_child_name}".strip()
-            if line3:
-                click.echo(f"  {line3}")
-
-            refs: list[str] = []
-            if item.post_id is not None:
-                refs.append(f"post={item.post_id}")
-            if item.album_id is not None:
-                refs.append(f"album={item.album_id}")
-            if item.media_id is not None:
-                refs.append(f"media={item.media_id}")
-            if refs:
-                click.echo(f"  {' '.join(refs)}")
+            for line in format_notification_lines(item, institution_names=institution_names):
+                click.echo(line)
 
             if i < len(items) - 1:
                 click.echo()
