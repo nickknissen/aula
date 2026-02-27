@@ -87,6 +87,25 @@ class TestRequestWithVersionRetry:
         assert client._client.request.call_count == 1
 
     @pytest.mark.asyncio
+    async def test_debug_logging_includes_method_and_response(self, client, caplog):
+        """Debug logging includes API method and response payload."""
+        client._client.request = AsyncMock(
+            return_value=HttpResponse(status_code=200, data={"data": {"ok": True}})
+        )
+
+        with caplog.at_level("DEBUG"):
+            await client._request_with_version_retry(
+                "get",
+                "https://www.aula.dk/api/v22?method=notifications.getNotificationsForActiveProfile",
+            )
+
+        messages = [r.message for r in caplog.records]
+        assert any("method=notifications.getNotificationsForActiveProfile" in m for m in messages)
+        assert any(
+            "Response method=notifications.getNotificationsForActiveProfile" in m for m in messages
+        )
+
+    @pytest.mark.asyncio
     async def test_access_token_appended_during_init(self, client):
         """Access token is appended as query parameter before init clears it."""
         client._client.request = AsyncMock(return_value=HttpResponse(status_code=200, data=None))
@@ -1166,9 +1185,7 @@ class TestGetCalendarEvents:
             return_value=HttpResponse(status_code=200, data={"data": raw_events})
         )
 
-        events = await client.get_calendar_events(
-            [100], datetime(2026, 3, 1), datetime(2026, 3, 1)
-        )
+        events = await client.get_calendar_events([100], datetime(2026, 3, 1), datetime(2026, 3, 1))
 
         assert len(events) == 1
         assert events[0].title == "Math"
@@ -1184,9 +1201,7 @@ class TestGetCalendarEvents:
         client._request_with_version_retry = AsyncMock(
             return_value=HttpResponse(status_code=200, data={"data": []})
         )
-        events = await client.get_calendar_events(
-            [100], datetime(2026, 3, 1), datetime(2026, 3, 1)
-        )
+        events = await client.get_calendar_events([100], datetime(2026, 3, 1), datetime(2026, 3, 1))
         assert events == []
 
     @pytest.mark.asyncio
@@ -1206,9 +1221,7 @@ class TestGetCalendarEvents:
             return_value=HttpResponse(status_code=200, data={"data": raw_events})
         )
 
-        events = await client.get_calendar_events(
-            [100], datetime(2026, 3, 2), datetime(2026, 3, 2)
-        )
+        events = await client.get_calendar_events([100], datetime(2026, 3, 2), datetime(2026, 3, 2))
 
         assert len(events) == 1
         assert events[0].teacher_name == ""
@@ -1232,9 +1245,7 @@ class TestGetCalendarEvents:
             return_value=HttpResponse(status_code=200, data={"data": raw_events})
         )
 
-        events = await client.get_calendar_events(
-            [100], datetime(2026, 3, 1), datetime(2026, 3, 1)
-        )
+        events = await client.get_calendar_events([100], datetime(2026, 3, 1), datetime(2026, 3, 1))
         assert len(events) == 1
         assert events[0].title == "Good"
 
@@ -1244,9 +1255,7 @@ class TestGetCalendarEvents:
         client._request_with_version_retry = AsyncMock(
             return_value=HttpResponse(status_code=200, data={"data": "unexpected"})
         )
-        events = await client.get_calendar_events(
-            [100], datetime(2026, 3, 1), datetime(2026, 3, 1)
-        )
+        events = await client.get_calendar_events([100], datetime(2026, 3, 1), datetime(2026, 3, 1))
         assert events == []
 
 
@@ -1273,9 +1282,7 @@ class TestGetPosts:
             }
         ]
         client._request_with_version_retry = AsyncMock(
-            return_value=HttpResponse(
-                status_code=200, data={"data": {"posts": posts_data}}
-            )
+            return_value=HttpResponse(status_code=200, data={"data": {"posts": posts_data}})
         )
         posts = await client.get_posts([100])
         assert len(posts) == 1
@@ -1297,9 +1304,7 @@ class TestGetPosts:
             },
         ]
         client._request_with_version_retry = AsyncMock(
-            return_value=HttpResponse(
-                status_code=200, data={"data": {"posts": posts_data}}
-            )
+            return_value=HttpResponse(status_code=200, data={"data": {"posts": posts_data}})
         )
         posts = await client.get_posts([100])
         assert len(posts) == 1
@@ -1319,9 +1324,7 @@ class TestGetPosts:
             },
         ]
         client._request_with_version_retry = AsyncMock(
-            return_value=HttpResponse(
-                status_code=200, data={"data": {"posts": posts_data}}
-            )
+            return_value=HttpResponse(status_code=200, data={"data": {"posts": posts_data}})
         )
         posts = await client.get_posts([100])
         assert len(posts) == 1
@@ -1331,12 +1334,143 @@ class TestGetPosts:
     async def test_empty_posts(self, client):
         """Empty posts list returns empty."""
         client._request_with_version_retry = AsyncMock(
-            return_value=HttpResponse(
-                status_code=200, data={"data": {"posts": []}}
-            )
+            return_value=HttpResponse(status_code=200, data={"data": {"posts": []}})
         )
         posts = await client.get_posts([100])
         assert posts == []
+
+
+class TestGetNotificationsForActiveProfile:
+    """Tests for AulaApiClient.get_notifications_for_active_profile method."""
+
+    @pytest.fixture
+    def client(self):
+        http_client = AsyncMock()
+        return AulaApiClient(http_client=http_client, access_token="test_token")
+
+    @pytest.mark.asyncio
+    async def test_happy_path(self, client):
+        """Valid notification list is parsed."""
+        client._request_with_version_retry = AsyncMock(
+            return_value=HttpResponse(
+                status_code=200,
+                data={
+                    "data": [
+                        {
+                            "id": 1,
+                            "title": "Ny besked",
+                            "module": "messaging",
+                            "createdAt": "2026-02-27T10:00:00",
+                            "isRead": False,
+                        }
+                    ]
+                },
+            )
+        )
+
+        items = await client.get_notifications_for_active_profile(offset=5, limit=10)
+
+        assert len(items) == 1
+        assert items[0].id == "1"
+        assert items[0].title == "Ny besked"
+        assert items[0].module == "messaging"
+        assert items[0].is_read is False
+
+        _, kwargs = client._request_with_version_retry.call_args
+        assert kwargs["params"]["method"] == "notifications.getNotificationsForActiveProfile"
+        assert kwargs["params"]["offset"] == 5
+        assert kwargs["params"]["limit"] == 10
+
+    @pytest.mark.asyncio
+    async def test_module_filter_is_forwarded(self, client):
+        """Optional module filter is included in query params."""
+        client._request_with_version_retry = AsyncMock(
+            return_value=HttpResponse(status_code=200, data={"data": []})
+        )
+
+        await client.get_notifications_for_active_profile(module="messaging")
+
+        _, kwargs = client._request_with_version_retry.call_args
+        assert kwargs["params"]["module"] == "messaging"
+
+    @pytest.mark.asyncio
+    async def test_non_list_data_returns_empty(self, client):
+        """Non-list data payload returns an empty list."""
+        client._request_with_version_retry = AsyncMock(
+            return_value=HttpResponse(status_code=200, data={"data": {"results": []}})
+        )
+
+        assert await client.get_notifications_for_active_profile() == []
+
+    @pytest.mark.asyncio
+    async def test_malformed_items_are_skipped(self, client):
+        """Malformed entries are skipped while valid ones are returned."""
+        client._request_with_version_retry = AsyncMock(
+            return_value=HttpResponse(
+                status_code=200,
+                data={"data": ["bad", {"id": 2, "heading": "Fallback title"}]},
+            )
+        )
+
+        items = await client.get_notifications_for_active_profile()
+        assert len(items) == 1
+        assert items[0].id == "2"
+        assert items[0].title == "Fallback title"
+
+    @pytest.mark.asyncio
+    async def test_notification_android_fields_are_mapped(self, client):
+        """Android-style notification payload keys map to model fields."""
+        client._request_with_version_retry = AsyncMock(
+            return_value=HttpResponse(
+                status_code=200,
+                data={
+                    "data": [
+                        {
+                            "notificationId": "PostSharedWithMe:12478046:Badge",
+                            "postTitle": "Afslutning for Duygu",
+                            "notificationArea": "Posts",
+                            "notificationEventType": "PostSharedWithMe",
+                            "notificationType": "Badge",
+                            "institutionCode": "G19736",
+                            "triggered": "2026-02-27T08:57:31+00:00",
+                            "expires": "2026-05-28T08:57:31+00:00",
+                            "postId": 12478046,
+                        }
+                    ]
+                },
+            )
+        )
+
+        items = await client.get_notifications_for_active_profile(limit=1)
+        assert len(items) == 1
+        assert items[0].id == "PostSharedWithMe:12478046:Badge"
+        assert items[0].title == "Afslutning for Duygu"
+        assert items[0].module == "Posts"
+        assert items[0].event_type == "PostSharedWithMe"
+        assert items[0].notification_type == "Badge"
+        assert items[0].institution_code == "G19736"
+        assert items[0].created_at == "2026-02-27T08:57:31+00:00"
+        assert items[0].expires_at == "2026-05-28T08:57:31+00:00"
+        assert items[0].post_id == 12478046
+
+    @pytest.mark.asyncio
+    async def test_limit_is_applied_client_side(self, client):
+        """Client-side limit protects output if API ignores limit."""
+        client._request_with_version_retry = AsyncMock(
+            return_value=HttpResponse(
+                status_code=200,
+                data={
+                    "data": [
+                        {"id": 1, "title": "A"},
+                        {"id": 2, "title": "B"},
+                    ]
+                },
+            )
+        )
+
+        items = await client.get_notifications_for_active_profile(limit=1)
+        assert len(items) == 1
+        assert items[0].title == "A"
 
 
 class TestSearchMessages:
@@ -1583,9 +1717,7 @@ class TestGetGalleryAlbums:
         """When data is a dict, extracts albums key."""
         albums = [{"id": 2, "title": "Album 2"}]
         client._request_with_version_retry = AsyncMock(
-            return_value=HttpResponse(
-                status_code=200, data={"data": {"albums": albums}}
-            )
+            return_value=HttpResponse(status_code=200, data={"data": {"albums": albums}})
         )
         result = await client.get_gallery_albums([100])
         assert result == albums
@@ -1614,9 +1746,7 @@ class TestGetAlbumPictures:
         """When data is a dict, extracts results key."""
         pics = [{"id": 2, "file": {"url": "http://example.com/pic2.jpg"}}]
         client._request_with_version_retry = AsyncMock(
-            return_value=HttpResponse(
-                status_code=200, data={"data": {"results": pics}}
-            )
+            return_value=HttpResponse(status_code=200, data={"data": {"results": pics}})
         )
         result = await client.get_album_pictures([100], album_id=1)
         assert result == pics
