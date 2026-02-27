@@ -11,13 +11,6 @@ from zoneinfo import ZoneInfo
 import click
 import qrcode
 
-try:
-    from dotenv import load_dotenv
-
-    load_dotenv()
-except ImportError:
-    pass  # dotenv is an optional dependency
-
 # On Windows, use SelectorEventLoopPolicy to avoid 'Event loop closed' issues
 if sys.platform.startswith("win"):
     asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())

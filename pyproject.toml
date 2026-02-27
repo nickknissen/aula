@@ -30,7 +30,6 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-cli = ["python-dotenv>=1.0.0"]
 rich = ["rich"]
 
 [project.scripts]
