@@ -24,6 +24,7 @@ from .utils.output import (
     clip,
     format_message_lines,
     format_notification_lines,
+    format_post_lines,
     format_row,
     print_empty,
     print_error,
@@ -574,7 +575,7 @@ async def posts(ctx, institution_profile_id, limit, page):
                 prof = await client.get_profile()
                 institution_profile_ids = prof.institution_profile_ids
             except Exception as e:
-                click.echo(f"Error fetching profile: {e}")
+                print_error(f"fetching profile: {e}")
                 return
 
         try:
@@ -585,33 +586,29 @@ async def posts(ctx, institution_profile_id, limit, page):
             )
 
             if not posts_list:
-                click.echo("No posts found.")
+                print_empty("posts")
                 return
+
+            print_heading("Posts")
 
             for i, post in enumerate(posts_list):
                 date_str = post.timestamp.strftime("%Y-%m-%d %H:%M") if post.timestamp else ""
 
-                click.echo(f"{'=' * 60}")
-                click.echo(f"  {post.title}")
-                meta = f"  {post.owner.full_name}"
-                if date_str:
-                    meta += f"  |  {date_str}"
-                click.echo(meta)
-                click.echo(f"{'=' * 60}")
-
-                if post.content:
-                    for line in post.content.splitlines():
-                        click.echo(f"  {line}")
-
-                if post.attachments:
-                    click.echo(f"\n  Attachments: {len(post.attachments)}")
+                for line in format_post_lines(
+                    title=post.title,
+                    author=post.owner.full_name,
+                    date=date_str,
+                    body=post.content,
+                    attachments_count=len(post.attachments),
+                ):
+                    click.echo(line)
 
                 if i < len(posts_list) - 1:
                     click.echo()
 
         except Exception as e:
-            click.echo(f"Error fetching posts: {e}", err=True)
-            raise
+            print_error(f"fetching posts: {e}")
+            return
 
 
 @cli.command("mu:opgaver")
