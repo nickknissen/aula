@@ -1,8 +1,11 @@
 """Tests for aula.utils.output."""
 
+import datetime
+
 from aula.models.notification import Notification
 from aula.utils.output import (
     clip,
+    format_calendar_context_lines,
     format_heading_lines,
     format_message_lines,
     format_notification_lines,
@@ -191,4 +194,19 @@ class TestFormatPostLines:
             "Title",
             "  Body:",
             "  (no post body)",
+        ]
+
+
+class TestFormatCalendarContextLines:
+    def test_formats_calendar_context_lines(self):
+        lines = format_calendar_context_lines(
+            datetime.datetime(2026, 3, 1),
+            datetime.datetime(2026, 3, 7),
+            profile_count=2,
+        )
+
+        assert lines == [
+            "  Start: 2026-03-01",
+            "  End: 2026-03-07",
+            "  Profiles: 2",
         ]

@@ -1,5 +1,6 @@
 """Shared helpers for consistent human-readable CLI output."""
 
+import datetime
 from typing import TYPE_CHECKING
 
 import click
@@ -145,3 +146,16 @@ def format_post_lines(
         lines.append(f"  Attachments: {attachments_count}")
 
     return lines
+
+
+def format_calendar_context_lines(
+    start_date: datetime.datetime,
+    end_date: datetime.datetime,
+    profile_count: int,
+) -> list[str]:
+    """Format calendar query context lines."""
+    return [
+        f"  Start: {start_date.strftime('%Y-%m-%d')}",
+        f"  End: {end_date.strftime('%Y-%m-%d')}",
+        f"  Profiles: {profile_count}",
+    ]

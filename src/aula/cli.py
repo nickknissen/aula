@@ -22,6 +22,7 @@ from .models import DailyOverview, Message, MessageThread, Notification, Profile
 from .token_storage import FileTokenStorage
 from .utils.output import (
     clip,
+    format_calendar_context_lines,
     format_message_lines,
     format_notification_lines,
     format_post_lines,
@@ -511,7 +512,7 @@ async def notifications(ctx, offset, limit, module):
 async def calendar(ctx, institution_profile_id, start_date, end_date):
     """Fetch calendar events for children."""
     async with await _get_client(ctx) as client:
-        click.echo("Fetching calendar events...")
+        print_heading("Calendar events")
 
         institution_profile_ids = list(institution_profile_id)
 
@@ -520,28 +521,35 @@ async def calendar(ctx, institution_profile_id, start_date, end_date):
                 prof = await client.get_profile()
                 institution_profile_ids = prof.institution_profile_ids
             except Exception as e:
-                click.echo(f"Error fetching profile to get child IDs: {e}")
+                print_error(f"fetching profile to get child IDs: {e}")
                 return
 
-        ids_str = ", ".join(str(x) for x in institution_profile_ids)
-        click.echo(f"Fetching for institution IDs: {ids_str}")
+        if not institution_profile_ids:
+            print_empty("institution profile IDs")
+            return
 
         try:
+            for line in format_calendar_context_lines(
+                start_date,
+                end_date,
+                profile_count=len(institution_profile_ids),
+            ):
+                click.echo(line)
+
             events = await client.get_calendar_events(institution_profile_ids, start_date, end_date)
 
             if not events:
-                click.echo("No calendar events found for the specified criteria.")
+                print_empty("calendar events")
                 return
 
-            click.echo("\n--- Calendar Events Table ---")
             from .utils.table import build_calendar_table, print_calendar_table
 
             table_data = build_calendar_table(events)
             print_calendar_table(table_data)
 
         except Exception as e:
-            click.echo(f"Error fetching calendar events: {e}")
-            raise
+            print_error(f"fetching calendar events: {e}")
+            return
 
 
 @cli.command()
