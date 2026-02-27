@@ -148,6 +148,32 @@ def format_post_lines(
     return lines
 
 
+def format_record_lines(
+    title: str,
+    properties: list[tuple[str, str | None]] | None = None,
+    body_lines: list[str] | None = None,
+    body_label: str | None = None,
+    empty_body_text: str | None = None,
+) -> list[str]:
+    """Format a generic title + properties + optional body block."""
+    lines = [clip(title) if title.strip() else "(No title)"]
+
+    for label, value in properties or []:
+        if value and value.strip():
+            lines.append(f"  {label}: {value.strip()}")
+
+    if body_label:
+        lines.append(f"  {body_label}:")
+
+    normalized_body = [clip(line) for line in (body_lines or []) if line.strip()]
+    if normalized_body:
+        lines.extend(f"  {line}" for line in normalized_body)
+    elif body_label and empty_body_text:
+        lines.append(f"  {empty_body_text}")
+
+    return lines
+
+
 def format_calendar_context_lines(
     start_date: datetime.datetime,
     end_date: datetime.datetime,
@@ -159,3 +185,11 @@ def format_calendar_context_lines(
         f"  End: {end_date.strftime('%Y-%m-%d')}",
         f"  Profiles: {profile_count}",
     ]
+
+
+def format_report_intro_lines(title: str, properties: list[tuple[str, str]]) -> list[str]:
+    """Format a report intro as title + key-value lines."""
+    lines = [title.strip()]
+    for key, value in properties:
+        lines.append(f"  {key}: {value}")
+    return lines

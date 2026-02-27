@@ -26,6 +26,8 @@ from .utils.output import (
     format_message_lines,
     format_notification_lines,
     format_post_lines,
+    format_record_lines,
+    format_report_intro_lines,
     format_row,
     print_empty,
     print_error,
@@ -635,11 +637,11 @@ async def mu_opgaver(ctx, week):
         try:
             prof: Profile = await client.get_profile()
         except Exception as e:
-            click.echo(f"Error fetching profile: {e}")
+            print_error(f"fetching profile: {e}")
             return
 
         if not prof.children:
-            click.echo("No children found in profile.")
+            print_empty("children")
             return
 
         widget_ctx = await _get_widget_context(client, prof)
@@ -658,29 +660,33 @@ async def mu_opgaver(ctx, week):
                 session_uuid,
             )
         except Exception as e:
-            click.echo(f"Error fetching tasks: {e}")
+            print_error(f"fetching tasks: {e}")
             return
 
-        click.echo(f"{'=' * 60}")
-        click.echo(f"  Min Uddannelse Tasks  [{week}]")
-        click.echo(f"{'=' * 60}")
+        print_heading(f"Min Uddannelse tasks [{week}]")
 
         if not opgaver:
-            click.echo("  No tasks found.")
+            print_empty("tasks")
         else:
-            for task in opgaver:
-                click.echo(f"\n  {task.title}")
-                click.echo(f"  {'-' * 40}")
-                if task.student_name:
-                    click.echo(f"  Student: {task.student_name}")
-                if task.weekday:
-                    click.echo(f"  Day:     {task.weekday}")
-                if task.task_type:
-                    click.echo(f"  Type:    {task.task_type}")
-                for cls in task.classes:
-                    click.echo(f"  Class:   {cls.name} ({cls.subject_name})")
-                if task.course:
-                    click.echo(f"  Course:  {task.course.name}")
+            for i, task in enumerate(opgaver):
+                classes = ", ".join(
+                    f"{cls.name} ({cls.subject_name})" if cls.subject_name else cls.name
+                    for cls in task.classes
+                )
+                course = task.course.name if task.course else ""
+                for line in format_record_lines(
+                    title=task.title,
+                    properties=[
+                        ("Student", task.student_name),
+                        ("Day", task.weekday),
+                        ("Type", task.task_type),
+                        ("Classes", classes),
+                        ("Course", course),
+                    ],
+                ):
+                    click.echo(line)
+                if i < len(opgaver) - 1:
+                    click.echo()
 
 
 @cli.command("mu:ugeplan")
@@ -699,11 +705,11 @@ async def mu_ugeplan(ctx, week):
         try:
             prof: Profile = await client.get_profile()
         except Exception as e:
-            click.echo(f"Error fetching profile: {e}")
+            print_error(f"fetching profile: {e}")
             return
 
         if not prof.children:
-            click.echo("No children found in profile.")
+            print_empty("children")
             return
 
         widget_ctx = await _get_widget_context(client, prof)
@@ -723,24 +729,35 @@ async def mu_ugeplan(ctx, week):
                 session_uuid,
             )
         except Exception as e:
-            click.echo(f"Error fetching weekly plans: {e}")
+            print_error(f"fetching weekly plans: {e}")
             return
 
         if not personer:
-            click.echo("No weekly plans found.")
+            print_empty("weekly plans")
             return
 
+        print_heading(f"Min Uddannelse weekly plans [{week}]")
+
+        rendered = 0
         for person in personer:
             for inst in person.institutions:
                 for letter in inst.letters:
-                    click.echo(f"{'=' * 60}")
-                    click.echo(f"  {person.name}  [{letter.group_name}]")
-                    click.echo(f"  {inst.name}  |  Week {letter.week_number}")
-                    click.echo(f"{'=' * 60}")
+                    rendered += 1
+                    for line in format_record_lines(
+                        title=f"{person.name} [{letter.group_name}]",
+                        properties=[
+                            ("Institution", inst.name),
+                            ("Week", str(letter.week_number)),
+                        ],
+                        body_lines=html_to_plain(letter.content_html).splitlines(),
+                        body_label="Body",
+                        empty_body_text="(no weekly plan body)",
+                    ):
+                        click.echo(line)
                     click.echo()
-                    for line in html_to_plain(letter.content_html).splitlines():
-                        click.echo(f"  {line}")
-                    click.echo()
+
+        if rendered == 0:
+            print_empty("weekly plans")
 
 
 @cli.command("easyiq:ugeplan")
@@ -759,11 +776,11 @@ async def easyiq_ugeplan(ctx, week):
         try:
             prof: Profile = await client.get_profile()
         except Exception as e:
-            click.echo(f"Error fetching profile: {e}")
+            print_error(f"fetching profile: {e}")
             return
 
         if not prof.children:
-            click.echo("No children found in profile.")
+            print_empty("children")
             return
 
         institution_filter: list[str] = []
@@ -777,8 +794,13 @@ async def easyiq_ugeplan(ctx, week):
             profile_context = await client.get_profile_context()
             session_uuid = profile_context["data"]["userId"]
         except Exception as e:
-            click.echo(f"Error fetching profile context: {e}")
+            print_error(f"fetching profile context: {e}")
             return
+
+        from .utils.html import html_to_plain
+
+        print_heading(f"EasyIQ weekly plan [{week}]")
+        rendered = 0
 
         for child in prof.children:
             if not child._raw or "userId" not in child._raw:
@@ -790,27 +812,29 @@ async def easyiq_ugeplan(ctx, week):
                     week, session_uuid, institution_filter, child_id
                 )
             except Exception as e:
-                click.echo(f"Error fetching EasyIQ weekplan for {child.name}: {e}")
+                print_error(f"fetching EasyIQ weekplan for {child.name}: {e}")
                 continue
 
-            click.echo(f"{'=' * 60}")
-            click.echo(f"  {child.name}  |  EasyIQ Ugeplan  [{week}]")
-            click.echo(f"{'=' * 60}")
+            for appt in appointments:
+                rendered += 1
+                for line in format_record_lines(
+                    title=appt.title,
+                    properties=[
+                        ("Child", child.name),
+                        ("Start", appt.start),
+                        ("End", appt.end),
+                    ],
+                    body_lines=html_to_plain(appt.description).splitlines()
+                    if appt.description
+                    else [],
+                    body_label="Body",
+                    empty_body_text="(no description)",
+                ):
+                    click.echo(line)
+                click.echo()
 
-            if not appointments:
-                click.echo("  No appointments found.")
-            else:
-                for appt in appointments:
-                    click.echo(f"\n  {appt.title}")
-                    if appt.start or appt.end:
-                        click.echo(f"  {appt.start} - {appt.end}")
-                    if appt.description:
-                        from .utils.html import html_to_plain
-
-                        for line in html_to_plain(appt.description).splitlines():
-                            click.echo(f"    {line}")
-
-            click.echo()
+        if rendered == 0:
+            print_empty("appointments")
 
 
 @cli.command("easyiq:homework")
@@ -829,11 +853,11 @@ async def easyiq_homework(ctx, week):
         try:
             prof: Profile = await client.get_profile()
         except Exception as e:
-            click.echo(f"Error fetching profile: {e}")
+            print_error(f"fetching profile: {e}")
             return
 
         if not prof.children:
-            click.echo("No children found in profile.")
+            print_empty("children")
             return
 
         institution_filter: list[str] = []
@@ -847,10 +871,13 @@ async def easyiq_homework(ctx, week):
             profile_context = await client.get_profile_context()
             session_uuid = profile_context["data"]["userId"]
         except Exception as e:
-            click.echo(f"Error fetching profile context: {e}")
+            print_error(f"fetching profile context: {e}")
             return
 
         from .utils.html import html_to_plain
+
+        print_heading(f"EasyIQ homework [{week}]")
+        rendered = 0
 
         for child in prof.children:
             if not child._raw or "userId" not in child._raw:
@@ -862,28 +889,29 @@ async def easyiq_homework(ctx, week):
                     week, session_uuid, institution_filter, child_id
                 )
             except Exception as e:
-                click.echo(f"Error fetching EasyIQ homework for {child.name}: {e}")
+                print_error(f"fetching EasyIQ homework for {child.name}: {e}")
                 continue
 
-            click.echo(f"{'=' * 60}")
-            click.echo(f"  {child.name}  |  EasyIQ Homework  [{week}]")
-            click.echo(f"{'=' * 60}")
+            for hw in homework:
+                rendered += 1
+                status = "Completed" if hw.is_completed else "Pending"
+                for line in format_record_lines(
+                    title=hw.title,
+                    properties=[
+                        ("Child", child.name),
+                        ("Status", status),
+                        ("Subject", hw.subject),
+                        ("Due", hw.due_date),
+                    ],
+                    body_lines=html_to_plain(hw.description).splitlines() if hw.description else [],
+                    body_label="Body",
+                    empty_body_text="(no description)",
+                ):
+                    click.echo(line)
+                click.echo()
 
-            if not homework:
-                click.echo("  No homework found.")
-            else:
-                for hw in homework:
-                    status = "[x]" if hw.is_completed else "[ ]"
-                    click.echo(f"\n  {status} {hw.title}")
-                    if hw.subject:
-                        click.echo(f"      Subject: {hw.subject}")
-                    if hw.due_date:
-                        click.echo(f"      Due: {hw.due_date}")
-                    if hw.description:
-                        for line in html_to_plain(hw.description).splitlines():
-                            click.echo(f"      {line}")
-
-            click.echo()
+        if rendered == 0:
+            print_empty("homework")
 
 
 @cli.command("meebook:ugeplan")
@@ -902,11 +930,11 @@ async def meebook_ugeplan(ctx, week):
         try:
             prof: Profile = await client.get_profile()
         except Exception as e:
-            click.echo(f"Error fetching profile: {e}")
+            print_error(f"fetching profile: {e}")
             return
 
         if not prof.children:
-            click.echo("No children found in profile.")
+            print_empty("children")
             return
 
         child_filter = [
@@ -915,7 +943,7 @@ async def meebook_ugeplan(ctx, week):
             if child._raw and "userId" in child._raw
         ]
         if not child_filter:
-            click.echo("No child user IDs found in profile data.")
+            print_empty("child user IDs")
             return
 
         institution_filter: list[str] = []
@@ -929,7 +957,7 @@ async def meebook_ugeplan(ctx, week):
             profile_context = await client.get_profile_context()
             session_uuid = profile_context["data"]["userId"]
         except Exception as e:
-            click.echo(f"Error fetching profile context: {e}")
+            print_error(f"fetching profile context: {e}")
             return
 
         try:
@@ -937,39 +965,39 @@ async def meebook_ugeplan(ctx, week):
                 child_filter, institution_filter, week, session_uuid
             )
         except Exception as e:
-            click.echo(f"Error fetching Meebook weekplan: {e}")
+            print_error(f"fetching Meebook weekplan: {e}")
             return
 
         if not students:
-            click.echo("No weekly plans found.")
+            print_empty("weekly plans")
             return
 
         from .utils.html import html_to_plain
 
+        print_heading(f"Meebook weekly plan [{week}]")
+        rendered = 0
+
         for student in students:
-            click.echo(f"{'=' * 60}")
-            click.echo(f"  {student.name}  |  Meebook Ugeplan  [{week}]")
-            click.echo(f"{'=' * 60}")
-
-            if not student.week_plan:
-                click.echo("  No plan for this week.")
-                continue
-
             for day in student.week_plan:
                 if not day.tasks:
                     continue
-                click.echo(f"\n  {day.date}")
-                click.echo(f"  {'-' * 40}")
                 for task in day.tasks:
+                    rendered += 1
                     label = task.title or task.type
                     if task.pill:
                         label = f"[{task.pill}] {label}"
-                    click.echo(f"  {label}")
-                    if task.content:
-                        for line in html_to_plain(task.content).splitlines():
-                            click.echo(f"    {line}")
+                    for line in format_record_lines(
+                        title=label,
+                        properties=[("Student", student.name), ("Date", day.date)],
+                        body_lines=html_to_plain(task.content).splitlines() if task.content else [],
+                        body_label="Body",
+                        empty_body_text="(no description)",
+                    ):
+                        click.echo(line)
+                    click.echo()
 
-            click.echo()
+        if rendered == 0:
+            print_empty("weekly plans")
 
 
 @cli.command("momo:forløb")
@@ -981,11 +1009,11 @@ async def momo_course(ctx):
         try:
             prof: Profile = await client.get_profile()
         except Exception as e:
-            click.echo(f"Error fetching profile: {e}")
+            print_error(f"fetching profile: {e}")
             return
 
         if not prof.children:
-            click.echo("No children found in profile.")
+            print_empty("children")
             return
 
         children = [
@@ -994,7 +1022,7 @@ async def momo_course(ctx):
             if child._raw and "userId" in child._raw
         ]
         if not children:
-            click.echo("No child user IDs found in profile data.")
+            print_empty("child user IDs")
             return
 
         institutions: list[str] = []
@@ -1008,7 +1036,7 @@ async def momo_course(ctx):
             profile_context = await client.get_profile_context()
             session_uuid = profile_context["data"]["userId"]
         except Exception as e:
-            click.echo(f"Error fetching profile context: {e}")
+            print_error(f"fetching profile context: {e}")
             return
 
         try:
@@ -1016,28 +1044,29 @@ async def momo_course(ctx):
                 children, institutions, session_uuid
             )
         except Exception as e:
-            click.echo(f"Error fetching MoMo courses: {e}")
+            print_error(f"fetching MoMo courses: {e}")
             return
 
         if not users_with_courses:
-            click.echo("No courses found.")
+            print_empty("courses")
             return
+
+        print_heading("MoMo courses")
+        rendered = 0
 
         for user in users_with_courses:
             name = user.name.split()[0] if user.name else "Unknown"
+            for course in user.courses:
+                rendered += 1
+                for line in format_record_lines(
+                    title=course.title,
+                    properties=[("Child", name)],
+                ):
+                    click.echo(line)
+                click.echo()
 
-            click.echo(f"{'=' * 60}")
-            click.echo(f"  {name}  |  MoMo Course")
-            click.echo(f"{'=' * 60}")
-
-            if not user.courses:
-                click.echo("  No courses.")
-            else:
-                for course in user.courses:
-                    click.echo(f"\n  {course.title}")
-                    click.echo(f"  {'-' * 40}")
-
-            click.echo()
+        if rendered == 0:
+            print_empty("courses")
 
 
 @cli.command("momo:huskeliste")
@@ -1049,11 +1078,11 @@ async def momo_reminders(ctx):
         try:
             prof: Profile = await client.get_profile()
         except Exception as e:
-            click.echo(f"Error fetching profile: {e}")
+            print_error(f"fetching profile: {e}")
             return
 
         if not prof.children:
-            click.echo("No children found in profile.")
+            print_empty("children")
             return
 
         children = [
@@ -1062,7 +1091,7 @@ async def momo_reminders(ctx):
             if child._raw and "userId" in child._raw
         ]
         if not children:
-            click.echo("No child user IDs found in profile data.")
+            print_empty("child user IDs")
             return
 
         institutions: list[str] = []
@@ -1076,7 +1105,7 @@ async def momo_reminders(ctx):
             profile_context = await client.get_profile_context()
             session_uuid = profile_context["data"]["userId"]
         except Exception as e:
-            click.echo(f"Error fetching profile context: {e}")
+            print_error(f"fetching profile context: {e}")
             return
 
         today = datetime.date.today()
@@ -1088,26 +1117,18 @@ async def momo_reminders(ctx):
                 children, institutions, session_uuid, from_date, due_no_later_than
             )
         except Exception as e:
-            click.echo(f"Error fetching reminders: {e}")
+            print_error(f"fetching reminders: {e}")
             return
 
         if not users:
-            click.echo("No reminders found.")
+            print_empty("reminders")
             return
 
         tz = ZoneInfo("Europe/Copenhagen")
+        print_heading("MoMo reminders")
+        rendered = 0
         for user in users:
             name = user.user_name.split()[0] if user.user_name else "Unknown"
-
-            click.echo(f"{'=' * 60}")
-            click.echo(f"  {name}  |  Huskelisten")
-            click.echo(f"{'=' * 60}")
-
-            all_reminders = user.team_reminders + user.assignment_reminders
-            if not all_reminders:
-                click.echo("  Ingen påmindelser.")
-                click.echo()
-                continue
 
             for r in user.team_reminders:
                 due = ""
@@ -1119,10 +1140,21 @@ async def momo_reminders(ctx):
                         due = dt.strftime("%A %d. %B")
                     except ValueError:
                         due = r.due_date
-                click.echo(f"\n  {due}")
-                click.echo(f"  {r.subject_name} — af {r.created_by}")
-                click.echo(f"  {r.team_name}")
-                click.echo(f"  {r.reminder_text}")
+                rendered += 1
+                for line in format_record_lines(
+                    title=r.subject_name or "Team reminder",
+                    properties=[
+                        ("Child", name),
+                        ("Due", due),
+                        ("Created by", r.created_by),
+                        ("Team", r.team_name),
+                    ],
+                    body_lines=[r.reminder_text],
+                    body_label="Body",
+                    empty_body_text="(no reminder text)",
+                ):
+                    click.echo(line)
+                click.echo()
 
             for r in user.assignment_reminders:
                 due = ""
@@ -1135,12 +1167,19 @@ async def momo_reminders(ctx):
                     except ValueError:
                         due = r.due_date
                 teams = ", ".join(r.team_names) if r.team_names else ""
-                click.echo(f"\n  {due}")
-                if teams:
-                    click.echo(f"  {teams}")
-                click.echo(f"  {r.assignment_text}")
+                rendered += 1
+                for line in format_record_lines(
+                    title="Assignment reminder",
+                    properties=[("Child", name), ("Due", due), ("Teams", teams)],
+                    body_lines=[r.assignment_text],
+                    body_label="Body",
+                    empty_body_text="(no assignment text)",
+                ):
+                    click.echo(line)
+                click.echo()
 
-            click.echo()
+        if rendered == 0:
+            print_empty("reminders")
 
 
 @cli.command("download-images")
@@ -1184,6 +1223,7 @@ async def download_images(ctx, output, since, source, tags):
     tag_list = list(tags) if tags else None
 
     async with await _get_client(ctx) as client:
+        print_heading("Download images")
         prof = await client.get_profile()
         institution_profile_ids = prof.institution_profile_ids
 
@@ -1209,7 +1249,9 @@ async def download_images(ctx, output, since, source, tags):
                 tag_list,
                 on_progress=click.echo,
             )
-            click.echo(f"  Done: {dl} downloaded, {sk} skipped\n")
+            click.echo(f"  Downloaded: {dl}")
+            click.echo(f"  Skipped: {sk}")
+            click.echo()
             total_downloaded += dl
             total_skipped += sk
 
@@ -1222,7 +1264,9 @@ async def download_images(ctx, output, since, source, tags):
                 cutoff,
                 on_progress=click.echo,
             )
-            click.echo(f"  Done: {dl} downloaded, {sk} skipped\n")
+            click.echo(f"  Downloaded: {dl}")
+            click.echo(f"  Skipped: {sk}")
+            click.echo()
             total_downloaded += dl
             total_skipped += sk
 
@@ -1236,11 +1280,15 @@ async def download_images(ctx, output, since, source, tags):
                 cutoff,
                 on_progress=click.echo,
             )
-            click.echo(f"  Done: {dl} downloaded, {sk} skipped\n")
+            click.echo(f"  Downloaded: {dl}")
+            click.echo(f"  Skipped: {sk}")
+            click.echo()
             total_downloaded += dl
             total_skipped += sk
 
-        click.echo(f"\nTotal: {total_downloaded} downloaded, {total_skipped} skipped")
+        click.echo("Total")
+        click.echo(f"  Downloaded: {total_downloaded}")
+        click.echo(f"  Skipped: {total_skipped}")
 
 
 @cli.command("library:status")
@@ -1252,11 +1300,11 @@ async def library_status(ctx):
         try:
             prof: Profile = await client.get_profile()
         except Exception as e:
-            click.echo(f"Error fetching profile: {e}")
+            print_error(f"fetching profile: {e}")
             return
 
         if not prof.children:
-            click.echo("No children found in profile.")
+            print_empty("children")
             return
 
         widget_ctx = await _get_widget_context(client, prof)
@@ -1274,44 +1322,51 @@ async def library_status(ctx):
                 session_uuid,
             )
         except Exception as e:
-            click.echo(f"Error fetching library status: {e}")
+            print_error(f"fetching library status: {e}")
             return
 
-        click.echo(f"{'=' * 60}")
-        click.echo("  Library Status")
-        click.echo(f"{'=' * 60}")
+        print_heading("Library status")
+        rendered = 0
 
-        if status.loans:
-            click.echo(f"\n  Loans ({len(status.loans)})")
-            for loan in status.loans:
-                click.echo(f"\n  {loan.title}")
-                click.echo(f"  {'-' * 40}")
-                if loan.author:
-                    click.echo(f"  Author:   {loan.author}")
-                click.echo(f"  Borrower: {loan.patron_display_name}")
-                click.echo(f"  Due date: {loan.due_date}")
-        else:
-            click.echo("\n  No active loans.")
+        for loan in status.loans:
+            rendered += 1
+            for line in format_record_lines(
+                title=loan.title,
+                properties=[
+                    ("Category", "Loan"),
+                    ("Author", loan.author),
+                    ("Borrower", loan.patron_display_name),
+                    ("Due", loan.due_date),
+                ],
+            ):
+                click.echo(line)
+            click.echo()
 
-        if status.longterm_loans:
-            click.echo(f"\n  Long-term loans ({len(status.longterm_loans)})")
-            for loan in status.longterm_loans:
-                click.echo(f"\n  {loan.title}")
-                click.echo(f"  {'-' * 40}")
-                if loan.author:
-                    click.echo(f"  Author:   {loan.author}")
-                click.echo(f"  Borrower: {loan.patron_display_name}")
-                click.echo(f"  Due date: {loan.due_date}")
+        for loan in status.longterm_loans:
+            rendered += 1
+            for line in format_record_lines(
+                title=loan.title,
+                properties=[
+                    ("Category", "Long-term loan"),
+                    ("Author", loan.author),
+                    ("Borrower", loan.patron_display_name),
+                    ("Due", loan.due_date),
+                ],
+            ):
+                click.echo(line)
+            click.echo()
 
-        if status.reservations:
-            click.echo(f"\n  Reservations ({len(status.reservations)})")
-            for res in status.reservations:
-                click.echo(f"  - {res}")
+        for reservation in status.reservations:
+            rendered += 1
+            for line in format_record_lines(
+                title=str(reservation),
+                properties=[("Category", "Reservation")],
+            ):
+                click.echo(line)
+            click.echo()
 
-        if not status.loans and not status.longterm_loans and not status.reservations:
-            click.echo("\n  No loans or reservations found.")
-
-        click.echo()
+        if rendered == 0:
+            print_empty("loans or reservations")
 
 
 @cli.command("weekly-summary")
@@ -1378,11 +1433,11 @@ async def weekly_summary(ctx, child, week, providers):
         try:
             prof: Profile = await client.get_profile()
         except Exception as e:
-            click.echo(f"Error fetching profile: {e}")
+            print_error(f"fetching profile: {e}")
             return
 
         if not prof.children:
-            click.echo("No children found in profile.")
+            print_empty("children")
             return
 
         # Filter children by name if --child provided
@@ -1392,15 +1447,21 @@ async def weekly_summary(ctx, child, week, providers):
             children = [c for c in prof.children if needle in c.name.lower()]
             if not children:
                 names = ", ".join(c.name for c in prof.children)
-                click.echo(f"No child matching '{child}'. Available: {names}")
+                print_error(f"no child matching '{child}'. Available: {names}")
                 return
 
         now = datetime.datetime.now(ZoneInfo("Europe/Copenhagen"))
-        click.echo(f"# Weekly Overview – Week {week_num}, {year_num}")
-        click.echo(f"Generated: {now.strftime('%Y-%m-%d')}")
-        click.echo(
-            f"Period: {week_start.strftime('%a %d %b')} – {week_end.strftime('%a %d %b %Y')}"
-        )
+        for line in format_report_intro_lines(
+            f"Weekly overview - week {week_num}, {year_num}",
+            [
+                ("Generated", now.strftime("%Y-%m-%d")),
+                (
+                    "Period",
+                    f"{week_start.strftime('%a %d %b')} - {week_end.strftime('%a %d %b %Y')}",
+                ),
+            ],
+        ):
+            click.echo(line)
         click.echo()
 
         # ── Calendar events ──────────────────────────────────────────────────
@@ -1411,7 +1472,7 @@ async def weekly_summary(ctx, child, week, providers):
             events = []
             logging.getLogger(__name__).warning("Could not fetch calendar events: %s", e)
 
-        click.echo("## Calendar Events")
+        click.echo("Calendar events")
         click.echo()
         if events:
             # Group by date
@@ -1425,7 +1486,7 @@ async def weekly_summary(ctx, child, week, providers):
                 day = (week_start + datetime.timedelta(days=day_offset)).date()
                 day_label = (week_start + datetime.timedelta(days=day_offset)).strftime("%A, %d %B")
                 day_events = sorted(by_day.get(day, []), key=lambda e: e.start_datetime)
-                click.echo(f"### {day_label}")
+                click.echo(day_label)
                 if day_events:
                     # Merge events that share the exact same timeslot
                     slots: dict[tuple, list] = defaultdict(list)
@@ -1457,7 +1518,7 @@ async def weekly_summary(ctx, child, week, providers):
                     click.echo("- (no events)")
                 click.echo()
         else:
-            click.echo("No calendar events found.")
+            print_empty("calendar events")
             click.echo()
 
         # ── Unread messages ──────────────────────────────────────────────────
@@ -1468,7 +1529,7 @@ async def weekly_summary(ctx, child, week, providers):
             _log.warning("Could not fetch unread messages: %s", e)
 
         if unread_threads:
-            click.echo("## Unread Messages")
+            click.echo("Unread messages")
             click.echo()
             for thread in unread_threads:
                 raw = thread._raw or {}
@@ -1479,9 +1540,9 @@ async def weekly_summary(ctx, child, week, providers):
                     meta.append(", ".join(participants))
                 if last_updated:
                     meta.append(last_updated)
-                click.echo(f"### {thread.subject}")
+                click.echo(thread.subject)
                 if meta:
-                    click.echo(f"_{' | '.join(meta)}_")
+                    click.echo(f"  Meta: {' | '.join(meta)}")
                 click.echo()
                 try:
                     msgs = await client.get_messages_for_thread(thread.thread_id)
@@ -1489,7 +1550,9 @@ async def weekly_summary(ctx, child, week, providers):
                         msg_raw = msg._raw or {}
                         sender = msg_raw.get("sender", {}).get("fullName", "Unknown")
                         send_date = msg_raw.get("sendDateTime", "")
-                        click.echo(f"**{sender}** {send_date}".strip())
+                        click.echo(f"Author: {sender}")
+                        if send_date:
+                            click.echo(f"Date: {send_date}")
                         for line in msg.content.splitlines():
                             if line.strip():
                                 click.echo(line)
@@ -1531,7 +1594,7 @@ async def weekly_summary(ctx, child, week, providers):
                 tasks = []
                 _log.warning("Could not fetch MU tasks: %s", e)
 
-            click.echo("## Homework & Tasks (Min Uddannelse)")
+            click.echo("Homework & tasks (Min Uddannelse)")
             click.echo()
             if tasks:
                 for task in tasks:
@@ -1549,7 +1612,7 @@ async def weekly_summary(ctx, child, week, providers):
                     if task.task_type:
                         click.echo(f"  Type: {task.task_type}")
             else:
-                click.echo("No tasks found.")
+                print_empty("tasks")
             click.echo()
 
         # ── Min Uddannelse – Weekly Letter (Ugeplan) ─────────────────────────
@@ -1569,12 +1632,12 @@ async def weekly_summary(ctx, child, week, providers):
                 _log.warning("Could not fetch MU ugeplan: %s", e)
 
             if mu_persons:
-                click.echo("## Weekly Letter (Min Uddannelse Ugeplan)")
+                click.echo("Weekly letter (Min Uddannelse ugeplan)")
                 click.echo()
                 for person in mu_persons:
                     for inst in person.institutions:
                         for letter in inst.letters:
-                            click.echo(f"### {person.name} – {letter.group_name} ({inst.name})")
+                            click.echo(f"{person.name} - {letter.group_name} ({inst.name})")
                             click.echo()
                             for line in html_to_plain(letter.content_html).splitlines():
                                 click.echo(line)
@@ -1591,15 +1654,15 @@ async def weekly_summary(ctx, child, week, providers):
                 _log.warning("Could not fetch Meebook weekplan: %s", e)
 
             if meebook_students:
-                click.echo("## Weekly Plan (Meebook)")
+                click.echo("Weekly plan (Meebook)")
                 click.echo()
                 for student in meebook_students:
-                    click.echo(f"### {student.name}")
+                    click.echo(student.name)
                     click.echo()
                     for day in student.week_plan:
                         if not day.tasks:
                             continue
-                        click.echo(f"**{day.date}**")
+                        click.echo(day.date)
                         for task in day.tasks:
                             label = task.title or task.type
                             if task.pill:
@@ -1635,11 +1698,11 @@ async def weekly_summary(ctx, child, week, providers):
                     continue
 
                 if not easyiq_any:
-                    click.echo("## Weekly Plan (EasyIQ)")
+                    click.echo("Weekly plan (EasyIQ)")
                     click.echo()
                     easyiq_any = True
 
-                click.echo(f"### {c.name}")
+                click.echo(c.name)
                 click.echo()
                 for appt in appointments:
                     click.echo(f"- {appt.title}")
@@ -1675,11 +1738,11 @@ async def weekly_summary(ctx, child, week, providers):
                     continue
 
                 if not easyiq_hw_any:
-                    click.echo("## Homework (EasyIQ)")
+                    click.echo("Homework (EasyIQ)")
                     click.echo()
                     easyiq_hw_any = True
 
-                click.echo(f"### {c.name}")
+                click.echo(c.name)
                 click.echo()
                 for hw in homework:
                     status = "[x]" if hw.is_completed else "[ ]"
@@ -1719,21 +1782,18 @@ async def presence_templates(ctx, from_date, to_date):
     to_date_d = to_date.date() if to_date else (now + datetime.timedelta(days=7)).date()
 
     if from_date_d > to_date_d:
-        click.echo(
-            f"Error: --from-date ({from_date_d}) must be on or before --to-date ({to_date_d})",
-            err=True,
-        )
+        print_error(f"--from-date ({from_date_d}) must be on or before --to-date ({to_date_d})")
         return
 
     async with await _get_client(ctx) as client:
         try:
             prof: Profile = await client.get_profile()
         except Exception as e:
-            click.echo(f"Error fetching profile: {e}")
+            print_error(f"fetching profile: {e}")
             return
 
         if not prof.children:
-            click.echo("No children found in profile.")
+            print_empty("children")
             return
 
         institution_profile_ids = [child.id for child in prof.children]
@@ -1743,12 +1803,14 @@ async def presence_templates(ctx, from_date, to_date):
                 institution_profile_ids, from_date_d, to_date_d
             )
         except Exception as e:
-            click.echo(f"Error fetching presence templates: {e}")
+            print_error(f"fetching presence templates: {e}")
             return
 
         if not templates:
-            click.echo("No presence templates found.")
+            print_empty("presence templates")
             return
+
+        print_heading("Presence templates")
 
         for tmpl in templates:
             ip = tmpl.institution_profile
@@ -1761,32 +1823,44 @@ async def presence_templates(ctx, from_date, to_date):
                 name = ip.name
                 institution = ip.institution_name
 
-            click.echo(f"{'=' * 60}")
             header = name or "Unknown"
             if institution:
-                header = f"{header}  |  {institution}"
-            click.echo(f"  {header}")
-            click.echo(f"{'=' * 60}")
+                header = f"{header} ({institution})"
 
             if not tmpl.day_templates:
-                click.echo("  No day templates.")
+                for line in format_record_lines(
+                    title=header,
+                    properties=[],
+                    body_lines=[],
+                    body_label="Body",
+                    empty_body_text="(no day templates)",
+                ):
+                    click.echo(line)
             else:
                 for day in tmpl.day_templates:
-                    click.echo(f"\n  {day.by_date}")
+                    body_lines: list[str] = []
                     if day.entry_time or day.exit_time:
-                        times = f"  {day.entry_time or '?'} → {day.exit_time or '?'}"
+                        times = f"{day.entry_time or '?'} -> {day.exit_time or '?'}"
                         if day.exit_with:
-                            times = f"{times}  (picked up by: {day.exit_with})"
-                        click.echo(times)
+                            times = f"{times} (picked up by: {day.exit_with})"
+                        body_lines.append(times)
                     if day.spare_time_activity:
                         sta = day.spare_time_activity
-                        click.echo(f"  Activity: {sta.start_time} – {sta.end_time}")
+                        body_lines.append(f"Activity: {sta.start_time} - {sta.end_time}")
                         if sta.comment:
-                            click.echo(f"    {sta.comment}")
+                            body_lines.append(sta.comment)
                     if day.comment:
-                        click.echo(f"  Note: {day.comment}")
+                        body_lines.append(f"Note: {day.comment}")
 
-            click.echo()
+                    for line in format_record_lines(
+                        title=day.by_date or "Day template",
+                        properties=[("Child", header)],
+                        body_lines=body_lines,
+                        body_label="Body",
+                        empty_body_text="(no details)",
+                    ):
+                        click.echo(line)
+                    click.echo()
 
 
 _DANISH_WEEKDAYS = ["Mandag", "Tirsdag", "Onsdag", "Torsdag", "Fredag", "Lørdag", "Søndag"]
@@ -1837,11 +1911,11 @@ async def daily_summary(ctx, child, target_date):
         try:
             prof: Profile = await client.get_profile()
         except Exception as e:
-            click.echo(f"Error fetching profile: {e}")
+            print_error(f"fetching profile: {e}")
             return
 
         if not prof.children:
-            click.echo("No children found in profile.")
+            print_empty("children")
             return
 
         children = prof.children
@@ -1850,11 +1924,14 @@ async def daily_summary(ctx, child, target_date):
             children = [c for c in prof.children if needle in c.name.lower()]
             if not children:
                 names = ", ".join(c.name for c in prof.children)
-                click.echo(f"No child matching '{child}'. Available: {names}")
+                print_error(f"no child matching '{child}'. Available: {names}")
                 return
 
-        click.echo(f"# Daily Summary – {day_label}")
-        click.echo(f"Generated: {now.strftime('%Y-%m-%d %H:%M')}")
+        for line in format_report_intro_lines(
+            f"Daily summary - {day_label}",
+            [("Generated", now.strftime("%Y-%m-%d %H:%M"))],
+        ):
+            click.echo(line)
         click.echo()
 
         # ── Presence templates for target date (planned times) ────────────────
@@ -1910,7 +1987,7 @@ async def daily_summary(ctx, child, target_date):
         is_today = today.date() == now.date()
 
         # ── Check-in status ───────────────────────────────────────────────────
-        click.echo("## Status")
+        click.echo("Status")
         click.echo()
         for c in children:
             day_tmpl = day_template_by_child.get(c.id)
@@ -1922,7 +1999,7 @@ async def daily_summary(ctx, child, target_date):
                 except Exception as e:
                     _log.warning("Could not fetch daily overview for %s: %s", c.name, e)
 
-            click.echo(f"**{c.name}**")
+            click.echo(c.name)
 
             if ov is not None:
                 status = ov.status.display_name if ov.status else "Unknown"
@@ -1977,7 +2054,7 @@ async def daily_summary(ctx, child, target_date):
             events = []
             _log.warning("Could not fetch calendar events: %s", e)
 
-        click.echo("## Schedule")
+        click.echo("Schedule")
         click.echo()
         if events:
             slots: dict[tuple, list] = defaultdict(list)
@@ -2034,7 +2111,7 @@ async def daily_summary(ctx, child, target_date):
             ]
 
             if today_tasks:
-                click.echo("## Homework Due Today")
+                click.echo("Homework due today")
                 click.echo()
                 for task in today_tasks:
                     subjects = ", ".join(
@@ -2053,7 +2130,7 @@ async def daily_summary(ctx, child, target_date):
             _log.warning("Could not fetch unread messages: %s", e)
 
         if unread_threads:
-            click.echo("## Unread Messages")
+            click.echo("Unread messages")
             click.echo()
             for thread in unread_threads:
                 raw = thread._raw or {}
@@ -2064,9 +2141,9 @@ async def daily_summary(ctx, child, target_date):
                     meta.append(", ".join(participants))
                 if last_updated:
                     meta.append(last_updated)
-                click.echo(f"### {thread.subject}")
+                click.echo(thread.subject)
                 if meta:
-                    click.echo(f"_{' | '.join(meta)}_")
+                    click.echo(f"  Meta: {' | '.join(meta)}")
                 click.echo()
                 try:
                     msgs = await client.get_messages_for_thread(thread.thread_id)
@@ -2074,7 +2151,9 @@ async def daily_summary(ctx, child, target_date):
                         msg_raw = msg._raw or {}
                         sender = msg_raw.get("sender", {}).get("fullName", "Unknown")
                         send_date = msg_raw.get("sendDateTime", "")
-                        click.echo(f"**{sender}** {send_date}".strip())
+                        click.echo(f"Author: {sender}")
+                        if send_date:
+                            click.echo(f"Date: {send_date}")
                         for line in msg.content.splitlines():
                             if line.strip():
                                 click.echo(line)
