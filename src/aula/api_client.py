@@ -32,6 +32,7 @@ from .models import (
     Post,
     PresenceWeekTemplate,
     Profile,
+    WidgetConfiguration,
 )
 from .widgets import AulaWidgetsClient
 
@@ -270,6 +271,29 @@ class AulaApiClient:
         )
         resp.raise_for_status()
         return resp.json()
+
+    async def get_widgets(self) -> list[WidgetConfiguration]:
+        """Return the widget configurations available for the current user.
+
+        Parses ``pageConfiguration.widgetConfigurations`` from the profile context response.
+        Only widgets with ``aggregatedDisplayMode == "Shown"`` are included.
+        """
+        resp = await self._request_with_version_retry(
+            "get",
+            f"{self.api_url}?method=profiles.getProfileContext&portalrole=guardian",
+        )
+        resp.raise_for_status()
+        data = resp.json()
+        widget_configs = data.get("data", {}).get("pageConfiguration", {}).get("widgetConfigurations", [])
+        widgets = []
+        for item in widget_configs:
+            try:
+                w = WidgetConfiguration.from_dict(item)
+                if w.aggregated_display_mode == "Shown":
+                    widgets.append(w)
+            except Exception:
+                _LOGGER.warning("Failed to parse widget configuration: %s", item)
+        return widgets
 
     async def get_daily_overview(self, child_id: int) -> DailyOverview | None:
         """Fetches the daily overview for a specific child.

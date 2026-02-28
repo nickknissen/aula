@@ -621,6 +621,38 @@ async def posts(ctx, institution_profile_id, limit, page):
             return
 
 
+@cli.command("widgets")
+@click.pass_context
+@async_cmd
+async def widgets(ctx):
+    """List available widgets configured for the current user."""
+    async with await _get_client(ctx) as client:
+        try:
+            widget_list = await client.get_widgets()
+        except Exception as e:
+            print_error(f"fetching widgets: {e}")
+            return
+
+        if not widget_list:
+            print_empty("widgets")
+            return
+
+        print_heading("Available widgets")
+
+        for w in widget_list:
+            for line in format_record_lines(
+                title=w.name,
+                properties=[
+                    ("ID", w.widget_id),
+                    ("Supplier", w.widget_supplier),
+                    ("Type", w.widget_type),
+                    ("Placement", w.placement),
+                ],
+            ):
+                click.echo(line)
+            click.echo()
+
+
 @cli.command("mu:opgaver")
 @click.option(
     "--week",

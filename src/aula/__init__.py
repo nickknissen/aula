@@ -27,6 +27,7 @@ from .models import (
     Message,
     MessageThread,
     Profile,
+    WidgetConfiguration,
 )
 from .token_storage import FileTokenStorage, TokenStorage
 from .widgets import AulaWidgetsClient
@@ -53,5 +54,6 @@ __all__ = [
     "MessageThread",
     "Message",
     "CalendarEvent",
+    "WidgetConfiguration",
     "__version__",
 ]
