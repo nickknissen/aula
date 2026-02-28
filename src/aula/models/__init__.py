@@ -18,3 +18,4 @@ from .presence_template import DayTemplate as DayTemplate
 from .presence_template import PresenceWeekTemplate as PresenceWeekTemplate
 from .presence_template import SpareTimeActivity as SpareTimeActivity
 from .profile import Profile as Profile
+from .widget import WidgetConfiguration as WidgetConfiguration
