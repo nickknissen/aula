@@ -121,7 +121,9 @@ uvx aula --username johndoe messages --limit 5
 
 ## Attribution
 
-EasyIQ widget integration (weekplan and homework) was informed by the [esbenwiberg/easyiq](https://github.com/esbenwiberg/easyiq) Home Assistant integration.
+- Aula API usage was inspired by the [scaarup/aula](https://github.com/scaarup/aula) Home Assistant integration.
+- MitID authentication was inspired by the [Hundter/MitID-BrowserClient](https://github.com/Hundter/MitID-BrowserClient) project.
+- EasyIQ widget integration (weekplan and homework) was inspired by the [esbenwiberg/easyiq](https://github.com/esbenwiberg/easyiq) Home Assistant integration.
 
 ## License
 
