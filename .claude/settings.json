@@ -1,0 +1,10 @@
+{
+  "hooks": {
+    "Edit,Write": [
+      {
+        "matcher": "**/*.py",
+        "command": "uv tool run ruff format $CLAUDE_FILE_PATH"
+      }
+    ]
+  }
+}
