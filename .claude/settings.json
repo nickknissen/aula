@@ -1,9 +1,14 @@
 {
   "hooks": {
-    "Edit,Write": [
+    "PostToolUse": [
       {
-        "matcher": "**/*.py",
-        "command": "uv tool run ruff format $CLAUDE_FILE_PATH"
+        "matcher": "Edit|Write",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "jq -r '.tool_input.file_path | select(endswith(\".py\"))' | xargs -r uv tool run ruff format"
+          }
+        ]
       }
     ]
   }
