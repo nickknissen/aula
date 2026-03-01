@@ -29,3 +29,15 @@ class OAuthError(MitIDAuthError):
     """Exception raised for OAuth-related errors."""
 
     pass
+
+
+class TokenInvalidError(MitIDError):
+    """Exception raised when a TOTP code from the hardware token is rejected."""
+
+    pass
+
+
+class PasswordInvalidError(MitIDError):
+    """Exception raised when the MitID password is rejected."""
+
+    pass

@@ -506,6 +506,9 @@ class TestAuthenticateAndCreateClient:
             on_qr_codes=None,
             httpx_client=fake_httpx,
             on_identity_selected=None,
+            auth_method="app",
+            on_token_digits=None,
+            on_password=None,
         )
 
 

@@ -13,7 +13,7 @@ import httpx
 import qrcode
 
 from ._utils import bytes_to_hex
-from .exceptions import MitIDError
+from .exceptions import MitIDError, PasswordInvalidError, TokenInvalidError
 from .srp import CustomSRP
 
 _LOGGER = logging.getLogger(__name__)
@@ -97,6 +97,12 @@ class BrowserClient:
 
     def _app_auth_url(self) -> str:
         return f"https://www.mitid.dk/mitid-code-app-auth/v1/authenticator-sessions/web/{self._authenticator_session_id}"
+
+    def _code_token_auth_url(self) -> str:
+        return f"https://www.mitid.dk/mitid-code-token-auth/v1/authenticator-sessions/{self._authenticator_session_id}"
+
+    def _password_auth_url(self) -> str:
+        return f"https://www.mitid.dk/mitid-password-auth/v1/authenticator-sessions/{self._authenticator_session_id}"
 
     def _set_authenticator_state(self, auth_info: dict[str, str]) -> None:
         """Update authenticator state from extracted response fields."""
@@ -193,6 +199,13 @@ class BrowserClient:
 
         response, response_signature = await self._poll_for_app_confirmation(poll_url, ticket)
         await self._perform_srp_handshake(response, response_signature)
+
+    async def authenticate_with_token_and_password(self, token_digits: str, password: str) -> None:
+        """Authenticate using a MitID hardware token (TOTP) and password."""
+        await self._authenticate_token_phase(token_digits)
+        await self._authenticate_password_phase(password)
+        self.status_message = "Token + password login accepted, finalizing authentication"
+        _LOGGER.info("MitID token + password authentication successful")
 
     async def finalize_authentication_and_get_authorization_code(self) -> str:
         """Finalize authentication and retrieve the authorization code."""
@@ -356,7 +369,133 @@ class BrowserClient:
         self.status_message = "App login was accepted, finalizing authentication"
         _LOGGER.info("MitID app authentication successful")
 
-    def _compute_flow_value_proof(self, session_key: bytes) -> str:
+    async def _authenticate_token_phase(self, token_digits: str) -> None:
+        """Execute the TOTP code token authentication phase."""
+        timer_start = time.monotonic()
+        await self._select_authenticator("TOKEN")
+
+        srp = CustomSRP()
+        public_a = srp.srp_stage1()
+
+        r = await self._client.post(
+            f"{self._code_token_auth_url()}/codetoken-init",
+            json={"randomA": {"value": public_a}},
+        )
+        if not r.is_success:
+            raise MitIDError(f"Failed to init token protocol: HTTP {r.status_code}")
+
+        init_data = r.json()
+        srp_salt = init_data["srpSalt"]["value"]
+        random_b = init_data["randomB"]["value"]
+
+        # For TOKEN auth the SRP password is the hex-encoded flow key
+        password = self._authenticator_session_flow_key.encode("utf-8").hex()
+
+        m1 = srp.srp_stage3(srp_salt, random_b, password, self._authenticator_session_id)
+
+        flow_value_proof = self._compute_flow_value_proof(
+            srp.session_key_bytes, proof_key_prefix="OTP" + token_digits
+        )
+
+        front_end_time_ms = int((time.monotonic() - timer_start) * 1000)
+
+        r = await self._client.post(
+            f"{self._code_token_auth_url()}/codetoken-prove",
+            json={
+                "m1": {"value": m1},
+                "flowValueProof": {"value": flow_value_proof},
+                "frontEndProcessingTime": front_end_time_ms,
+            },
+        )
+        if not r.is_success:
+            raise MitIDError(f"Failed to submit token proof: HTTP {r.status_code}")
+
+        r = await self._client.post(
+            self._base_url(version=2) + "/next",
+            json={"combinationId": ""},
+        )
+        if not r.is_success:
+            raise MitIDError(f"Failed to advance after token phase: HTTP {r.status_code}")
+
+        data = r.json()
+        errors = data.get("errors")
+        if errors:
+            error_code = errors[0].get("errorCode", "")
+            if "TOTP_INVALID" in error_code:
+                raise TokenInvalidError("The token code was rejected. Please try again.")
+            raise MitIDError(f"Token authentication error: {error_code}")
+
+        self._set_authenticator_state(_extract_next_authenticator(data))
+        if self._authenticator_type != "PASSWORD":
+            raise MitIDError(
+                f"Expected PASSWORD authenticator after token phase, got {self._authenticator_type}"
+            )
+
+    async def _authenticate_password_phase(self, password: str) -> None:
+        """Execute the MitID password authentication phase."""
+        timer_start = time.monotonic()
+
+        if self._authenticator_type != "PASSWORD":
+            raise MitIDError("Password phase requires PASSWORD authenticator to be active")
+
+        srp = CustomSRP()
+        public_a = srp.srp_stage1()
+
+        r = await self._client.post(
+            f"{self._password_auth_url()}/init",
+            json={"randomA": {"value": public_a}},
+        )
+        if not r.is_success:
+            raise MitIDError(f"Failed to init password protocol: HTTP {r.status_code}")
+
+        init_data = r.json()
+        pbkdf2_salt = init_data["pbkdf2Salt"]["value"]
+        srp_salt = init_data["srpSalt"]["value"]
+        random_b = init_data["randomB"]["value"]
+
+        # Derive the SRP password using PBKDF2 (offloaded to avoid blocking the event loop)
+        derived = await asyncio.to_thread(
+            hashlib.pbkdf2_hmac, "sha256", password.encode(), bytes.fromhex(pbkdf2_salt), 20000, 32
+        )
+        srp_password = derived.hex()
+
+        m1 = srp.srp_stage3(srp_salt, random_b, srp_password, self._authenticator_session_id)
+
+        flow_value_proof = self._compute_flow_value_proof(srp.session_key_bytes)
+
+        front_end_time_ms = int((time.monotonic() - timer_start) * 1000)
+
+        r = await self._client.post(
+            f"{self._password_auth_url()}/password-prove",
+            json={
+                "m1": {"value": m1},
+                "flowValueProof": {"value": flow_value_proof},
+                "frontEndProcessingTime": front_end_time_ms,
+            },
+        )
+        if not r.is_success:
+            raise MitIDError(f"Failed to submit password proof: HTTP {r.status_code}")
+
+        r = await self._client.post(
+            self._base_url(version=2) + "/next",
+            json={"combinationId": ""},
+        )
+        if not r.is_success:
+            raise MitIDError(f"Failed to advance after password phase: HTTP {r.status_code}")
+
+        data = r.json()
+        errors = data.get("errors")
+        if errors:
+            error_code = errors[0].get("errorCode", "")
+            if "PASSWORD_INVALID" in error_code or "psd2" in error_code:
+                raise PasswordInvalidError("The password was rejected. Please try again.")
+            raise MitIDError(f"Password authentication error: {error_code}")
+
+        self._finalization_session_id = data["nextSessionId"]
+
+    def _compute_flow_value_proof(
+        self, session_key: bytes, proof_key_prefix: str = "flowValues"
+    ) -> str:
         """Create HMAC-SHA256 flow value proof using the SRP session key."""
         required_fields = {
             "authenticator_session_id": self._authenticator_session_id,
@@ -372,7 +511,7 @@ class BrowserClient:
             raise MitIDError(f"Missing required auth state: {', '.join(missing)}")
 
         proof_key = hashlib.sha256(
-            ("flowValues" + bytes_to_hex(session_key)).encode("utf-8")
+            (proof_key_prefix + bytes_to_hex(session_key)).encode("utf-8")
         ).digest()
 
         parts: list[str] = [
