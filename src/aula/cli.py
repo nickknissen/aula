@@ -163,6 +163,15 @@ def _on_login_required():
     click.echo("Session expired or not found. Please open your MitID app to approve the login.")
 
 
+async def _select_identity(identities: list[str]) -> int:
+    """Prompt the user to choose between multiple MitID identities."""
+    click.echo("\nMultiple identities found. Please select one:")
+    for i, identity in enumerate(identities, 1):
+        click.echo(f"  {i}. {identity}")
+    choice = click.prompt("Select identity", type=click.IntRange(1, len(identities)), default=1)
+    return choice - 1
+
+
 async def _get_client(ctx: click.Context) -> AulaApiClient:
     """Create an authenticated AulaApiClient."""
     username = get_mitid_username(ctx)
@@ -172,6 +181,7 @@ async def _get_client(ctx: click.Context) -> AulaApiClient:
         token_storage,
         on_qr_codes=_print_qr_codes_in_terminal,
         on_login_required=_on_login_required,
+        on_identity_selected=_select_identity,
     )
 
 

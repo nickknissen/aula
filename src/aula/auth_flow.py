@@ -11,7 +11,7 @@ Provides two entry points:
 
 import logging
 import time
-from collections.abc import Callable
+from collections.abc import Awaitable, Callable
 from typing import Any
 
 import httpx
@@ -80,6 +80,7 @@ async def authenticate(
     on_login_required: Callable[[], None] | None = None,
     httpx_client: httpx.AsyncClient | None = None,
     force_login: bool = False,
+    on_identity_selected: Callable[[list[str]], Awaitable[int]] | None = None,
 ) -> dict[str, Any]:
     """Authenticate via MitID (or cached tokens) and return credential data.
 
@@ -112,11 +113,10 @@ async def authenticate(
         mitid_username=mitid_username,
         on_qr_codes=on_qr_codes,
         httpx_client=httpx_client,
+        on_identity_selected=on_identity_selected,
     ) as auth_client:
         token_data = (
-            None
-            if force_login
-            else (await token_storage.load() if token_storage else None)
+            None if force_login else (await token_storage.load() if token_storage else None)
         )
         tokens_valid = False
         cookies: dict[str, str] = {}
@@ -146,9 +146,7 @@ async def authenticate(
                     tokens_valid = True
                     _LOGGER.info("Token refresh successful, tokens saved")
                 except (OAuthError, RuntimeError) as e:
-                    _LOGGER.warning(
-                        "Token refresh failed, will require full authentication: %s", e
-                    )
+                    _LOGGER.warning("Token refresh failed, will require full authentication: %s", e)
             else:
                 _LOGGER.info("Cached tokens are expired, no refresh token available")
 
@@ -181,6 +179,7 @@ async def authenticate_and_create_client(
     on_qr_codes: Callable[[qrcode.QRCode, qrcode.QRCode], None] | None = None,
     on_login_required: Callable[[], None] | None = None,
     httpx_client: httpx.AsyncClient | None = None,
+    on_identity_selected: Callable[[list[str]], Awaitable[int]] | None = None,
 ) -> AulaApiClient:
     """Authenticate via MitID (or cached tokens) and return a ready-to-use client.
 
@@ -193,9 +192,15 @@ async def authenticate_and_create_client(
         on_qr_codes: Callback for displaying QR codes during MitID flow.
         on_login_required: Callback invoked when fresh login is needed.
         httpx_client: Optional ``httpx.AsyncClient`` for the auth flow.
+        on_identity_selected: Callback for choosing between multiple identities.
     """
     token_data = await authenticate(
-        mitid_username, token_storage, on_qr_codes, on_login_required, httpx_client
+        mitid_username,
+        token_storage,
+        on_qr_codes,
+        on_login_required,
+        httpx_client,
+        on_identity_selected=on_identity_selected,
     )
     try:
         return await create_client(token_data)
@@ -211,6 +216,7 @@ async def authenticate_and_create_client(
             on_login_required,
             httpx_client,
             force_login=True,
+            on_identity_selected=on_identity_selected,
         )
         return await create_client(fresh_token_data)
 

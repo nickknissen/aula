@@ -7,7 +7,7 @@ import json
 import logging
 import secrets
 import time
-from collections.abc import Callable
+from collections.abc import Awaitable, Callable
 from types import TracebackType
 from typing import Any
 from urllib.parse import parse_qs, urlencode, urljoin, urlparse
@@ -85,12 +85,14 @@ class MitIDAuthClient:
         timeout: int = 30,
         on_qr_codes: Callable[[qrcode.QRCode, qrcode.QRCode], None] | None = None,
         httpx_client: httpx.AsyncClient | None = None,
+        on_identity_selected: Callable[[list[str]], Awaitable[int]] | None = None,
     ):
         self._owns_client = httpx_client is None
         self._client = httpx_client or httpx.AsyncClient(follow_redirects=False, timeout=timeout)
         self._mitid_username = mitid_username
         self._timeout = timeout
         self._on_qr_codes = on_qr_codes
+        self._on_identity_selected = on_identity_selected
 
         # The real Android app just sends User-Agent: Android — the server
         # doesn't validate browser-style headers (sec-ch-ua, etc.).
@@ -372,9 +374,13 @@ class MitIDAuthClient:
                 "SessionStorageActiveChallenge": challenge,
             }
 
-            request = await self._client.post(f"{MITID_BASE_URL}/login/mitid", data=params)
+            response = await self._client.post(f"{MITID_BASE_URL}/login/mitid", data=params)
 
-            soup = BeautifulSoup(request.text, features="html.parser")
+            if str(response.url).endswith("/loginoption"):
+                _LOGGER.info("Multiple identities detected, handling identity selection")
+                soup = await self._handle_login_option_page(response)
+            else:
+                soup = BeautifulSoup(response.text, features="html.parser")
 
             relay_state_input = soup.find("input", {"name": "RelayState"})
             saml_response_input = soup.find("input", {"name": "SAMLResponse"})
@@ -389,6 +395,61 @@ class MitIDAuthClient:
 
         except httpx.HTTPError as e:
             raise NetworkError(f"Network error during MitID completion: {e}") from e
+
+    async def _handle_login_option_page(self, response: httpx.Response) -> BeautifulSoup:
+        """Handle the identity selection page when a user has multiple identities."""
+        soup = BeautifulSoup(response.text, features="html.parser")
+        links = soup.select("a.list-link")
+
+        if not links:
+            raise SAMLError("No identity options found on login option page")
+
+        identities: list[str] = []
+        for link in links:
+            name_el = link.select_one("div.list-link-text")
+            detail_el = link.select_one("div.link-list-detail")
+            name = name_el.get_text(strip=True) if name_el else "Unknown"
+            detail = detail_el.get_text(strip=True) if detail_el else ""
+            display = f"{name} ({detail})" if detail else name
+            identities.append(display)
+
+        _LOGGER.debug("Available identities: %s", identities)
+
+        if self._on_identity_selected:
+            selected_index = await self._on_identity_selected(identities)
+        else:
+            _LOGGER.info("No identity selector callback; picking the first identity")
+            selected_index = 0
+
+        if selected_index < 0 or selected_index >= len(links):
+            raise SAMLError(f"Invalid identity index: {selected_index}")
+
+        selected_link = links[selected_index]
+        if not isinstance(selected_link, Tag):
+            raise SAMLError("Selected identity link is not a valid element")
+
+        chosen_option = selected_link.get("data-loginoptions", "")
+        _LOGGER.debug("Selected identity %d: %s", selected_index, identities[selected_index])
+
+        form_data: dict[str, str] = {}
+        for inp in soup.find_all("input", {"type": "hidden"}):
+            if isinstance(inp, Tag):
+                name = str(inp.get("name", ""))
+                if name:
+                    form_data[name] = str(inp.get("value", ""))
+
+        form_data["ChosenOptionJson"] = str(chosen_option)
+
+        session_uuid = self._client.cookies.get("SessionUuid", "")
+        challenge = self._client.cookies.get("Challenge", "")
+        if session_uuid:
+            form_data["SessionStorageActiveSessionUuid"] = session_uuid
+        if challenge:
+            form_data["SessionStorageActiveChallenge"] = challenge
+
+        login_option_url = str(response.url)
+        result = await self._client.post(login_option_url, data=form_data)
+        return BeautifulSoup(result.text, features="html.parser")
 
     async def _step5_saml_broker_flow(self, saml_data: dict[str, str]) -> dict[str, str]:
         """Step 5: Complete SAML broker authentication."""
