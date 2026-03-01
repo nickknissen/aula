@@ -14,6 +14,7 @@ from aula.http import AulaAuthenticationError, HttpResponse
 # Helpers
 # ---------------------------------------------------------------------------
 
+
 def _profile_response() -> HttpResponse:
     """Minimal valid response for get_profile / init calls."""
     return HttpResponse(
@@ -59,6 +60,7 @@ def _mock_auth_client_factory():
 # ---------------------------------------------------------------------------
 # create_client
 # ---------------------------------------------------------------------------
+
 
 class TestCreateClient:
     """Tests for the create_client factory function."""
@@ -107,6 +109,7 @@ class TestCreateClient:
 # ---------------------------------------------------------------------------
 # authenticate (returns token_data dict)
 # ---------------------------------------------------------------------------
+
 
 class TestAuthenticate:
     """Tests for the authenticate function that returns raw token data."""
@@ -318,9 +321,7 @@ class TestAuthenticate:
     # -- Refresh fails → falls back to full auth --
 
     @pytest.mark.asyncio
-    async def test_refresh_failure_falls_back_to_full_auth(
-        self, token_storage, mock_auth_client
-    ):
+    async def test_refresh_failure_falls_back_to_full_auth(self, token_storage, mock_auth_client):
         """When refresh fails, falls back to full MitID authentication."""
         token_storage.load.return_value = {
             "tokens": {
@@ -330,9 +331,7 @@ class TestAuthenticate:
             },
             "cookies": {},
         }
-        mock_auth_client.refresh_access_token = AsyncMock(
-            side_effect=OAuthError("refresh failed")
-        )
+        mock_auth_client.refresh_access_token = AsyncMock(side_effect=OAuthError("refresh failed"))
 
         with patch("aula.auth_flow.MitIDAuthClient", return_value=mock_auth_client):
             await authenticate("user", token_storage)
@@ -342,9 +341,7 @@ class TestAuthenticate:
     # -- Expired tokens, no refresh_token → full auth --
 
     @pytest.mark.asyncio
-    async def test_expired_no_refresh_token_runs_full_auth(
-        self, token_storage, mock_auth_client
-    ):
+    async def test_expired_no_refresh_token_runs_full_auth(self, token_storage, mock_auth_client):
         """Expired tokens without refresh_token triggers full MitID auth."""
         token_storage.load.return_value = {
             "tokens": {
@@ -394,6 +391,7 @@ class TestAuthenticate:
 # authenticate_and_create_client (convenience wrapper)
 # ---------------------------------------------------------------------------
 
+
 class TestAuthenticateAndCreateClient:
     """Tests for the convenience wrapper that returns an AulaApiClient."""
 
@@ -409,9 +407,7 @@ class TestAuthenticateAndCreateClient:
         return _mock_auth_client_factory()
 
     @pytest.mark.asyncio
-    async def test_calls_authenticate_then_create_client(
-        self, token_storage, mock_auth_client
-    ):
+    async def test_calls_authenticate_then_create_client(self, token_storage, mock_auth_client):
         """authenticate_and_create_client delegates to authenticate + create_client."""
         with (
             patch("aula.auth_flow.MitIDAuthClient", return_value=mock_auth_client),
@@ -485,7 +481,8 @@ class TestAuthenticateAndCreateClient:
         ):
             mock_create.return_value = MagicMock()
             await authenticate_and_create_client(
-                "user", token_storage,
+                "user",
+                token_storage,
                 on_qr_codes=qr_cb,
                 on_login_required=login_cb,
             )
@@ -502,20 +499,20 @@ class TestAuthenticateAndCreateClient:
             patch("aula.auth_flow.create_client", new_callable=AsyncMock) as mock_create,
         ):
             mock_create.return_value = MagicMock()
-            await authenticate_and_create_client(
-                "user", token_storage, httpx_client=fake_httpx
-            )
+            await authenticate_and_create_client("user", token_storage, httpx_client=fake_httpx)
 
         MockMitID.assert_called_once_with(
             mitid_username="user",
             on_qr_codes=None,
             httpx_client=fake_httpx,
+            on_identity_selected=None,
         )
 
 
 # ---------------------------------------------------------------------------
 # Client ownership (close behavior)
 # ---------------------------------------------------------------------------
+
 
 class TestClientOwnership:
     """Tests for ownership semantics when injecting httpx clients."""
