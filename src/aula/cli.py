@@ -92,8 +92,15 @@ def get_mitid_username(ctx: click.Context) -> str:
     count=True,
     help="Increase verbosity: -v for INFO, -vv for DEBUG.",
 )
+@click.option(
+    "--auth-method",
+    type=click.Choice(["app", "token"], case_sensitive=False),
+    default="app",
+    envvar="AULA_AUTH_METHOD",
+    help="MitID auth method: 'app' (QR/OTP) or 'token' (code token + password).",
+)
 @click.pass_context
-def cli(ctx, username: str | None, verbose: int):
+def cli(ctx, username: str | None, verbose: int, auth_method: str):
     """CLI for interacting with Aula API"""
     # Configure logging based on verbosity
     log_level = logging.ERROR  # Default: errors only (no warnings in normal output)
@@ -118,6 +125,8 @@ def cli(ctx, username: str | None, verbose: int):
 
     # Initialize context
     ctx.ensure_object(dict)
+
+    ctx.obj["AUTH_METHOD"] = auth_method
 
     if username:
         ctx.obj["MITID_USERNAME"] = username
@@ -172,6 +181,14 @@ async def _select_identity(identities: list[str]) -> int:
     return choice - 1
 
 
+async def _prompt_token_digits() -> str:
+    return click.prompt("MitID token code (6 digits)", type=str)
+
+
+async def _prompt_password() -> str:
+    return click.prompt("MitID password", hide_input=True, type=str)
+
+
 async def _get_client(ctx: click.Context) -> AulaApiClient:
     """Create an authenticated AulaApiClient."""
     username = get_mitid_username(ctx)
@@ -182,6 +199,9 @@ async def _get_client(ctx: click.Context) -> AulaApiClient:
         on_qr_codes=_print_qr_codes_in_terminal,
         on_login_required=_on_login_required,
         on_identity_selected=_select_identity,
+        auth_method=ctx.obj.get("AUTH_METHOD", "app"),
+        on_token_digits=_prompt_token_digits,
+        on_password=_prompt_password,
     )
 
 

@@ -86,6 +86,9 @@ class MitIDAuthClient:
         on_qr_codes: Callable[[qrcode.QRCode, qrcode.QRCode], None] | None = None,
         httpx_client: httpx.AsyncClient | None = None,
         on_identity_selected: Callable[[list[str]], Awaitable[int]] | None = None,
+        auth_method: str = "app",
+        on_token_digits: Callable[[], Awaitable[str]] | None = None,
+        on_password: Callable[[], Awaitable[str]] | None = None,
     ):
         self._owns_client = httpx_client is None
         self._client = httpx_client or httpx.AsyncClient(follow_redirects=False, timeout=timeout)
@@ -93,6 +96,9 @@ class MitIDAuthClient:
         self._timeout = timeout
         self._on_qr_codes = on_qr_codes
         self._on_identity_selected = on_identity_selected
+        self._auth_method = auth_method
+        self._on_token_digits = on_token_digits
+        self._on_password = on_password
 
         # The real Android app just sends User-Agent: Android — the server
         # doesn't validate browser-style headers (sec-ch-ua, etc.).
@@ -342,16 +348,43 @@ class MitIDAuthClient:
 
         _LOGGER.debug("Available authenticators: %s", available_authenticators)
 
-        if "APP" not in available_authenticators:
-            raise MitIDError("APP authentication method not available for this user")
-
-        await self._mitid_client.authenticate_with_app()
+        if self._auth_method == "token":
+            if "TOKEN" not in available_authenticators:
+                raise MitIDError("TOKEN authentication method not available for this user")
+            token_digits = await self._get_token_digits()
+            password = await self._get_password()
+            await self._mitid_client.authenticate_with_token_and_password(token_digits, password)
+        else:
+            if "APP" not in available_authenticators:
+                raise MitIDError("APP authentication method not available for this user")
+            await self._mitid_client.authenticate_with_app()
 
         authorization_code = (
             await self._mitid_client.finalize_authentication_and_get_authorization_code()
         )
         _LOGGER.debug("MitID authorization code obtained")
         return authorization_code
+
+    async def _get_token_digits(self) -> str:
+        """Get the 6-digit TOTP code from the callback."""
+        if self._on_token_digits is None:
+            raise MitIDError("Token authentication requires an on_token_digits callback")
+        digits = await self._on_token_digits()
+        if not digits or not digits.strip().isdigit():
+            raise MitIDError("Token code must be numeric digits")
+        digits = digits.strip()
+        if len(digits) != 6:
+            raise MitIDError(f"Token code must be exactly 6 digits, got {len(digits)}")
+        return digits
+
+    async def _get_password(self) -> str:
+        """Get the MitID password from the callback."""
+        if self._on_password is None:
+            raise MitIDError("Token authentication requires an on_password callback")
+        password = await self._on_password()
+        if not password:
+            raise MitIDError("Password must not be empty")
+        return password
 
     async def _step4_complete_mitid_flow(
         self, verification_token: str, authorization_code: str

@@ -81,6 +81,9 @@ async def authenticate(
     httpx_client: httpx.AsyncClient | None = None,
     force_login: bool = False,
     on_identity_selected: Callable[[list[str]], Awaitable[int]] | None = None,
+    auth_method: str = "app",
+    on_token_digits: Callable[[], Awaitable[str]] | None = None,
+    on_password: Callable[[], Awaitable[str]] | None = None,
 ) -> dict[str, Any]:
     """Authenticate via MitID (or cached tokens) and return credential data.
 
@@ -114,6 +117,9 @@ async def authenticate(
         on_qr_codes=on_qr_codes,
         httpx_client=httpx_client,
         on_identity_selected=on_identity_selected,
+        auth_method=auth_method,
+        on_token_digits=on_token_digits,
+        on_password=on_password,
     ) as auth_client:
         token_data = (
             None if force_login else (await token_storage.load() if token_storage else None)
@@ -180,6 +186,9 @@ async def authenticate_and_create_client(
     on_login_required: Callable[[], None] | None = None,
     httpx_client: httpx.AsyncClient | None = None,
     on_identity_selected: Callable[[list[str]], Awaitable[int]] | None = None,
+    auth_method: str = "app",
+    on_token_digits: Callable[[], Awaitable[str]] | None = None,
+    on_password: Callable[[], Awaitable[str]] | None = None,
 ) -> AulaApiClient:
     """Authenticate via MitID (or cached tokens) and return a ready-to-use client.
 
@@ -201,6 +210,9 @@ async def authenticate_and_create_client(
         on_login_required,
         httpx_client,
         on_identity_selected=on_identity_selected,
+        auth_method=auth_method,
+        on_token_digits=on_token_digits,
+        on_password=on_password,
     )
     try:
         return await create_client(token_data)
@@ -217,6 +229,9 @@ async def authenticate_and_create_client(
             httpx_client,
             force_login=True,
             on_identity_selected=on_identity_selected,
+            auth_method=auth_method,
+            on_token_digits=on_token_digits,
+            on_password=on_password,
         )
         return await create_client(fresh_token_data)
 
