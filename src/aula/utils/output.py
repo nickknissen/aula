@@ -76,7 +76,9 @@ def format_message_lines(
 
 
 def format_notification_lines(
-    item: "Notification", institution_names: dict[str, str] | None = None
+    item: "Notification",
+    institution_names: dict[str, str] | None = None,
+    album_names: dict[int, str] | None = None,
 ) -> list[str]:
     """Format a notification as a compact multi-line block."""
     read_flag = None
@@ -114,7 +116,10 @@ def format_notification_lines(
     if item.post_id is not None:
         lines.append(f"  Post: {item.post_id}")
     if item.album_id is not None:
-        lines.append(f"  Album: {item.album_id}")
+        album_label = str(item.album_id)
+        if album_names:
+            album_label = album_names.get(item.album_id, album_label)
+        lines.append(f"  Album: {album_label}")
     if item.media_id is not None:
         lines.append(f"  Media: {item.media_id}")
 

@@ -482,8 +482,9 @@ async def notifications(ctx, offset, limit, module):
     """Fetch notifications for the active profile."""
     async with await _get_client(ctx) as client:
         institution_names: dict[str, str] = {}
+        prof: Profile | None = None
         try:
-            prof: Profile = await client.get_profile()
+            prof = await client.get_profile()
             for child in prof.children:
                 if not child._raw:
                     continue
@@ -510,10 +511,29 @@ async def notifications(ctx, offset, limit, module):
             print_empty("notifications")
             return
 
+        album_names: dict[int, str] = {}
+        new_media_album_ids = {
+            item.album_id
+            for item in items
+            if item.event_type == "NewMedia" and item.album_id is not None
+        }
+        if new_media_album_ids and prof and prof.institution_profile_ids:
+            try:
+                albums = await client.get_gallery_albums(prof.institution_profile_ids)
+                album_names = {
+                    a["id"]: a["title"]
+                    for a in albums
+                    if isinstance(a.get("id"), int) and isinstance(a.get("title"), str)
+                }
+            except Exception:
+                pass
+
         print_heading("Notifications")
 
         for i, item in enumerate(items):
-            for line in format_notification_lines(item, institution_names=institution_names):
+            for line in format_notification_lines(
+                item, institution_names=institution_names, album_names=album_names
+            ):
                 click.echo(line)
 
             if i < len(items) - 1:
