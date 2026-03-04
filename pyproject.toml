@@ -1,6 +1,6 @@
 [project]
 name = "aula"
-version = "0.6.1"
+version = "0.6.3"
 description = "Python API wrapper for Aula."
 readme = "README.md"
 authors = [
