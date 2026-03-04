@@ -284,7 +284,9 @@ class AulaApiClient:
         )
         resp.raise_for_status()
         data = resp.json()
-        widget_configs = data.get("data", {}).get("pageConfiguration", {}).get("widgetConfigurations", [])
+        widget_configs = (
+            data.get("data", {}).get("pageConfiguration", {}).get("widgetConfigurations", [])
+        )
         widgets = []
         for item in widget_configs:
             try:
@@ -355,6 +357,8 @@ class AulaApiClient:
     async def get_notifications_for_active_profile(
         self,
         *,
+        children_ids: list[int] | None = None,
+        institution_codes: list[str] | None = None,
         offset: int = 0,
         limit: int = 50,
         module: str | None = None,
@@ -365,6 +369,10 @@ class AulaApiClient:
             "offset": offset,
             "limit": limit,
         }
+        if children_ids:
+            params["activeChildrenIds[]"] = children_ids
+        if institution_codes:
+            params["activeInstitutionCodes[]"] = institution_codes
         if module:
             params["module"] = module
 

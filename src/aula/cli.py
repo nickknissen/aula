@@ -482,10 +482,13 @@ async def notifications(ctx, offset, limit, module):
     """Fetch notifications for the active profile."""
     async with await _get_client(ctx) as client:
         institution_names: dict[str, str] = {}
+        children_ids: list[int] = []
+        institution_codes: list[str] = []
         prof: Profile | None = None
         try:
             prof = await client.get_profile()
             for child in prof.children:
+                children_ids.append(child.id)
                 if not child._raw:
                     continue
                 institution = child._raw.get("institutionProfile", {})
@@ -493,12 +496,16 @@ async def notifications(ctx, offset, limit, module):
                 name = institution.get("institutionName")
                 if code and name and str(code) not in institution_names:
                     institution_names[str(code)] = str(name)
+                if code and str(code) not in institution_codes:
+                    institution_codes.append(str(code))
         except Exception:
             # Keep notifications usable even if profile lookup fails.
             institution_names = {}
 
         try:
             items: list[Notification] = await client.get_notifications_for_active_profile(
+                children_ids=children_ids,
+                institution_codes=institution_codes,
                 offset=offset,
                 limit=limit,
                 module=module,
@@ -528,16 +535,31 @@ async def notifications(ctx, offset, limit, module):
             except Exception:
                 pass
 
-        print_heading("Notifications")
+        heading = f"Notifications ({len(items)})"
+        print_heading(heading)
 
-        for i, item in enumerate(items):
-            for line in format_notification_lines(
-                item, institution_names=institution_names, album_names=album_names
-            ):
-                click.echo(line)
+        # Group by event type and show summary
+        groups: dict[str, list[Notification]] = {}
+        for item in items:
+            key = item.event_type or "Unknown"
+            groups.setdefault(key, []).append(item)
 
-            if i < len(items) - 1:
-                click.echo()
+        click.echo("Summary:")
+        for event_type, group_items in sorted(groups.items(), key=lambda x: -len(x[1])):
+            click.echo(f"  {event_type}: {len(group_items)}")
+        click.echo()
+
+        for event_type, group_items in sorted(groups.items(), key=lambda x: -len(x[1])):
+            click.echo(f"── {event_type} ({len(group_items)}) ──")
+            for i, item in enumerate(group_items):
+                for line in format_notification_lines(
+                    item, institution_names=institution_names, album_names=album_names
+                ):
+                    click.echo(line)
+
+                if i < len(group_items) - 1:
+                    click.echo()
+            click.echo()
 
 
 @cli.command()

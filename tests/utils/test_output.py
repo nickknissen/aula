@@ -61,14 +61,12 @@ class TestFormatNotificationLines:
             post_id=77,
             album_id=None,
             media_id=88,
-            is_read=False,
         )
 
         lines = format_notification_lines(item, institution_names={"1234": "Sunrise School"})
 
         assert lines == [
             "This is a notification title",
-            "  Status: Unread",
             "  Module: inbox",
             "  Event: new_message",
             "  Type: message",
@@ -79,13 +77,6 @@ class TestFormatNotificationLines:
             "  Post: 77",
             "  Media: 88",
         ]
-
-    def test_hides_unknown_read_state(self):
-        item = Notification(id="1", title="Hello", is_read=None)
-
-        lines = format_notification_lines(item)
-
-        assert lines[0] == "Hello"
 
     def test_falls_back_to_institution_code_when_name_missing(self):
         item = Notification(id="7", title="Hello", institution_code="999")

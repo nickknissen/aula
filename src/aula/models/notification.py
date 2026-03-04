@@ -1,6 +1,16 @@
 from dataclasses import dataclass, field
+from html.parser import HTMLParser
 
 from .base import AulaDataClass
+
+
+def _strip_html(text: str) -> str:
+    """Strip HTML tags and return plain text."""
+    parts: list[str] = []
+    parser = HTMLParser()
+    parser.handle_data = parts.append
+    parser.feed(text)
+    return "".join(parts).strip()
 
 
 @dataclass
@@ -17,19 +27,24 @@ class Notification(AulaDataClass):
     post_id: int | None = None
     album_id: int | None = None
     media_id: int | None = None
-    is_read: bool | None = None
+    institution_profile_id: int | None = None
     _raw: dict | None = field(default=None, repr=False)
 
     @classmethod
     def from_dict(cls, data: dict) -> "Notification":
         notification_id = data.get("id") or data.get("notificationId") or "unknown"
-        title = (
-            data.get("title")
-            or data.get("heading")
-            or data.get("postTitle")
-            or data.get("notificationEventType")
-            or "Untitled"
-        )
+        event_type = data.get("notificationEventType")
+        if event_type == "NewMessagePrivateInbox" and data.get("messageText"):
+            plain = _strip_html(str(data["messageText"]))
+            title = plain[:40] if plain else "Untitled"
+        else:
+            title = (
+                data.get("title")
+                or data.get("heading")
+                or data.get("postTitle")
+                or event_type
+                or "Untitled"
+            )
         module = data.get("module") or data.get("moduleName") or data.get("notificationArea")
 
         return cls(
@@ -61,6 +76,10 @@ class Notification(AulaDataClass):
             post_id=data.get("postId") if isinstance(data.get("postId"), int) else None,
             album_id=data.get("albumId") if isinstance(data.get("albumId"), int) else None,
             media_id=data.get("mediaId") if isinstance(data.get("mediaId"), int) else None,
-            is_read=data.get("isRead") if isinstance(data.get("isRead"), bool) else None,
+            institution_profile_id=(
+                data.get("institutionProfileId")
+                if isinstance(data.get("institutionProfileId"), int)
+                else None
+            ),
             _raw=data,
         )

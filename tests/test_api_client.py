@@ -1361,7 +1361,6 @@ class TestGetNotificationsForActiveProfile:
                             "title": "Ny besked",
                             "module": "messaging",
                             "createdAt": "2026-02-27T10:00:00",
-                            "isRead": False,
                         }
                     ]
                 },
@@ -1374,12 +1373,27 @@ class TestGetNotificationsForActiveProfile:
         assert items[0].id == "1"
         assert items[0].title == "Ny besked"
         assert items[0].module == "messaging"
-        assert items[0].is_read is False
 
         _, kwargs = client._request_with_version_retry.call_args
         assert kwargs["params"]["method"] == "notifications.getNotificationsForActiveProfile"
         assert kwargs["params"]["offset"] == 5
         assert kwargs["params"]["limit"] == 10
+
+    @pytest.mark.asyncio
+    async def test_children_and_institution_codes_forwarded(self, client):
+        """Children IDs and institution codes are included in query params."""
+        client._request_with_version_retry = AsyncMock(
+            return_value=HttpResponse(status_code=200, data={"data": []})
+        )
+
+        await client.get_notifications_for_active_profile(
+            children_ids=[111, 222],
+            institution_codes=["G19736", "603004"],
+        )
+
+        _, kwargs = client._request_with_version_retry.call_args
+        assert kwargs["params"]["activeChildrenIds[]"] == [111, 222]
+        assert kwargs["params"]["activeInstitutionCodes[]"] == ["G19736", "603004"]
 
     @pytest.mark.asyncio
     async def test_module_filter_is_forwarded(self, client):

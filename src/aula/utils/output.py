@@ -81,15 +81,7 @@ def format_notification_lines(
     album_names: dict[int, str] | None = None,
 ) -> list[str]:
     """Format a notification as a compact multi-line block."""
-    read_flag = None
-    if item.is_read is True:
-        read_flag = "Read"
-    elif item.is_read is False:
-        read_flag = "Unread"
-
     lines = [clip(item.title)]
-    if read_flag:
-        lines.append(f"  Status: {read_flag}")
 
     if item.module:
         lines.append(f"  Module: {item.module}")
