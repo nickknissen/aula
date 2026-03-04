@@ -753,11 +753,11 @@ async def mu_opgaver(ctx, week):
             return
         child_filter, institution_filter, session_uuid = widget_ctx
 
-        from .const import WIDGET_MIN_UDDANNELSE
+        from .const import WIDGET_MIN_UDDANNELSE_TASKS
 
         try:
             opgaver = await client.widgets.get_mu_tasks(
-                WIDGET_MIN_UDDANNELSE,
+                WIDGET_MIN_UDDANNELSE_TASKS,
                 child_filter,
                 institution_filter,
                 week,
@@ -1684,11 +1684,11 @@ async def weekly_summary(ctx, child, week, providers):
 
         # ── Min Uddannelse – Homework & Tasks ────────────────────────────────
         if WeeklySummaryProvider.MU_OPGAVER in enabled:
-            from .const import WIDGET_MIN_UDDANNELSE
+            from .const import WIDGET_MIN_UDDANNELSE_TASKS
 
             try:
                 tasks = await client.widgets.get_mu_tasks(
-                    WIDGET_MIN_UDDANNELSE,
+                    WIDGET_MIN_UDDANNELSE_TASKS,
                     child_filter,
                     institution_filter,
                     week,
@@ -2197,11 +2197,11 @@ async def daily_summary(ctx, child, target_date):
                 }
                 child_filter = [uid for uid in child_filter if uid in selected_user_ids]
 
-            from .const import WIDGET_MIN_UDDANNELSE
+            from .const import WIDGET_MIN_UDDANNELSE_TASKS
 
             try:
                 all_tasks = await client.widgets.get_mu_tasks(
-                    WIDGET_MIN_UDDANNELSE, child_filter, institution_filter, week, session_uuid
+                    WIDGET_MIN_UDDANNELSE_TASKS, child_filter, institution_filter, week, session_uuid
                 )
             except Exception as e:
                 all_tasks = []

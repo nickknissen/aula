@@ -12,7 +12,8 @@ from aula.const import (
     MIN_UDDANNELSE_API,
     SYSTEMATIC_API,
     WIDGET_HUSKELISTEN,
-    WIDGET_MIN_UDDANNELSE,
+    WIDGET_MIN_UDDANNELSE_TASKS,
+    WIDGET_MIN_UDDANNELSE_UGEPLAN,
 )
 
 
@@ -58,7 +59,7 @@ class TestWidgetsClient:
         client._request_with_version_retry = AsyncMock(side_effect=[token_response, tasks_response])
 
         tasks = await client.widgets.get_mu_tasks(
-            widget_id=WIDGET_MIN_UDDANNELSE,
+            widget_id=WIDGET_MIN_UDDANNELSE_TASKS,
             child_filter=["child-1"],
             institution_filter=["inst-1"],
             week="2026-W09",
@@ -102,7 +103,7 @@ class TestWidgetsClient:
         )
 
         persons = await client.widgets.get_ugeplan(
-            widget_id=WIDGET_MIN_UDDANNELSE,
+            widget_id=WIDGET_MIN_UDDANNELSE_UGEPLAN,
             child_filter=["child-1", "child-2"],
             institution_filter=["inst-1", "inst-2"],
             week="2026-W09",

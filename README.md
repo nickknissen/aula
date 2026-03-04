@@ -63,7 +63,7 @@ Widget integrations are available via the namespaced widgets client on `AulaApiC
 
 ```python
 tasks = await client.widgets.get_mu_tasks(
-    widget_id="0030",  # WIDGET_MIN_UDDANNELSE
+    widget_id="0030",  # WIDGET_MIN_UDDANNELSE_TASKS
     child_filter=["12345"],
     institution_filter=["5678"],
     week="2026-W8",
