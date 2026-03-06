@@ -30,7 +30,7 @@ class TestRequestWithVersionRetry:
             return_value=HttpResponse(status_code=200, data={"ok": True})
         )
         resp = await client._request_with_version_retry(
-            "get", "https://www.aula.dk/api/v22?method=test"
+            "get", "https://www.aula.dk/api/v23?method=test"
         )
         assert resp.status_code == 200
         assert resp.json() == {"ok": True}
@@ -45,10 +45,10 @@ class TestRequestWithVersionRetry:
             ]
         )
         resp = await client._request_with_version_retry(
-            "get", "https://www.aula.dk/api/v22?method=test"
+            "get", "https://www.aula.dk/api/v23?method=test"
         )
         assert resp.status_code == 200
-        assert client.api_url == "https://www.aula.dk/api/v23"
+        assert client.api_url == "https://www.aula.dk/api/v24"
 
     @pytest.mark.asyncio
     async def test_multiple_410_bumps(self, client):
@@ -61,10 +61,10 @@ class TestRequestWithVersionRetry:
             ]
         )
         resp = await client._request_with_version_retry(
-            "get", "https://www.aula.dk/api/v22?method=test"
+            "get", "https://www.aula.dk/api/v23?method=test"
         )
         assert resp.status_code == 200
-        assert client.api_url == "https://www.aula.dk/api/v24"
+        assert client.api_url == "https://www.aula.dk/api/v25"
 
     @pytest.mark.asyncio
     async def test_max_retries_exceeded_raises_runtime_error(self, client):
@@ -72,7 +72,7 @@ class TestRequestWithVersionRetry:
         client._client.request = AsyncMock(return_value=HttpResponse(status_code=410, data=None))
         with pytest.raises(RuntimeError, match="Failed to find working API version"):
             await client._request_with_version_retry(
-                "get", "https://www.aula.dk/api/v22?method=test"
+                "get", "https://www.aula.dk/api/v23?method=test"
             )
         assert client._client.request.call_count == 5
 
@@ -81,7 +81,7 @@ class TestRequestWithVersionRetry:
         """Non-410 errors are returned immediately, not retried."""
         client._client.request = AsyncMock(return_value=HttpResponse(status_code=500, data=None))
         resp = await client._request_with_version_retry(
-            "get", "https://www.aula.dk/api/v22?method=test"
+            "get", "https://www.aula.dk/api/v23?method=test"
         )
         assert resp.status_code == 500
         assert client._client.request.call_count == 1
@@ -96,7 +96,7 @@ class TestRequestWithVersionRetry:
         with caplog.at_level("DEBUG"):
             await client._request_with_version_retry(
                 "get",
-                "https://www.aula.dk/api/v22?method=notifications.getNotificationsForActiveProfile",
+                "https://www.aula.dk/api/v23?method=notifications.getNotificationsForActiveProfile",
             )
 
         messages = [r.message for r in caplog.records]
@@ -109,7 +109,7 @@ class TestRequestWithVersionRetry:
     async def test_access_token_appended_during_init(self, client):
         """Access token is appended as query parameter before init clears it."""
         client._client.request = AsyncMock(return_value=HttpResponse(status_code=200, data=None))
-        await client._request_with_version_retry("get", "https://www.aula.dk/api/v22?method=test")
+        await client._request_with_version_retry("get", "https://www.aula.dk/api/v23?method=test")
         called_url = client._client.request.call_args[0][1]
         assert "access_token=test_token" in called_url
 
@@ -118,7 +118,7 @@ class TestRequestWithVersionRetry:
         """After init clears the token, access_token is NOT in URLs."""
         client._access_token = None  # simulate post-init state
         client._client.request = AsyncMock(return_value=HttpResponse(status_code=200, data=None))
-        await client._request_with_version_retry("get", "https://www.aula.dk/api/v22?method=test")
+        await client._request_with_version_retry("get", "https://www.aula.dk/api/v23?method=test")
         called_url = client._client.request.call_args[0][1]
         assert "access_token" not in called_url
 
@@ -138,7 +138,7 @@ class TestRequestWithVersionRetry:
         client._client.request = AsyncMock(return_value=HttpResponse(status_code=200, data=None))
         params = {"key": "value"}
         await client._request_with_version_retry(
-            "get", "https://www.aula.dk/api/v22?method=test", params=params
+            "get", "https://www.aula.dk/api/v23?method=test", params=params
         )
         assert "access_token" not in params
         called_params = client._client.request.call_args[1]["params"]
@@ -153,7 +153,7 @@ class TestRequestWithVersionRetry:
         client = AulaApiClient(http_client=http_client, csrf_token="csrf-value")
         client._access_token = None  # post-init state
         await client._request_with_version_retry(
-            "post", "https://www.aula.dk/api/v22?method=test", json={"data": 1}
+            "post", "https://www.aula.dk/api/v23?method=test", json={"data": 1}
         )
         called_headers = http_client.request.call_args[1]["headers"]
         assert called_headers[CSRF_TOKEN_HEADER] == "csrf-value"
@@ -170,7 +170,7 @@ class TestRequestWithVersionRetry:
         client._access_token = None
 
         await client._request_with_version_retry(
-            "post", "https://www.aula.dk/api/v22?method=test", json={"data": 1}
+            "post", "https://www.aula.dk/api/v23?method=test", json={"data": 1}
         )
 
         called_headers = http_client.request.call_args[1]["headers"]
@@ -186,7 +186,7 @@ class TestRequestWithVersionRetry:
         client._access_token = None
         await client._request_with_version_retry(
             "post",
-            "https://www.aula.dk/api/v22?method=test",
+            "https://www.aula.dk/api/v23?method=test",
             headers={"csrfp-token": "explicit", "content-type": "text/plain"},
         )
         called_headers = http_client.request.call_args[1]["headers"]
@@ -201,7 +201,7 @@ class TestRequestWithVersionRetry:
         client = AulaApiClient(http_client=http_client, csrf_token=None)
         client._access_token = None
         await client._request_with_version_retry(
-            "post", "https://www.aula.dk/api/v22?method=test", json={"data": 1}
+            "post", "https://www.aula.dk/api/v23?method=test", json={"data": 1}
         )
         called_headers = http_client.request.call_args[1]["headers"]
         assert called_headers is None
@@ -213,7 +213,7 @@ class TestRequestWithVersionRetry:
         http_client.request = AsyncMock(return_value=HttpResponse(status_code=200, data=None))
         client = AulaApiClient(http_client=http_client, csrf_token="csrf-value")
         client._access_token = None
-        await client._request_with_version_retry("get", "https://www.aula.dk/api/v22?method=test")
+        await client._request_with_version_retry("get", "https://www.aula.dk/api/v23?method=test")
         called_headers = http_client.request.call_args[1]["headers"]
         assert called_headers is None
 
