@@ -85,8 +85,11 @@ def test_mu_weekly_person_from_dict_empty():
 
 def test_mu_weekly_letter_dict_conversion():
     letter = MUWeeklyLetter(
-        group_id=1, group_name="Group", content_html="<p>Hi</p>",
-        week_number=5, sort_order=1,
+        group_id=1,
+        group_name="Group",
+        content_html="<p>Hi</p>",
+        week_number=5,
+        sort_order=1,
     )
     result = dict(letter)
     assert result["group_name"] == "Group"

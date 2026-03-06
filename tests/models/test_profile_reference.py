@@ -48,8 +48,13 @@ def test_profile_reference_from_dict_empty_institution():
 
 def test_profile_reference_dict_conversion():
     ref = ProfileReference(
-        id=1, profile_id=100, first_name="John", last_name="Doe",
-        full_name="John Doe", short_name="JD", role="guardian",
+        id=1,
+        profile_id=100,
+        first_name="John",
+        last_name="Doe",
+        full_name="John Doe",
+        short_name="JD",
+        role="guardian",
         institution_name="School",
     )
     result = dict(ref)

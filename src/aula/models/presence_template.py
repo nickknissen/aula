@@ -72,7 +72,5 @@ class PresenceWeekTemplate(AulaDataClass):
         return cls(
             _raw=data,
             institution_profile=InstitutionProfile.from_dict(ip_data) if ip_data else None,
-            day_templates=[
-                DayTemplate.from_dict(d) for d in data.get("dayTemplates", [])
-            ],
+            day_templates=[DayTemplate.from_dict(d) for d in data.get("dayTemplates", [])],
         )

@@ -67,7 +67,7 @@ def main() -> None:
 
     # 1. Bump version in pyproject.toml
     bump_version(old_version, new_version)
-    print(f"  Bumped version in pyproject.toml")
+    print("  Bumped version in pyproject.toml")
 
     # 2. Sync lockfile
     run(["uv", "sync", "--quiet"])
@@ -76,7 +76,7 @@ def main() -> None:
     # 3. Commit
     run(["git", "add", "pyproject.toml", "uv.lock"])
     run(["git", "commit", "-m", f"chore: bump version to {new_version}"])
-    print(f"  Committed version bump")
+    print("  Committed version bump")
 
     # 4. Push
     run(["git", "push", "origin", "main"])

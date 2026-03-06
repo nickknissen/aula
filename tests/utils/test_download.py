@@ -184,9 +184,7 @@ class TestDownloadPostImages:
         )
         client.get_posts.side_effect = [[post], []]
 
-        downloaded, skipped = await download_post_images(
-            client, [100], tmp_path, date(2026, 1, 1)
-        )
+        downloaded, skipped = await download_post_images(client, [100], tmp_path, date(2026, 1, 1))
 
         assert downloaded == 1
         assert (tmp_path / "posts" / "20260301 School Trip" / "photo.jpg").exists()
@@ -203,9 +201,7 @@ class TestDownloadPostImages:
             [],  # should not be reached due to cutoff
         ]
 
-        downloaded, skipped = await download_post_images(
-            client, [100], tmp_path, date(2026, 1, 1)
-        )
+        downloaded, skipped = await download_post_images(client, [100], tmp_path, date(2026, 1, 1))
 
         assert downloaded == 0
         assert client.get_posts.call_count == 1
@@ -219,9 +215,7 @@ class TestDownloadPostImages:
         )
         client.get_posts.side_effect = [[post], []]
 
-        downloaded, skipped = await download_post_images(
-            client, [100], tmp_path, date(2026, 1, 1)
-        )
+        downloaded, skipped = await download_post_images(client, [100], tmp_path, date(2026, 1, 1))
 
         assert downloaded == 0
         client.download_file.assert_not_awaited()
@@ -255,9 +249,7 @@ class TestDownloadMessageImages:
         ]
         client.get_all_messages_for_thread.return_value = []
 
-        await download_message_images(
-            client, [100], ["INST1"], tmp_path, date(2026, 1, 1)
-        )
+        await download_message_images(client, [100], ["INST1"], tmp_path, date(2026, 1, 1))
 
         # Should only fetch messages for thread once
         client.get_all_messages_for_thread.assert_awaited_once_with("t1")
@@ -280,9 +272,7 @@ class TestDownloadMessageImages:
             {
                 "sendDateTime": "2025-06-01T10:00:00",
                 "hasAttachments": True,
-                "attachments": [
-                    {"file": {"url": "http://example.com/old.jpg", "name": "old.jpg"}}
-                ],
+                "attachments": [{"file": {"url": "http://example.com/old.jpg", "name": "old.jpg"}}],
             },
         ]
 
@@ -311,9 +301,7 @@ class TestDownloadMessageImages:
             {
                 "sendDateTime": "2026-03-01T10:00:00",
                 "hasAttachments": True,
-                "attachments": [
-                    {"file": {"url": "http://example.com/img.jpg", "name": "img.jpg"}}
-                ],
+                "attachments": [{"file": {"url": "http://example.com/img.jpg", "name": "img.jpg"}}],
             },
         ]
 

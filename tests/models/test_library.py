@@ -36,12 +36,24 @@ def test_library_loan_from_dict_defaults():
 def test_library_status_from_dict():
     data = {
         "loans": [
-            {"id": 1, "title": "Book A", "author": "A", "patronDisplayName": "X",
-             "dueDate": "2025-01-01", "numberOfLoans": 1},
+            {
+                "id": 1,
+                "title": "Book A",
+                "author": "A",
+                "patronDisplayName": "X",
+                "dueDate": "2025-01-01",
+                "numberOfLoans": 1,
+            },
         ],
         "longtermLoans": [
-            {"id": 2, "title": "Book B", "author": "B", "patronDisplayName": "Y",
-             "dueDate": "2025-12-01", "numberOfLoans": 2},
+            {
+                "id": 2,
+                "title": "Book B",
+                "author": "B",
+                "patronDisplayName": "Y",
+                "dueDate": "2025-12-01",
+                "numberOfLoans": 2,
+            },
         ],
         "reservations": [{"id": "r1"}],
         "branchIds": ["branch1", "branch2"],
@@ -67,9 +79,13 @@ def test_library_status_from_dict_empty():
 
 def test_library_loan_dict_conversion():
     loan = LibraryLoan(
-        id=1, title="Book", author="Author",
-        patron_display_name="Reader", due_date="2025-01-01",
-        number_of_loans=1, cover_image_url="",
+        id=1,
+        title="Book",
+        author="Author",
+        patron_display_name="Reader",
+        due_date="2025-01-01",
+        number_of_loans=1,
+        cover_image_url="",
     )
     result = dict(loan)
     assert result["title"] == "Book"

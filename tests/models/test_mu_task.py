@@ -89,8 +89,12 @@ def test_mu_task_from_dict():
         "url": "https://example.com/task",
         "hold": [{"id": 1, "navn": "Math", "fagId": 10, "fagNavn": "Mathematics"}],
         "forloeb": {
-            "id": "c1", "navn": "Course", "ikon": "",
-            "aarsplanId": "", "farve": None, "url": None,
+            "id": "c1",
+            "navn": "Course",
+            "ikon": "",
+            "aarsplanId": "",
+            "farve": None,
+            "url": None,
         },
     }
     task = MUTask.from_dict(data)
