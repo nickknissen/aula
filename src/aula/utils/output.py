@@ -1,12 +1,22 @@
 """Shared helpers for consistent human-readable CLI output."""
 
 import datetime
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 import click
 
+from .json import to_json
+
 if TYPE_CHECKING:
     from aula.models.notification import Notification
+
+
+def output_json(ctx: click.Context, data: Any) -> bool:
+    """If ``--output json`` is active, emit JSON and return ``True``."""
+    if ctx.obj.get("OUTPUT_FORMAT") == "json":
+        click.echo(to_json(data))
+        return True
+    return False
 
 
 def format_heading_lines(title: str) -> list[str]:

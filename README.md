@@ -11,6 +11,16 @@ Async Python client for the Danish school platform **aula.dk**.
 - Token caching — MitID app approval only needed on first login
 - Full async API client (`AulaApiClient`) and a CLI included
 
+## Table of Contents
+
+- [Installation](#installation)
+- [Quick Start](#quick-start)
+- [Authentication](#authentication)
+- [CLI](#cli)
+- [AI Agent Integration](#ai-agent-integration)
+- [Attribution](#attribution)
+- [License](#license)
+
 ## Installation
 
 ```bash
@@ -110,6 +120,21 @@ The username can also be set via the `AULA_MITID_USERNAME` environment variable 
 | `messages` | Recent message threads |
 | `calendar` | Calendar events |
 | `posts` | Posts and announcements |
+| `notifications` | Recent notifications |
+| `daily-summary` | Today's schedule, homework & messages |
+| `weekly-summary` | Full week overview with provider data |
+| `presence-templates` | Planned entry/exit times |
+| `mu:opgaver` | Min Uddannelse tasks |
+| `mu:ugeplan` | Min Uddannelse weekly letter |
+| `easyiq:ugeplan` | EasyIQ weekly plan |
+| `easyiq:homework` | EasyIQ homework |
+| `meebook:ugeplan` | Meebook weekly plan |
+| `momo:forløb` | MoMo courses |
+| `momo:huskeliste` | MoMo reminders |
+| `library:status` | Library loans & reservations |
+| `widgets` | List available widgets |
+| `download-images` | Download images from gallery/posts/messages |
+| `agent-setup` | Install AI agent skill (see below) |
 
 Example:
 
@@ -118,6 +143,32 @@ aula --username johndoe messages --limit 5
 # or without installing
 uvx aula --username johndoe messages --limit 5
 ```
+
+### JSON output
+
+All commands support `--output json` for machine-readable output:
+
+```bash
+aula --output json messages --unread
+aula --output json daily-summary --child "Emma"
+aula --output json calendar --start-date 2026-03-10
+```
+
+Set the `AULA_OUTPUT=json` environment variable to make JSON the default.
+
+## AI Agent Integration
+
+The CLI is designed to work with AI coding agents like [Claude Code](https://docs.anthropic.com/en/docs/claude-code) and [OpenCode](https://opencode.ai). The `agent-setup` command installs a skill that teaches agents how to query Aula for school data.
+
+```bash
+# Install for the current project
+aula agent-setup
+
+# Install globally (all projects)
+aula agent-setup --global
+```
+
+This creates a `SKILL.md` following the [Agent Skills](https://agentskills.io) open standard under `.claude/skills/aula/`, which is read by both Claude Code and OpenCode. Once installed, agents can invoke `/aula` or automatically use the CLI when you ask about school data.
 
 ## Attribution
 

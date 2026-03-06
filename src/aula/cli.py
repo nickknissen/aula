@@ -20,6 +20,7 @@ from .auth_flow import authenticate_and_create_client
 from .config import CONFIG_FILE, DEFAULT_TOKEN_FILE, load_config, save_config
 from .models import DailyOverview, Message, MessageThread, Notification, Profile
 from .token_storage import FileTokenStorage
+from .utils.json import to_json
 from .utils.output import (
     clip,
     format_calendar_context_lines,
@@ -29,6 +30,7 @@ from .utils.output import (
     format_record_lines,
     format_report_intro_lines,
     format_row,
+    output_json,
     print_empty,
     print_error,
     print_heading,
@@ -99,8 +101,16 @@ def get_mitid_username(ctx: click.Context) -> str:
     envvar="AULA_AUTH_METHOD",
     help="MitID auth method: 'app' (QR/OTP) or 'token' (code token + password).",
 )
+@click.option(
+    "--output",
+    "output_format",
+    type=click.Choice(["text", "json"], case_sensitive=False),
+    default="text",
+    envvar="AULA_OUTPUT",
+    help="Output format: 'text' (human-readable) or 'json' (machine-readable).",
+)
 @click.pass_context
-def cli(ctx, username: str | None, verbose: int, auth_method: str):
+def cli(ctx, username: str | None, verbose: int, auth_method: str, output_format: str):
     """CLI for interacting with Aula API"""
     # Configure logging based on verbosity
     log_level = logging.ERROR  # Default: errors only (no warnings in normal output)
@@ -127,6 +137,7 @@ def cli(ctx, username: str | None, verbose: int, auth_method: str):
     ctx.ensure_object(dict)
 
     ctx.obj["AUTH_METHOD"] = auth_method
+    ctx.obj["OUTPUT_FORMAT"] = output_format
 
     if username:
         ctx.obj["MITID_USERNAME"] = username
@@ -246,6 +257,8 @@ async def _get_widget_context(
 async def login(ctx):
     """Authenticate and initialize session"""
     async with await _get_client(ctx) as client:
+        if output_json(ctx, {"status": "ok", "api_url": client.api_url}):
+            return
         click.echo(f"Logged in. API URL: {client.api_url}")
 
 
@@ -262,6 +275,9 @@ async def profile(ctx):
             return
         except Exception as e:
             print_error(f"unexpected failure: {e}")
+            return
+
+        if output_json(ctx, dict(prof)):
             return
 
         print_heading("Profile")
@@ -307,6 +323,19 @@ async def overview(ctx, child_id):
             except Exception as e:
                 print_error(f"fetching profile: {e}")
                 return
+
+        if ctx.obj.get("OUTPUT_FORMAT") == "json":
+            results = []
+            for c_id in child_ids:
+                try:
+                    data: DailyOverview | None = await client.get_daily_overview(c_id)
+                    results.append(
+                        dict(data) if data else {"child_id": c_id, "status": "unavailable"}
+                    )
+                except Exception as e:
+                    results.append({"child_id": c_id, "error": str(e)})
+            click.echo(to_json(results))
+            return
 
         for i, c_id in enumerate(child_ids):
             try:
@@ -371,8 +400,6 @@ async def messages(ctx, limit, unread, search):
     """Fetch the latest message threads and their messages."""
     async with await _get_client(ctx) as client:
         if search:
-            print_heading(f'Messages: "{search}"')
-
             try:
                 prof: Profile = await client.get_profile()
             except Exception as e:
@@ -397,9 +424,14 @@ async def messages(ctx, limit, unread, search):
                 print_error(f"searching messages: {e}")
                 return
 
+            if output_json(ctx, [dict(m) for m in results]):
+                return
+
             if not results:
                 print_empty("messages")
                 return
+
+            print_heading(f'Messages: "{search}"')
 
             for i, msg in enumerate(results):
                 msg_raw = msg._raw or {}
@@ -414,9 +446,6 @@ async def messages(ctx, limit, unread, search):
                     click.echo()
             return
 
-        filter_label = "unread" if unread else "latest"
-        print_heading(f"Message threads: {filter_label}")
-
         try:
             filter_on = "unread" if unread else None
             threads: list[MessageThread] = await client.get_message_threads(filter_on=filter_on)
@@ -424,6 +453,24 @@ async def messages(ctx, limit, unread, search):
         except Exception as e:
             print_error(f"fetching message threads: {e}")
             return
+
+        if ctx.obj.get("OUTPUT_FORMAT") == "json":
+            json_threads = []
+            for thread in threads:
+                t = dict(thread)
+                try:
+                    messages_list: list[Message] = await client.get_messages_for_thread(
+                        thread.thread_id
+                    )
+                    t["messages"] = [dict(m) for m in messages_list]
+                except Exception:
+                    t["messages"] = []
+                json_threads.append(t)
+            click.echo(to_json(json_threads))
+            return
+
+        filter_label = "unread" if unread else "latest"
+        print_heading(f"Message threads: {filter_label}")
 
         if not threads:
             print_empty("message threads")
@@ -514,6 +561,9 @@ async def notifications(ctx, offset, limit, module):
             print_error(f"fetching notifications: {e}")
             return
 
+        if output_json(ctx, [dict(item) for item in items]):
+            return
+
         if not items:
             print_empty("notifications")
             return
@@ -586,8 +636,6 @@ async def notifications(ctx, offset, limit, module):
 async def calendar(ctx, institution_profile_id, start_date, end_date):
     """Fetch calendar events for children."""
     async with await _get_client(ctx) as client:
-        print_heading("Calendar events")
-
         institution_profile_ids = list(institution_profile_id)
 
         if not institution_profile_ids:
@@ -603,27 +651,30 @@ async def calendar(ctx, institution_profile_id, start_date, end_date):
             return
 
         try:
-            for line in format_calendar_context_lines(
-                start_date,
-                end_date,
-                profile_count=len(institution_profile_ids),
-            ):
-                click.echo(line)
-
             events = await client.get_calendar_events(institution_profile_ids, start_date, end_date)
-
-            if not events:
-                print_empty("calendar events")
-                return
-
-            from .utils.table import build_calendar_table, print_calendar_table
-
-            table_data = build_calendar_table(events)
-            print_calendar_table(table_data)
-
         except Exception as e:
             print_error(f"fetching calendar events: {e}")
             return
+
+        if output_json(ctx, [dict(ev) for ev in events]):
+            return
+
+        print_heading("Calendar events")
+        for line in format_calendar_context_lines(
+            start_date,
+            end_date,
+            profile_count=len(institution_profile_ids),
+        ):
+            click.echo(line)
+
+        if not events:
+            print_empty("calendar events")
+            return
+
+        from .utils.table import build_calendar_table, print_calendar_table
+
+        table_data = build_calendar_table(events)
+        print_calendar_table(table_data)
 
 
 @cli.command()
@@ -667,6 +718,9 @@ async def posts(ctx, institution_profile_id, limit, page):
                 institution_profile_ids=institution_profile_ids,
             )
 
+            if output_json(ctx, [dict(p) for p in posts_list]):
+                return
+
             if not posts_list:
                 print_empty("posts")
                 return
@@ -703,6 +757,9 @@ async def widgets(ctx):
             widget_list = await client.get_widgets()
         except Exception as e:
             print_error(f"fetching widgets: {e}")
+            return
+
+        if output_json(ctx, [dict(w) for w in widget_list]):
             return
 
         if not widget_list:
@@ -765,6 +822,9 @@ async def mu_opgaver(ctx, week):
             )
         except Exception as e:
             print_error(f"fetching tasks: {e}")
+            return
+
+        if output_json(ctx, [dict(t) for t in opgaver]):
             return
 
         print_heading(f"Min Uddannelse tasks [{week}]")
@@ -836,6 +896,9 @@ async def mu_ugeplan(ctx, week):
             print_error(f"fetching weekly plans: {e}")
             return
 
+        if output_json(ctx, [dict(p) for p in personer]):
+            return
+
         if not personer:
             print_empty("weekly plans")
             return
@@ -902,6 +965,22 @@ async def easyiq_ugeplan(ctx, week):
             return
 
         from .utils.html import html_to_plain
+
+        if ctx.obj.get("OUTPUT_FORMAT") == "json":
+            all_appointments = []
+            for child in prof.children:
+                if not child._raw or "userId" not in child._raw:
+                    continue
+                child_id = str(child._raw["userId"])
+                try:
+                    appointments = await client.widgets.get_easyiq_weekplan(
+                        week, session_uuid, institution_filter, child_id
+                    )
+                    all_appointments.extend(dict(a) for a in appointments)
+                except Exception:
+                    continue
+            click.echo(to_json(all_appointments))
+            return
 
         print_heading(f"EasyIQ weekly plan [{week}]")
         rendered = 0
@@ -979,6 +1058,22 @@ async def easyiq_homework(ctx, week):
             return
 
         from .utils.html import html_to_plain
+
+        if ctx.obj.get("OUTPUT_FORMAT") == "json":
+            all_homework = []
+            for child in prof.children:
+                if not child._raw or "userId" not in child._raw:
+                    continue
+                child_id = str(child._raw["userId"])
+                try:
+                    homework = await client.widgets.get_easyiq_homework(
+                        week, session_uuid, institution_filter, child_id
+                    )
+                    all_homework.extend(dict(hw) for hw in homework)
+                except Exception:
+                    continue
+            click.echo(to_json(all_homework))
+            return
 
         print_heading(f"EasyIQ homework [{week}]")
         rendered = 0
@@ -1072,6 +1167,9 @@ async def meebook_ugeplan(ctx, week):
             print_error(f"fetching Meebook weekplan: {e}")
             return
 
+        if output_json(ctx, [dict(s) for s in students]):
+            return
+
         if not students:
             print_empty("weekly plans")
             return
@@ -1151,6 +1249,9 @@ async def momo_course(ctx):
             print_error(f"fetching MoMo courses: {e}")
             return
 
+        if output_json(ctx, [dict(u) for u in users_with_courses]):
+            return
+
         if not users_with_courses:
             print_empty("courses")
             return
@@ -1222,6 +1323,9 @@ async def momo_reminders(ctx):
             )
         except Exception as e:
             print_error(f"fetching reminders: {e}")
+            return
+
+        if output_json(ctx, [dict(u) for u in users]):
             return
 
         if not users:
@@ -1327,7 +1431,9 @@ async def download_images(ctx, output, since, source, tags):
     tag_list = list(tags) if tags else None
 
     async with await _get_client(ctx) as client:
-        print_heading("Download images")
+        is_json = ctx.obj.get("OUTPUT_FORMAT") == "json"
+        if not is_json:
+            print_heading("Download images")
         prof = await client.get_profile()
         institution_profile_ids = prof.institution_profile_ids
 
@@ -1342,53 +1448,63 @@ async def download_images(ctx, output, since, source, tags):
 
         total_downloaded = 0
         total_skipped = 0
+        on_progress = click.echo if not is_json else lambda _msg: None
 
         if source in ("all", "gallery"):
-            click.echo("Gallery")
+            if not is_json:
+                click.echo("Gallery")
             dl, sk = await download_gallery_images(
                 client,
                 institution_profile_ids,
                 output_path,
                 cutoff,
                 tag_list,
-                on_progress=click.echo,
+                on_progress=on_progress,
             )
-            click.echo(f"  Downloaded: {dl}")
-            click.echo(f"  Skipped: {sk}")
-            click.echo()
+            if not is_json:
+                click.echo(f"  Downloaded: {dl}")
+                click.echo(f"  Skipped: {sk}")
+                click.echo()
             total_downloaded += dl
             total_skipped += sk
 
         if source in ("all", "posts"):
-            click.echo("Posts")
+            if not is_json:
+                click.echo("Posts")
             dl, sk = await download_post_images(
                 client,
                 institution_profile_ids,
                 output_path,
                 cutoff,
-                on_progress=click.echo,
+                on_progress=on_progress,
             )
-            click.echo(f"  Downloaded: {dl}")
-            click.echo(f"  Skipped: {sk}")
-            click.echo()
+            if not is_json:
+                click.echo(f"  Downloaded: {dl}")
+                click.echo(f"  Skipped: {sk}")
+                click.echo()
             total_downloaded += dl
             total_skipped += sk
 
         if source in ("all", "messages"):
-            click.echo("Messages")
+            if not is_json:
+                click.echo("Messages")
             dl, sk = await download_message_images(
                 client,
                 children_inst_ids,
                 institution_codes,
                 output_path,
                 cutoff,
-                on_progress=click.echo,
+                on_progress=on_progress,
             )
-            click.echo(f"  Downloaded: {dl}")
-            click.echo(f"  Skipped: {sk}")
-            click.echo()
+            if not is_json:
+                click.echo(f"  Downloaded: {dl}")
+                click.echo(f"  Skipped: {sk}")
+                click.echo()
             total_downloaded += dl
             total_skipped += sk
+
+        if output_json(ctx, {"downloaded": total_downloaded, "skipped": total_skipped}):
+            return
 
         click.echo("Total")
         click.echo(f"  Downloaded: {total_downloaded}")
@@ -1427,6 +1543,9 @@ async def library_status(ctx):
             )
         except Exception as e:
             print_error(f"fetching library status: {e}")
+            return
+
+        if output_json(ctx, dict(status)):
             return
 
         print_heading("Library status")
@@ -1503,6 +1622,7 @@ async def weekly_summary(ctx, child, week, providers):
     """
     from .utils.html import html_to_plain
 
+    is_json = ctx.obj.get("OUTPUT_FORMAT") == "json"
     week = _resolve_week(week)
 
     # ── Provider resolution ──────────────────────────────────────────────────
@@ -1555,18 +1675,21 @@ async def weekly_summary(ctx, child, week, providers):
                 return
 
         now = datetime.datetime.now(ZoneInfo("Europe/Copenhagen"))
-        for line in format_report_intro_lines(
-            f"Weekly overview - week {week_num}, {year_num}",
-            [
-                ("Generated", now.strftime("%Y-%m-%d")),
-                (
-                    "Period",
-                    f"{week_start.strftime('%a %d %b')} - {week_end.strftime('%a %d %b %Y')}",
-                ),
-            ],
-        ):
-            click.echo(line)
-        click.echo()
+        json_result: dict | None = {"week": week, "generated": now.isoformat()} if is_json else None
+
+        if not is_json:
+            for line in format_report_intro_lines(
+                f"Weekly overview - week {week_num}, {year_num}",
+                [
+                    ("Generated", now.strftime("%Y-%m-%d")),
+                    (
+                        "Period",
+                        f"{week_start.strftime('%a %d %b')} - {week_end.strftime('%a %d %b %Y')}",
+                    ),
+                ],
+            ):
+                click.echo(line)
+            click.echo()
 
         # ── Calendar events ──────────────────────────────────────────────────
         child_inst_ids = [c.id for c in children]
@@ -1576,54 +1699,63 @@ async def weekly_summary(ctx, child, week, providers):
             events = []
             logging.getLogger(__name__).warning("Could not fetch calendar events: %s", e)
 
-        click.echo("Calendar events")
-        click.echo()
-        if events:
-            # Group by date
-            from collections import defaultdict
+        if json_result is not None:
+            json_result["calendar_events"] = [dict(ev) for ev in events]
 
-            by_day: dict[datetime.date, list] = defaultdict(list)
-            for ev in events:
-                by_day[ev.start_datetime.date()].append(ev)
-
-            for day_offset in range(5):
-                day = (week_start + datetime.timedelta(days=day_offset)).date()
-                day_label = (week_start + datetime.timedelta(days=day_offset)).strftime("%A, %d %B")
-                day_events = sorted(by_day.get(day, []), key=lambda e: e.start_datetime)
-                click.echo(day_label)
-                if day_events:
-                    # Merge events that share the exact same timeslot
-                    slots: dict[tuple, list] = defaultdict(list)
-                    for ev in day_events:
-                        slots[(ev.start_datetime, ev.end_datetime)].append(ev)
-                    for (start_dt, end_dt), evs in sorted(slots.items()):
-                        time_range = f"{start_dt.strftime('%H:%M')}–{end_dt.strftime('%H:%M')}"
-                        titles = " / ".join(dict.fromkeys(ev.title or "Untitled" for ev in evs))
-                        locations = list(dict.fromkeys(ev.location for ev in evs if ev.location))
-                        teachers = list(
-                            dict.fromkeys(ev.teacher_name for ev in evs if ev.teacher_name)
-                        )
-                        substitutes = list(
-                            dict.fromkeys(
-                                ev.substitute_name
-                                for ev in evs
-                                if ev.has_substitute and ev.substitute_name
-                            )
-                        )
-                        parts = [time_range, titles]
-                        if locations:
-                            parts.append(f"({' / '.join(locations)})")
-                        if teachers:
-                            parts.append(f"[{' / '.join(teachers)}]")
-                        if substitutes:
-                            parts.append(f"[Substitute: {' / '.join(substitutes)}]")
-                        click.echo(f"- {'  '.join(parts)}")
-                else:
-                    click.echo("- (no events)")
-                click.echo()
-        else:
-            print_empty("calendar events")
+        if not is_json:
+            click.echo("Calendar events")
             click.echo()
+        if not is_json:
+            if events:
+                # Group by date
+                from collections import defaultdict
+
+                by_day: dict[datetime.date, list] = defaultdict(list)
+                for ev in events:
+                    by_day[ev.start_datetime.date()].append(ev)
+
+                for day_offset in range(5):
+                    day = (week_start + datetime.timedelta(days=day_offset)).date()
+                    day_label = (week_start + datetime.timedelta(days=day_offset)).strftime(
+                        "%A, %d %B"
+                    )
+                    day_events = sorted(by_day.get(day, []), key=lambda e: e.start_datetime)
+                    click.echo(day_label)
+                    if day_events:
+                        # Merge events that share the exact same timeslot
+                        slots: dict[tuple, list] = defaultdict(list)
+                        for ev in day_events:
+                            slots[(ev.start_datetime, ev.end_datetime)].append(ev)
+                        for (start_dt, end_dt), evs in sorted(slots.items()):
+                            time_range = f"{start_dt.strftime('%H:%M')}–{end_dt.strftime('%H:%M')}"
+                            titles = " / ".join(dict.fromkeys(ev.title or "Untitled" for ev in evs))
+                            locations = list(
+                                dict.fromkeys(ev.location for ev in evs if ev.location)
+                            )
+                            teachers = list(
+                                dict.fromkeys(ev.teacher_name for ev in evs if ev.teacher_name)
+                            )
+                            substitutes = list(
+                                dict.fromkeys(
+                                    ev.substitute_name
+                                    for ev in evs
+                                    if ev.has_substitute and ev.substitute_name
+                                )
+                            )
+                            parts = [time_range, titles]
+                            if locations:
+                                parts.append(f"({' / '.join(locations)})")
+                            if teachers:
+                                parts.append(f"[{' / '.join(teachers)}]")
+                            if substitutes:
+                                parts.append(f"[Substitute: {' / '.join(substitutes)}]")
+                            click.echo(f"- {'  '.join(parts)}")
+                    else:
+                        click.echo("- (no events)")
+                    click.echo()
+            else:
+                print_empty("calendar events")
+                click.echo()
 
         # ── Unread messages ──────────────────────────────────────────────────
         try:
@@ -1632,7 +1764,10 @@ async def weekly_summary(ctx, child, week, providers):
             unread_threads = []
             _log.warning("Could not fetch unread messages: %s", e)
 
-        if unread_threads:
+        if json_result is not None:
+            json_result["unread_messages"] = [dict(t) for t in unread_threads]
+
+        if not is_json and unread_threads:
             click.echo("Unread messages")
             click.echo()
             for thread in unread_threads:
@@ -1666,10 +1801,15 @@ async def weekly_summary(ctx, child, week, providers):
                     click.echo()
 
         if not enabled:
+            if json_result is not None:
+                click.echo(to_json(json_result))
             return  # nothing to fetch beyond calendar
 
         widget_ctx = await _get_widget_context(client, prof)
         if widget_ctx is None:
+            if json_result is not None:
+                click.echo(to_json(json_result))
+                return
             click.echo("(Widget context unavailable – skipping provider data)")
             return
 
@@ -1698,26 +1838,30 @@ async def weekly_summary(ctx, child, week, providers):
                 tasks = []
                 _log.warning("Could not fetch MU tasks: %s", e)
 
-            click.echo("Homework & tasks (Min Uddannelse)")
-            click.echo()
-            if tasks:
-                for task in tasks:
-                    parts = []
-                    if task.weekday:
-                        parts.append(task.weekday)
-                    subjects = ", ".join(
-                        cls.subject_name for cls in task.classes if cls.subject_name
-                    )
-                    if subjects:
-                        parts.append(subjects)
-                    label = f"{' – '.join(parts)}: {task.title}" if parts else task.title
-                    status = " ✓" if task.is_completed else ""
-                    click.echo(f"- {label}{status}")
-                    if task.task_type:
-                        click.echo(f"  Type: {task.task_type}")
-            else:
-                print_empty("tasks")
-            click.echo()
+            if json_result is not None:
+                json_result["mu_tasks"] = [dict(t) for t in tasks]
+
+            if not is_json:
+                click.echo("Homework & tasks (Min Uddannelse)")
+                click.echo()
+                if tasks:
+                    for task in tasks:
+                        parts = []
+                        if task.weekday:
+                            parts.append(task.weekday)
+                        subjects = ", ".join(
+                            cls.subject_name for cls in task.classes if cls.subject_name
+                        )
+                        if subjects:
+                            parts.append(subjects)
+                        label = f"{' – '.join(parts)}: {task.title}" if parts else task.title
+                        status = " ✓" if task.is_completed else ""
+                        click.echo(f"- {label}{status}")
+                        if task.task_type:
+                            click.echo(f"  Type: {task.task_type}")
+                else:
+                    print_empty("tasks")
+                click.echo()
 
         # ── Min Uddannelse – Weekly Letter (Ugeplan) ─────────────────────────
         if WeeklySummaryProvider.MU_UGEPLAN in enabled:
@@ -1735,7 +1879,10 @@ async def weekly_summary(ctx, child, week, providers):
                 mu_persons = []
                 _log.warning("Could not fetch MU ugeplan: %s", e)
 
-            if mu_persons:
+            if json_result is not None:
+                json_result["mu_ugeplan"] = [dict(p) for p in mu_persons]
+
+            if not is_json and mu_persons:
                 click.echo("Weekly letter (Min Uddannelse ugeplan)")
                 click.echo()
                 for person in mu_persons:
@@ -1757,7 +1904,10 @@ async def weekly_summary(ctx, child, week, providers):
                 meebook_students = []
                 _log.warning("Could not fetch Meebook weekplan: %s", e)
 
-            if meebook_students:
+            if json_result is not None:
+                json_result["meebook_weekplan"] = [dict(s) for s in meebook_students]
+
+            if not is_json and meebook_students:
                 click.echo("Weekly plan (Meebook)")
                 click.echo()
                 for student in meebook_students:
@@ -1780,6 +1930,7 @@ async def weekly_summary(ctx, child, week, providers):
 
         # ── EasyIQ – Weekly Plan ─────────────────────────────────────────────
         if WeeklySummaryProvider.EASYIQ in enabled:
+            easyiq_appointments: list[dict] = []
             easyiq_any = False
             for c in children:
                 if not c._raw or "userId" not in c._raw:
@@ -1801,25 +1952,32 @@ async def weekly_summary(ctx, child, week, providers):
                 if not appointments:
                     continue
 
-                if not easyiq_any:
-                    click.echo("Weekly plan (EasyIQ)")
-                    click.echo()
-                    easyiq_any = True
+                easyiq_appointments.extend(dict(a) for a in appointments)
 
-                click.echo(c.name)
-                click.echo()
-                for appt in appointments:
-                    click.echo(f"- {appt.title}")
-                    if appt.start or appt.end:
-                        click.echo(f"  {appt.start} – {appt.end}")
-                    if appt.description:
-                        for line in html_to_plain(appt.description).splitlines():
-                            if line.strip():
-                                click.echo(f"  {line}")
-                click.echo()
+                if not is_json:
+                    if not easyiq_any:
+                        click.echo("Weekly plan (EasyIQ)")
+                        click.echo()
+                        easyiq_any = True
+
+                    click.echo(c.name)
+                    click.echo()
+                    for appt in appointments:
+                        click.echo(f"- {appt.title}")
+                        if appt.start or appt.end:
+                            click.echo(f"  {appt.start} – {appt.end}")
+                        if appt.description:
+                            for line in html_to_plain(appt.description).splitlines():
+                                if line.strip():
+                                    click.echo(f"  {line}")
+                    click.echo()
+
+            if json_result is not None:
+                json_result["easyiq_weekplan"] = easyiq_appointments
 
         # ── EasyIQ – Homework ──────────────────────────────────────────────────
         if WeeklySummaryProvider.EASYIQ_HOMEWORK in enabled:
+            easyiq_hw_items: list[dict] = []
             easyiq_hw_any = False
             for c in children:
                 if not c._raw or "userId" not in c._raw:
@@ -1841,25 +1999,34 @@ async def weekly_summary(ctx, child, week, providers):
                 if not homework:
                     continue
 
-                if not easyiq_hw_any:
-                    click.echo("Homework (EasyIQ)")
-                    click.echo()
-                    easyiq_hw_any = True
+                easyiq_hw_items.extend(dict(hw) for hw in homework)
 
-                click.echo(c.name)
-                click.echo()
-                for hw in homework:
-                    status = "[x]" if hw.is_completed else "[ ]"
-                    click.echo(f"- {status} {hw.title}")
-                    if hw.subject:
-                        click.echo(f"  Subject: {hw.subject}")
-                    if hw.due_date:
-                        click.echo(f"  Due: {hw.due_date}")
-                    if hw.description:
-                        for line in html_to_plain(hw.description).splitlines():
-                            if line.strip():
-                                click.echo(f"  {line}")
-                click.echo()
+                if not is_json:
+                    if not easyiq_hw_any:
+                        click.echo("Homework (EasyIQ)")
+                        click.echo()
+                        easyiq_hw_any = True
+
+                    click.echo(c.name)
+                    click.echo()
+                    for hw in homework:
+                        status = "[x]" if hw.is_completed else "[ ]"
+                        click.echo(f"- {status} {hw.title}")
+                        if hw.subject:
+                            click.echo(f"  Subject: {hw.subject}")
+                        if hw.due_date:
+                            click.echo(f"  Due: {hw.due_date}")
+                        if hw.description:
+                            for line in html_to_plain(hw.description).splitlines():
+                                if line.strip():
+                                    click.echo(f"  {line}")
+                    click.echo()
+
+            if json_result is not None:
+                json_result["easyiq_homework"] = easyiq_hw_items
+
+        if json_result is not None:
+            click.echo(to_json(json_result))
 
 
 @cli.command("presence-templates")
@@ -1908,6 +2075,9 @@ async def presence_templates(ctx, from_date, to_date):
             )
         except Exception as e:
             print_error(f"fetching presence templates: {e}")
+            return
+
+        if output_json(ctx, [dict(t) for t in templates]):
             return
 
         if not templates:
@@ -1994,6 +2164,7 @@ async def daily_summary(ctx, child, target_date):
     """
     from collections import defaultdict
 
+    is_json = ctx.obj.get("OUTPUT_FORMAT") == "json"
     _log = logging.getLogger(__name__)
     tz = ZoneInfo("Europe/Copenhagen")
     now = datetime.datetime.now(tz)
@@ -2031,12 +2202,17 @@ async def daily_summary(ctx, child, target_date):
                 print_error(f"no child matching '{child}'. Available: {names}")
                 return
 
-        for line in format_report_intro_lines(
-            f"Daily summary - {day_label}",
-            [("Generated", now.strftime("%Y-%m-%d %H:%M"))],
-        ):
-            click.echo(line)
-        click.echo()
+        json_result: dict | None = (
+            {"date": today.date().isoformat(), "generated": now.isoformat()} if is_json else None
+        )
+
+        if not is_json:
+            for line in format_report_intro_lines(
+                f"Daily summary - {day_label}",
+                [("Generated", now.strftime("%Y-%m-%d %H:%M"))],
+            ):
+                click.echo(line)
+            click.echo()
 
         # ── Presence templates for target date (planned times) ────────────────
         # Extract institution profile IDs from children (Child.id, not profile_id)
@@ -2091,8 +2267,11 @@ async def daily_summary(ctx, child, target_date):
         is_today = today.date() == now.date()
 
         # ── Check-in status ───────────────────────────────────────────────────
-        click.echo("Status")
-        click.echo()
+        if not is_json:
+            click.echo("Status")
+            click.echo()
+
+        overview_data = []
         for c in children:
             day_tmpl = day_template_by_child.get(c.id)
 
@@ -2102,6 +2281,15 @@ async def daily_summary(ctx, child, target_date):
                     ov = await client.get_daily_overview(c.id)
                 except Exception as e:
                     _log.warning("Could not fetch daily overview for %s: %s", c.name, e)
+
+            if is_json:
+                entry = {"child": dict(c)}
+                if ov is not None:
+                    entry["overview"] = dict(ov)
+                if day_tmpl:
+                    entry["presence_template"] = dict(day_tmpl)
+                overview_data.append(entry)
+                continue
 
             click.echo(c.name)
 
@@ -2149,6 +2337,9 @@ async def daily_summary(ctx, child, target_date):
 
             click.echo()
 
+        if json_result is not None:
+            json_result["status"] = overview_data
+
         # ── Schedule ──────────────────────────────────────────────────────────
         try:
             events = await client.get_calendar_events(
@@ -2158,35 +2349,42 @@ async def daily_summary(ctx, child, target_date):
             events = []
             _log.warning("Could not fetch calendar events: %s", e)
 
-        click.echo("Schedule")
-        click.echo()
-        if events:
-            slots: dict[tuple, list] = defaultdict(list)
-            for ev in sorted(events, key=lambda e: e.start_datetime):
-                slots[(ev.start_datetime, ev.end_datetime)].append(ev)
-            for (start_dt, end_dt), evs in sorted(slots.items()):
-                time_range = f"{start_dt.strftime('%H:%M')}–{end_dt.strftime('%H:%M')}"
-                titles = " / ".join(dict.fromkeys(ev.title or "Untitled" for ev in evs))
-                locations = list(dict.fromkeys(ev.location for ev in evs if ev.location))
-                teachers = list(dict.fromkeys(ev.teacher_name for ev in evs if ev.teacher_name))
-                substitutes = list(
-                    dict.fromkeys(
-                        ev.substitute_name for ev in evs if ev.has_substitute and ev.substitute_name
+        if json_result is not None:
+            json_result["calendar_events"] = [dict(ev) for ev in events]
+
+        if not is_json:
+            click.echo("Schedule")
+            click.echo()
+            if events:
+                slots: dict[tuple, list] = defaultdict(list)
+                for ev in sorted(events, key=lambda e: e.start_datetime):
+                    slots[(ev.start_datetime, ev.end_datetime)].append(ev)
+                for (start_dt, end_dt), evs in sorted(slots.items()):
+                    time_range = f"{start_dt.strftime('%H:%M')}–{end_dt.strftime('%H:%M')}"
+                    titles = " / ".join(dict.fromkeys(ev.title or "Untitled" for ev in evs))
+                    locations = list(dict.fromkeys(ev.location for ev in evs if ev.location))
+                    teachers = list(dict.fromkeys(ev.teacher_name for ev in evs if ev.teacher_name))
+                    substitutes = list(
+                        dict.fromkeys(
+                            ev.substitute_name
+                            for ev in evs
+                            if ev.has_substitute and ev.substitute_name
+                        )
                     )
-                )
-                parts = [time_range, titles]
-                if locations:
-                    parts.append(f"({' / '.join(locations)})")
-                if teachers:
-                    parts.append(f"[{' / '.join(teachers)}]")
-                if substitutes:
-                    parts.append(f"[Substitute: {' / '.join(substitutes)}]")
-                click.echo(f"- {'  '.join(parts)}")
-        else:
-            click.echo("No events today.")
-        click.echo()
+                    parts = [time_range, titles]
+                    if locations:
+                        parts.append(f"({' / '.join(locations)})")
+                    if teachers:
+                        parts.append(f"[{' / '.join(teachers)}]")
+                    if substitutes:
+                        parts.append(f"[Substitute: {' / '.join(substitutes)}]")
+                    click.echo(f"- {'  '.join(parts)}")
+            else:
+                click.echo("No events today.")
+            click.echo()
 
         # ── Homework due today ────────────────────────────────────────────────
+        today_tasks: list = []
         widget_ctx = await _get_widget_context(client, prof)
         if widget_ctx is not None:
             child_filter, institution_filter, session_uuid = widget_ctx
@@ -2201,7 +2399,11 @@ async def daily_summary(ctx, child, target_date):
 
             try:
                 all_tasks = await client.widgets.get_mu_tasks(
-                    WIDGET_MIN_UDDANNELSE_TASKS, child_filter, institution_filter, week, session_uuid
+                    WIDGET_MIN_UDDANNELSE_TASKS,
+                    child_filter,
+                    institution_filter,
+                    week,
+                    session_uuid,
                 )
             except Exception as e:
                 all_tasks = []
@@ -2214,17 +2416,18 @@ async def daily_summary(ctx, child, target_date):
                 or (t.due_date and t.due_date.date() == today.date())
             ]
 
-            if today_tasks:
-                click.echo("Homework due today")
-                click.echo()
-                for task in today_tasks:
-                    subjects = ", ".join(
-                        cls.subject_name for cls in task.classes if cls.subject_name
-                    )
-                    label = f"{subjects}: {task.title}" if subjects else task.title
-                    status = " ✓" if task.is_completed else ""
-                    click.echo(f"- {label}{status}")
-                click.echo()
+        if json_result is not None:
+            json_result["homework_due_today"] = [dict(t) for t in today_tasks]
+
+        if not is_json and today_tasks:
+            click.echo("Homework due today")
+            click.echo()
+            for task in today_tasks:
+                subjects = ", ".join(cls.subject_name for cls in task.classes if cls.subject_name)
+                label = f"{subjects}: {task.title}" if subjects else task.title
+                status = " ✓" if task.is_completed else ""
+                click.echo(f"- {label}{status}")
+            click.echo()
 
         # ── Unread messages ───────────────────────────────────────────────────
         try:
@@ -2232,6 +2435,11 @@ async def daily_summary(ctx, child, target_date):
         except Exception as e:
             unread_threads = []
             _log.warning("Could not fetch unread messages: %s", e)
+
+        if json_result is not None:
+            json_result["unread_messages"] = [dict(t) for t in unread_threads]
+            click.echo(to_json(json_result))
+            return
 
         if unread_threads:
             click.echo("Unread messages")
@@ -2265,6 +2473,54 @@ async def daily_summary(ctx, child, target_date):
                 except Exception as e:
                     _log.warning("Could not fetch messages for thread %s: %s", thread.thread_id, e)
                     click.echo()
+
+
+@cli.command("agent-setup")
+@click.option(
+    "--global",
+    "install_global",
+    is_flag=True,
+    default=False,
+    help="Install skill globally (~/.claude/skills/) instead of in the current project.",
+)
+def agent_setup(install_global):
+    """Install an agent skill so Claude Code / OpenCode can use the Aula CLI.
+
+    Creates a SKILL.md file that teaches AI agents how to query Aula for
+    school data.  Works with any tool that follows the Agent Skills standard
+    (Claude Code, OpenCode, etc.).
+    """
+    from pathlib import Path
+
+    from .agent_skill import generate_skill_md
+
+    # ── Detect tools ────────────────────────────────────────────────────────
+    home = Path.home()
+    has_claude = (home / ".claude").is_dir()
+    has_opencode = (home / ".config" / "opencode").is_dir()
+
+    if install_global:
+        skill_dir = home / ".claude" / "skills" / "aula" / "SKILL.md"
+    else:
+        skill_dir = Path.cwd() / ".claude" / "skills" / "aula" / "SKILL.md"
+
+    skill_dir.parent.mkdir(parents=True, exist_ok=True)
+    skill_dir.write_text(generate_skill_md())
+
+    click.echo(f"Skill installed: {skill_dir}")
+
+    agents: list[str] = []
+    if has_claude:
+        agents.append("Claude Code")
+    if has_opencode:
+        agents.append("OpenCode")
+    if agents:
+        click.echo(f"Detected: {', '.join(agents)}")
+    else:
+        click.echo("No agent tools detected, but the skill file is ready.")
+
+    scope = "globally (all projects)" if install_global else "for this project"
+    click.echo(f"Installed {scope}. Agents can now use /aula or ask about Aula data.")
 
 
 if __name__ == "__main__":
