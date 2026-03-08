@@ -30,7 +30,7 @@ class Outer(AulaDataClass):
 
 class TestToJson:
     def test_datetime(self):
-        dt = datetime.datetime(2025, 3, 15, 10, 30, 0, tzinfo=datetime.timezone.utc)
+        dt = datetime.datetime(2025, 3, 15, 10, 30, 0, tzinfo=datetime.UTC)
         result = json.loads(to_json({"ts": dt}))
         assert result["ts"] == "2025-03-15T10:30:00+00:00"
 

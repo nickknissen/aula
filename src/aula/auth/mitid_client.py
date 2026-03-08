@@ -9,7 +9,7 @@ import secrets
 import time
 from collections.abc import Awaitable, Callable
 from types import TracebackType
-from typing import Any
+from typing import Any, Self
 from urllib.parse import parse_qs, urlencode, urljoin, urlparse
 
 import httpx
@@ -111,7 +111,7 @@ class MitIDAuthClient:
         self._tokens: dict[str, Any] | None = None
         self._mitid_client: BrowserClient | None = None
 
-    async def __aenter__(self) -> "MitIDAuthClient":
+    async def __aenter__(self) -> Self:
         return self
 
     async def __aexit__(

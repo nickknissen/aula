@@ -46,7 +46,7 @@ def async_cmd(func):
     return wrapper
 
 
-class WeeklySummaryProvider(str, enum.Enum):
+class WeeklySummaryProvider(enum.StrEnum):
     MU_OPGAVER = "mu_opgaver"
     MU_UGEPLAN = "mu_ugeplan"
     MEEBOOK = "meebook"

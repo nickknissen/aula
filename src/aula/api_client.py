@@ -5,7 +5,7 @@ import time
 import warnings
 from datetime import date, datetime
 from types import TracebackType
-from typing import Any
+from typing import Any, Self
 from urllib.parse import parse_qs, urlparse
 from zoneinfo import ZoneInfo
 
@@ -889,7 +889,7 @@ class AulaApiClient:
             {},
         )
 
-    async def __aenter__(self) -> "AulaApiClient":
+    async def __aenter__(self) -> Self:
         return self
 
     async def __aexit__(

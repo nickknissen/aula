@@ -1,6 +1,6 @@
 import re
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Any
 
 from .base import AulaDataClass
@@ -13,7 +13,7 @@ def _parse_dotnet_date(value: str | None) -> datetime | None:
     match = re.search(r"/Date\((\d+)([+-]\d{4})?\)/", value)
     if not match:
         return None
-    return datetime.fromtimestamp(int(match.group(1)) / 1000, tz=timezone.utc)
+    return datetime.fromtimestamp(int(match.group(1)) / 1000, tz=UTC)
 
 
 @dataclass
