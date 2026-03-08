@@ -11,10 +11,6 @@ from zoneinfo import ZoneInfo
 import click
 import qrcode
 
-# On Windows, use SelectorEventLoopPolicy to avoid 'Event loop closed' issues
-if sys.platform.startswith("win"):
-    asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
-
 from .api_client import AulaApiClient
 from .auth_flow import authenticate_and_create_client
 from .config import CONFIG_FILE, DEFAULT_TOKEN_FILE, load_config, save_config
@@ -41,7 +37,9 @@ from .utils.output import (
 def async_cmd(func):
     @functools.wraps(func)
     def wrapper(*args, **kwargs):
-        return asyncio.run(func(*args, **kwargs))
+        # On Windows, use SelectorEventLoop to avoid 'Event loop closed' issues
+        loop_factory = asyncio.SelectorEventLoop if sys.platform.startswith("win") else None
+        return asyncio.run(func(*args, **kwargs), loop_factory=loop_factory)
 
     return wrapper
 
