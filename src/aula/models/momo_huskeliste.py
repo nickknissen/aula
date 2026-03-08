@@ -17,7 +17,7 @@ class MomoCourse(AulaDataClass):
         return cls(
             _raw=data,
             id=str(data.get("id", "")),
-            title=data.get("title", data.get("name", "")),
+            title=data.get("title") or data.get("name") or "",
             institution_id=str(data.get("institutionId", "")),
             image=data.get("image"),
         )

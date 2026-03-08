@@ -158,7 +158,6 @@ def _build_widget_matcher(widget_selector: str):
         return lambda source_widget_id, source_version: source_widget_id == full
 
     return lambda source_widget_id, source_version: source_widget_id == clean
-    return None
 
 
 def extract_endpoint_candidates(source: str) -> list[str]:

@@ -84,6 +84,9 @@ async def download_gallery_images(
         folder_name = sanitize_filename(f"{date_prefix} {album_title}")
         album_dir = output / "gallery" / folder_name
 
+        if not isinstance(album_id, int):
+            continue
+
         try:
             pictures = await client.get_album_pictures(institution_profile_ids, album_id)
         except Exception:

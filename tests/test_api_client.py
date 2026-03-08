@@ -623,7 +623,7 @@ class TestGetPresenceTemplates:
 
         mock_client._request_with_version_retry = AsyncMock()
         mock_response = HttpResponse(status_code=200, data=response_data)
-        mock_response.raise_for_status = MagicMock()
+        mock_response.raise_for_status = MagicMock()  # type: ignore[assignment]
         mock_client._request_with_version_retry.return_value = mock_response
 
         result = await mock_client.get_presence_templates(
@@ -646,7 +646,7 @@ class TestGetPresenceTemplates:
 
         mock_client._request_with_version_retry = AsyncMock()
         mock_response = HttpResponse(status_code=200, data=response_data)
-        mock_response.raise_for_status = MagicMock()
+        mock_response.raise_for_status = MagicMock()  # type: ignore[assignment]
         mock_client._request_with_version_retry.return_value = mock_response
 
         result = await mock_client.get_presence_templates(
@@ -664,7 +664,7 @@ class TestGetPresenceTemplates:
 
         mock_client._request_with_version_retry = AsyncMock()
         mock_response = HttpResponse(status_code=200, data=response_data)
-        mock_response.raise_for_status = MagicMock()
+        mock_response.raise_for_status = MagicMock()  # type: ignore[assignment]
         mock_client._request_with_version_retry.return_value = mock_response
 
         result = await mock_client.get_presence_templates(
@@ -682,7 +682,7 @@ class TestGetPresenceTemplates:
 
         mock_client._request_with_version_retry = AsyncMock()
         mock_response = HttpResponse(status_code=200, data=response_data)
-        mock_response.raise_for_status = MagicMock()
+        mock_response.raise_for_status = MagicMock()  # type: ignore[assignment]
         mock_client._request_with_version_retry.return_value = mock_response
 
         result = await mock_client.get_presence_templates(
@@ -714,7 +714,7 @@ class TestGetPresenceTemplates:
 
         mock_client._request_with_version_retry = AsyncMock()
         mock_response = HttpResponse(status_code=200, data=response_data)
-        mock_response.raise_for_status = MagicMock()
+        mock_response.raise_for_status = MagicMock()  # type: ignore[assignment]
         mock_client._request_with_version_retry.return_value = mock_response
 
         result = await mock_client.get_presence_templates(
@@ -750,7 +750,7 @@ class TestGetPresenceTemplates:
 
         mock_client._request_with_version_retry = AsyncMock()
         mock_response = HttpResponse(status_code=200, data=response_data)
-        mock_response.raise_for_status = MagicMock()
+        mock_response.raise_for_status = MagicMock()  # type: ignore[assignment]
         mock_client._request_with_version_retry.return_value = mock_response
 
         with caplog.at_level("WARNING"):
@@ -770,7 +770,7 @@ class TestGetPresenceTemplates:
 
         mock_client._request_with_version_retry = AsyncMock()
         mock_response = HttpResponse(status_code=200, data=response_data)
-        mock_response.raise_for_status = MagicMock()
+        mock_response.raise_for_status = MagicMock()  # type: ignore[assignment]
         mock_client._request_with_version_retry.return_value = mock_response
 
         result = await mock_client.get_presence_templates(
@@ -788,7 +788,7 @@ class TestGetPresenceTemplates:
 
         mock_client._request_with_version_retry = AsyncMock()
         mock_response = HttpResponse(status_code=200, data=response_data)
-        mock_response.raise_for_status = MagicMock()
+        mock_response.raise_for_status = MagicMock()  # type: ignore[assignment]
         mock_client._request_with_version_retry.return_value = mock_response
 
         result = await mock_client.get_presence_templates(
@@ -821,7 +821,7 @@ class TestGetPresenceTemplates:
 
         mock_client._request_with_version_retry = AsyncMock()
         mock_response = HttpResponse(status_code=200, data=response_data)
-        mock_response.raise_for_status = MagicMock()
+        mock_response.raise_for_status = MagicMock()  # type: ignore[assignment]
         mock_client._request_with_version_retry.return_value = mock_response
 
         result = await mock_client.get_presence_templates(

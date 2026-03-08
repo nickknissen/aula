@@ -8,7 +8,7 @@ def _strip_html(text: str) -> str:
     """Strip HTML tags and return plain text."""
     parts: list[str] = []
     parser = HTMLParser()
-    parser.handle_data = parts.append
+    parser.handle_data = parts.append  # type: ignore[assignment]
     parser.feed(text)
     return "".join(parts).strip()
 

@@ -62,11 +62,30 @@ branch = true
 show_missing = true
 skip_empty = true
 
+[tool.ty.environment]
+python-version = "3.10"
+
+[tool.ty.src]
+include = ["src/"]
+
+[tool.ty.rules]
+# Keep all defaults (most are "error"), just tune the few that need it
+division-by-zero = "warn"
+
+[[tool.ty.overrides]]
+include = ["tests/"]
+
+[tool.ty.overrides.rules]
+invalid-assignment = "ignore"
+
 [tool.mypy]
 python_version = "3.10"
 warn_return_any = true
 warn_unused_configs = true
 disallow_untyped_defs = true
+
+[tool.pyrefly]
+python-version = "3.10.0"
 
 [dependency-groups]
 dev = [

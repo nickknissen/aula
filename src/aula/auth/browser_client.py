@@ -388,6 +388,9 @@ class BrowserClient:
         srp_salt = init_data["srpSalt"]["value"]
         random_b = init_data["randomB"]["value"]
 
+        if self._authenticator_session_flow_key is None or self._authenticator_session_id is None:
+            raise MitIDError("Token auth requires authenticator session to be established")
+
         # For TOKEN auth the SRP password is the hex-encoded flow key
         password = self._authenticator_session_flow_key.encode("utf-8").hex()
 
@@ -459,6 +462,9 @@ class BrowserClient:
         )
         srp_password = derived.hex()
 
+        if self._authenticator_session_id is None:
+            raise MitIDError("Password auth requires authenticator session to be established")
+
         m1 = srp.srp_stage3(srp_salt, random_b, srp_password, self._authenticator_session_id)
 
         flow_value_proof = self._compute_flow_value_proof(srp.session_key_bytes)
@@ -513,6 +519,15 @@ class BrowserClient:
         proof_key = hashlib.sha256(
             (proof_key_prefix + bytes_to_hex(session_key)).encode("utf-8")
         ).digest()
+
+        # All fields validated non-None by the missing check above
+        assert self._authenticator_session_id is not None
+        assert self._authenticator_session_flow_key is not None
+        assert self._authenticator_eafe_hash is not None
+        assert self._broker_security_context is not None
+        assert self._reference_text_header is not None
+        assert self._reference_text_body is not None
+        assert self._service_provider_name is not None
 
         parts: list[str] = [
             self._authenticator_session_id,
