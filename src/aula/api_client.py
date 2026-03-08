@@ -20,6 +20,7 @@ from .models import (
     Appointment,
     CalendarEvent,
     Child,
+    ChildPresenceState,
     DailyOverview,
     LibraryStatus,
     MeebookStudentPlan,
@@ -30,6 +31,10 @@ from .models import (
     MUWeeklyPerson,
     Notification,
     Post,
+    PresenceConfiguration,
+    PresenceRegistration,
+    PresenceRegistrationDetail,
+    PresenceWeekOverview,
     PresenceWeekTemplate,
     Profile,
     WidgetConfiguration,
@@ -353,6 +358,124 @@ class AulaApiClient:
                     "Skipping presence week template due to parsing error: %s - Data: %s", e, t
                 )
         return result
+
+    async def get_presence_registrations(
+        self,
+        institution_profile_ids: list[int],
+        from_date: date,
+        to_date: date,
+    ) -> list[PresenceRegistration]:
+        """Fetch presence registrations for the given profiles and date range."""
+        params: dict[str, Any] = {
+            "method": "presence.getPresenceRegistrations",
+            "institutionProfileIds[]": institution_profile_ids,
+            "fromDate": from_date.isoformat(),
+            "toDate": to_date.isoformat(),
+        }
+        resp = await self._request_with_version_retry("get", self.api_url, params=params)
+        resp.raise_for_status()
+        data = resp.json().get("data", [])
+        if not isinstance(data, list):
+            return []
+        result = []
+        for item in data:
+            if not isinstance(item, dict):
+                continue
+            try:
+                result.append(PresenceRegistration.from_dict(item))
+            except (TypeError, ValueError, KeyError, AttributeError) as e:
+                _LOGGER.warning(
+                    "Skipping presence registration due to parsing error: %s - Data: %s", e, item
+                )
+        return result
+
+    async def get_presence_registration_detail(
+        self, registration_id: int
+    ) -> PresenceRegistrationDetail | None:
+        """Fetch detail for a single presence registration."""
+        params: dict[str, Any] = {
+            "method": "presence.getPresenceRegistrationDetail",
+            "id": registration_id,
+        }
+        resp = await self._request_with_version_retry("get", self.api_url, params=params)
+        resp.raise_for_status()
+        data = resp.json().get("data")
+        if not isinstance(data, dict):
+            return None
+        return PresenceRegistrationDetail.from_dict(data)
+
+    async def get_presence_states(
+        self,
+        institution_profile_ids: list[int] | None = None,
+    ) -> list[ChildPresenceState]:
+        """Fetch current presence states, optionally filtered by profile IDs."""
+        params: dict[str, Any] = {
+            "method": "presence.getPresenceStates",
+        }
+        if institution_profile_ids:
+            params["institutionProfileIds[]"] = institution_profile_ids
+        resp = await self._request_with_version_retry("get", self.api_url, params=params)
+        resp.raise_for_status()
+        data = resp.json().get("data", [])
+        if not isinstance(data, list):
+            return []
+        result = []
+        for item in data:
+            if not isinstance(item, dict):
+                continue
+            try:
+                result.append(ChildPresenceState.from_dict(item))
+            except (TypeError, ValueError, KeyError, AttributeError) as e:
+                _LOGGER.warning(
+                    "Skipping presence state due to parsing error: %s - Data: %s", e, item
+                )
+        return result
+
+    async def get_presence_configuration(
+        self,
+        child_ids: list[int],
+    ) -> list[PresenceConfiguration]:
+        """Fetch presence configuration (pickup rules, etc.) by child IDs."""
+        params: dict[str, Any] = {
+            "method": "presence.getPresenceConfigurationByChildIds",
+            "childIds[]": child_ids,
+        }
+        resp = await self._request_with_version_retry("get", self.api_url, params=params)
+        resp.raise_for_status()
+        data = resp.json().get("data", [])
+        if not isinstance(data, list):
+            return []
+        result = []
+        for item in data:
+            if not isinstance(item, dict):
+                continue
+            try:
+                result.append(PresenceConfiguration.from_dict(item))
+            except (TypeError, ValueError, KeyError, AttributeError) as e:
+                _LOGGER.warning(
+                    "Skipping presence configuration due to parsing error: %s - Data: %s", e, item
+                )
+        return result
+
+    async def get_activity_overview(
+        self,
+        institution_profile_ids: list[int],
+        week: int,
+        year: int,
+    ) -> PresenceWeekOverview | None:
+        """Fetch the activity/week overview for presence."""
+        params: dict[str, Any] = {
+            "method": "presence.getActivityOverview",
+            "institutionProfileIds[]": institution_profile_ids,
+            "week": week,
+            "year": year,
+        }
+        resp = await self._request_with_version_retry("get", self.api_url, params=params)
+        resp.raise_for_status()
+        data = resp.json().get("data")
+        if not isinstance(data, dict):
+            return None
+        return PresenceWeekOverview.from_dict(data)
 
     async def get_notifications_for_active_profile(
         self,

@@ -1764,3 +1764,179 @@ class TestGetAlbumPictures:
         )
         result = await client.get_album_pictures([100], album_id=1)
         assert result == pics
+
+
+class TestGetPresenceRegistrations:
+    """Tests for AulaApiClient.get_presence_registrations method."""
+
+    @pytest.fixture
+    def client(self):
+        http_client = AsyncMock()
+        client = AulaApiClient(http_client=http_client, access_token="test_token")
+        return client
+
+    @pytest.mark.asyncio
+    async def test_happy_path(self, client):
+        response_data = {
+            "data": [
+                {"id": 1, "institutionProfileId": 201, "status": 3, "date": "2026-03-08"},
+            ]
+        }
+        client._request_with_version_retry = AsyncMock(
+            return_value=HttpResponse(status_code=200, data=response_data)
+        )
+        result = await client.get_presence_registrations([201], date(2026, 3, 8), date(2026, 3, 8))
+        assert len(result) == 1
+        assert result[0].id == 1
+        assert result[0].institution_profile_id == 201
+
+    @pytest.mark.asyncio
+    async def test_empty_data(self, client):
+        client._request_with_version_retry = AsyncMock(
+            return_value=HttpResponse(status_code=200, data={"data": []})
+        )
+        result = await client.get_presence_registrations([201], date(2026, 3, 8), date(2026, 3, 8))
+        assert result == []
+
+    @pytest.mark.asyncio
+    async def test_non_list_data(self, client):
+        client._request_with_version_retry = AsyncMock(
+            return_value=HttpResponse(status_code=200, data={"data": None})
+        )
+        result = await client.get_presence_registrations([201], date(2026, 3, 8), date(2026, 3, 8))
+        assert result == []
+
+
+class TestGetPresenceRegistrationDetail:
+    """Tests for AulaApiClient.get_presence_registration_detail method."""
+
+    @pytest.fixture
+    def client(self):
+        http_client = AsyncMock()
+        return AulaApiClient(http_client=http_client, access_token="test_token")
+
+    @pytest.mark.asyncio
+    async def test_happy_path(self, client):
+        response_data = {"data": {"id": 555, "childName": "Maja", "status": 1}}
+        client._request_with_version_retry = AsyncMock(
+            return_value=HttpResponse(status_code=200, data=response_data)
+        )
+        result = await client.get_presence_registration_detail(555)
+        assert result is not None
+        assert result.id == 555
+        assert result.child_name == "Maja"
+
+    @pytest.mark.asyncio
+    async def test_null_data(self, client):
+        client._request_with_version_retry = AsyncMock(
+            return_value=HttpResponse(status_code=200, data={"data": None})
+        )
+        result = await client.get_presence_registration_detail(555)
+        assert result is None
+
+
+class TestGetPresenceStates:
+    """Tests for AulaApiClient.get_presence_states method."""
+
+    @pytest.fixture
+    def client(self):
+        http_client = AsyncMock()
+        return AulaApiClient(http_client=http_client, access_token="test_token")
+
+    @pytest.mark.asyncio
+    async def test_happy_path(self, client):
+        response_data = {"data": [{"institutionProfileId": 201, "status": 3}]}
+        client._request_with_version_retry = AsyncMock(
+            return_value=HttpResponse(status_code=200, data=response_data)
+        )
+        result = await client.get_presence_states([201])
+        assert len(result) == 1
+        assert result[0].institution_profile_id == 201
+
+    @pytest.mark.asyncio
+    async def test_no_filter(self, client):
+        response_data = {"data": [{"institutionProfileId": 201, "status": 3}]}
+        client._request_with_version_retry = AsyncMock(
+            return_value=HttpResponse(status_code=200, data=response_data)
+        )
+        result = await client.get_presence_states()
+        assert len(result) == 1
+
+
+class TestGetPresenceConfiguration:
+    """Tests for AulaApiClient.get_presence_configuration method."""
+
+    @pytest.fixture
+    def client(self):
+        http_client = AsyncMock()
+        return AulaApiClient(http_client=http_client, access_token="test_token")
+
+    @pytest.mark.asyncio
+    async def test_happy_path(self, client):
+        response_data = {
+            "data": [
+                {
+                    "uniStudentId": 201,
+                    "presenceConfiguration": {
+                        "institution": {"institutionCode": "G19736", "name": "Test"},
+                        "pickup": True,
+                        "goHomeWith": True,
+                        "selfDecider": False,
+                    },
+                }
+            ]
+        }
+        client._request_with_version_retry = AsyncMock(
+            return_value=HttpResponse(status_code=200, data=response_data)
+        )
+        result = await client.get_presence_configuration([201])
+        assert len(result) == 1
+        assert result[0].child_id == 201
+        assert result[0].pickup is True
+
+    @pytest.mark.asyncio
+    async def test_empty_data(self, client):
+        client._request_with_version_retry = AsyncMock(
+            return_value=HttpResponse(status_code=200, data={"data": []})
+        )
+        result = await client.get_presence_configuration([201])
+        assert result == []
+
+
+class TestGetActivityOverview:
+    """Tests for AulaApiClient.get_activity_overview method."""
+
+    @pytest.fixture
+    def client(self):
+        http_client = AsyncMock()
+        return AulaApiClient(http_client=http_client, access_token="test_token")
+
+    @pytest.mark.asyncio
+    async def test_happy_path(self, client):
+        response_data = {
+            "data": {
+                "days": [
+                    {
+                        "date": "2026-03-02",
+                        "activities": [
+                            {"title": "Matematik", "startTime": "08:00", "endTime": "09:00"}
+                        ],
+                    }
+                ]
+            }
+        }
+        client._request_with_version_retry = AsyncMock(
+            return_value=HttpResponse(status_code=200, data=response_data)
+        )
+        result = await client.get_activity_overview([201], week=10, year=2026)
+        assert result is not None
+        assert len(result.days) == 1
+        assert result.days[0].activities[0].title == "Matematik"
+
+    @pytest.mark.asyncio
+    async def test_null_data(self, client):
+        client._request_with_version_retry = AsyncMock(
+            return_value=HttpResponse(status_code=200, data={"data": None})
+        )
+        result = await client.get_activity_overview([201], week=10, year=2026)
+        assert result is None

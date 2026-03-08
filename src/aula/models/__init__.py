@@ -14,6 +14,13 @@ from .mu_task import MUTask as MUTask
 from .mu_weekly_letter import MUWeeklyPerson as MUWeeklyPerson
 from .notification import Notification as Notification
 from .post import Post as Post
+from .presence_registration import ChildPresenceState as ChildPresenceState
+from .presence_registration import PresenceActivity as PresenceActivity
+from .presence_registration import PresenceConfiguration as PresenceConfiguration
+from .presence_registration import PresenceDay as PresenceDay
+from .presence_registration import PresenceRegistration as PresenceRegistration
+from .presence_registration import PresenceRegistrationDetail as PresenceRegistrationDetail
+from .presence_registration import PresenceWeekOverview as PresenceWeekOverview
 from .presence_template import DayTemplate as DayTemplate
 from .presence_template import PresenceWeekTemplate as PresenceWeekTemplate
 from .presence_template import SpareTimeActivity as SpareTimeActivity

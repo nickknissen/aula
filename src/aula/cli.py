@@ -2135,6 +2135,160 @@ async def presence_templates(ctx, from_date, to_date):
                     click.echo()
 
 
+@cli.command("presence")
+@click.option(
+    "--from-date",
+    type=click.DateTime(formats=["%Y-%m-%d"]),
+    default=None,
+    help="Start date (YYYY-MM-DD). Defaults to today.",
+)
+@click.option(
+    "--to-date",
+    type=click.DateTime(formats=["%Y-%m-%d"]),
+    default=None,
+    help="End date (YYYY-MM-DD). Defaults to today.",
+)
+@click.option(
+    "--week",
+    type=str,
+    default=None,
+    help="Show activity/week overview for the given ISO week (YYYY-Wnn).",
+)
+@click.option(
+    "--states",
+    is_flag=True,
+    default=False,
+    help="Show current presence states instead of registrations.",
+)
+@click.pass_context
+@async_cmd
+async def presence(ctx, from_date, to_date, week, states):
+    """Fetch presence registrations, current states, or weekly activity overview."""
+    tz = ZoneInfo("Europe/Copenhagen")
+    now = datetime.datetime.now(tz)
+
+    async with await _get_client(ctx) as client:
+        try:
+            prof: Profile = await client.get_profile()
+        except Exception as e:
+            print_error(f"fetching profile: {e}")
+            return
+
+        if not prof.children:
+            print_empty("children")
+            return
+
+        institution_profile_ids = [child.id for child in prof.children]
+
+        # Activity/week overview mode
+        if week:
+            try:
+                year, w = week.split("-W")
+                year_int, week_int = int(year), int(w)
+            except (ValueError, AttributeError):
+                print_error(f"Invalid week format '{week}'. Expected YYYY-Wnn (e.g. 2026-W10).")
+                return
+
+            try:
+                overview = await client.get_activity_overview(
+                    institution_profile_ids, week_int, year_int
+                )
+            except Exception as e:
+                print_error(f"fetching activity overview: {e}")
+                return
+
+            if output_json(ctx, dict(overview) if overview else {}):
+                return
+
+            if not overview or not overview.days:
+                print_empty("activity overview")
+                return
+
+            print_heading(f"Activity overview - {week}")
+            for day in overview.days:
+                click.echo(f"  {day.date or 'Unknown date'}")
+                if not day.activities:
+                    click.echo("    (no activities)")
+                else:
+                    for act in day.activities:
+                        time_range = ""
+                        if act.start_time or act.end_time:
+                            time_range = f" ({act.start_time or '?'} - {act.end_time or '?'})"
+                        click.echo(f"    {act.title or 'Untitled'}{time_range}")
+                click.echo()
+            return
+
+        # Current states mode
+        if states:
+            try:
+                state_list = await client.get_presence_states(institution_profile_ids)
+            except Exception as e:
+                print_error(f"fetching presence states: {e}")
+                return
+
+            if output_json(ctx, [dict(s) for s in state_list]):
+                return
+
+            if not state_list:
+                print_empty("presence states")
+                return
+
+            print_heading("Current presence states")
+            for s in state_list:
+                name = s.name or f"Profile {s.institution_profile_id}"
+                status_text = s.status.display_name if s.status else "Unknown"
+                click.echo(f"  {name}: {status_text}")
+            return
+
+        # Default: registrations mode
+        from_date_d = from_date.date() if from_date else now.date()
+        to_date_d = to_date.date() if to_date else now.date()
+
+        if from_date_d > to_date_d:
+            print_error(f"--from-date ({from_date_d}) must be on or before --to-date ({to_date_d})")
+            return
+
+        try:
+            registrations = await client.get_presence_registrations(
+                institution_profile_ids, from_date_d, to_date_d
+            )
+        except Exception as e:
+            print_error(f"fetching presence registrations: {e}")
+            return
+
+        if output_json(ctx, [dict(r) for r in registrations]):
+            return
+
+        if not registrations:
+            print_empty("presence registrations")
+            return
+
+        print_heading("Presence registrations")
+        child_map = {c.id: c.name for c in prof.children}
+        for reg in registrations:
+            name = child_map.get(
+                reg.institution_profile_id, f"Profile {reg.institution_profile_id}"
+            )
+            status_text = reg.status.display_name if reg.status else "Unknown"
+            props = [("Child", name), ("Status", status_text)]
+            if reg.entry_time or reg.exit_time:
+                props.append(("Time", f"{reg.entry_time or '?'} - {reg.exit_time or '?'}"))
+            if reg.check_in_time:
+                props.append(("Checked in", reg.check_in_time))
+            if reg.check_out_time:
+                props.append(("Checked out", reg.check_out_time))
+            for line in format_record_lines(
+                title=reg.date or "Unknown date",
+                properties=props,
+                body_lines=[],
+                body_label="Body",
+                empty_body_text="",
+            ):
+                if line.strip():
+                    click.echo(line)
+            click.echo()
+
+
 _DANISH_WEEKDAYS = ["Mandag", "Tirsdag", "Onsdag", "Torsdag", "Fredag", "Lørdag", "Søndag"]
 
 
