@@ -13,6 +13,8 @@ from .momo_huskeliste import UserReminders as UserReminders
 from .mu_task import MUTask as MUTask
 from .mu_weekly_letter import MUWeeklyPerson as MUWeeklyPerson
 from .notification import Notification as Notification
+from .pickup_responsible import ChildPickupResponsibles as ChildPickupResponsibles
+from .pickup_responsible import PickupPerson as PickupPerson
 from .post import Post as Post
 from .presence_registration import ChildPresenceState as ChildPresenceState
 from .presence_registration import PresenceActivity as PresenceActivity

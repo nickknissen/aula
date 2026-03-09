@@ -2027,6 +2027,435 @@ async def weekly_summary(ctx, child, week, providers):
             click.echo(to_json(json_result))
 
 
+def _format_time(raw: str | None) -> str:
+    """Extract HH:mm from a raw time string (may be ISO datetime or HH:mm)."""
+    if not raw:
+        return "?"
+    return raw.split("T")[-1][:5]
+
+
+def _format_time_or_none(raw: str | None) -> str | None:
+    """Extract HH:mm or return None."""
+    if not raw:
+        return None
+    return raw.split("T")[-1][:5]
+
+
+def _prompt_time(label: str, default: str | None = None) -> str | None:
+    """Prompt for a time in HH:mm format. Empty input returns None (keep current)."""
+    hint = f" [{default}]" if default else ""
+    while True:
+        value = click.prompt(
+            f"  {label}{hint}",
+            default=default or "",
+            show_default=False,
+        )
+        value = value.strip()
+        if not value:
+            return None
+        try:
+            datetime.datetime.strptime(value, "%H:%M")
+            return value
+        except ValueError:
+            click.echo("    Invalid format. Use HH:mm (e.g., 08:00, 15:30)")
+
+
+def _resolve_pickup(
+    all_names: list[str],
+    exit_with: str | None,
+) -> tuple[str | None, bool]:
+    """Resolve --exit-with against the pickup list.
+
+    Returns (resolved_name_or_None, ok).
+    """
+    if exit_with is None:
+        return None, True
+    if exit_with.isdigit():
+        idx = int(exit_with) - 1
+        if 0 <= idx < len(all_names):
+            return all_names[idx], True
+        return None, False
+    return exit_with, True
+
+
+def _strip_relation(name: str | None) -> str | None:
+    """Return the name as-is — the Aula API expects the relation suffix included."""
+    return name
+
+
+@cli.command("update-presence")
+@click.option(
+    "--date",
+    "target_date",
+    type=click.DateTime(formats=["%Y-%m-%d"]),
+    default=None,
+    help="Date to update (YYYY-MM-DD). Defaults to today.",
+)
+@click.option(
+    "--entry-time",
+    type=str,
+    default=None,
+    help="Arrival time in HH:mm format (e.g., 08:00).",
+)
+@click.option(
+    "--exit-time",
+    type=str,
+    default=None,
+    help="Departure/pickup time in HH:mm format (e.g., 16:30).",
+)
+@click.option(
+    "--exit-with",
+    type=str,
+    default=None,
+    help="Pickup person name (or number from the pickup responsibles list).",
+)
+@click.option(
+    "--comment",
+    type=str,
+    default=None,
+    help="Optional daily comment/remark.",
+)
+@click.option(
+    "--child",
+    "child_ids",
+    type=int,
+    multiple=True,
+    help="Specific child institution profile ID(s). Omit to update all children.",
+)
+@click.option(
+    "--repeat",
+    "repeat_pattern",
+    type=click.Choice(["Never", "Weekly", "Every2Weeks"], case_sensitive=False),
+    default=None,
+    help="Repeat pattern for the template.",
+)
+@click.option(
+    "--yes",
+    "-y",
+    is_flag=True,
+    default=False,
+    help="Skip confirmation prompt.",
+)
+@click.pass_context
+@async_cmd
+async def update_presence(
+    ctx, target_date, entry_time, exit_time, exit_with, comment, child_ids, repeat_pattern, yes
+):
+    """Update pickup/drop-off times for multiple children at once.
+
+    When called without arguments, runs interactively: shows the current state
+    for all children, then prompts for date, times, pickup person, etc.
+
+    When called with arguments, applies them directly (with confirmation).
+
+    Examples:
+
+      aula update-presence
+
+      aula update-presence --exit-time 15:00 --exit-with "Mom" -y
+
+      aula update-presence --date 2026-03-10 --entry-time 08:00 --exit-time 14:00
+    """
+    tz = ZoneInfo("Europe/Copenhagen")
+    now = datetime.datetime.now(tz)
+    interactive = not any([entry_time, exit_time, exit_with, comment, child_ids, target_date])
+
+    # Validate time format for CLI-provided values
+    for label, value in [("entry-time", entry_time), ("exit-time", exit_time)]:
+        if value:
+            try:
+                datetime.datetime.strptime(value, "%H:%M")
+            except ValueError:
+                print_error(f"--{label} must be in HH:mm format, got: {value}")
+                return
+
+    target = target_date.date() if target_date else now.date()
+
+    async with await _get_client(ctx) as client:
+        try:
+            prof: Profile = await client.get_profile()
+        except Exception as e:
+            print_error(f"fetching profile: {e}")
+            return
+
+        if not prof.children:
+            print_empty("children")
+            return
+
+        # Determine which children to update
+        if child_ids:
+            children = [c for c in prof.children if c.id in child_ids]
+            if not children:
+                print_error(f"no children found with IDs: {list(child_ids)}")
+                return
+        else:
+            children = prof.children
+
+        institution_profile_ids = [c.id for c in children]
+
+        # Fetch current state
+        _log = logging.getLogger(__name__)
+        overviews: dict[int, DailyOverview] = {}
+        pickup_data = []
+        templates = []
+
+        for c in children:
+            try:
+                ov = await client.get_daily_overview(c.id)
+                if ov:
+                    overviews[c.id] = ov
+            except Exception as e:
+                _log.warning("Could not fetch daily overview for %s: %s", c.name, e)
+
+        try:
+            pickup_data = await client.get_pickup_responsibles(institution_profile_ids)
+        except Exception as e:
+            _log.warning("Could not fetch pickup responsibles: %s", e)
+        import contextlib
+
+        with contextlib.suppress(Exception):
+            templates = await client.get_presence_templates(institution_profile_ids, target, target)
+
+        # Build lookup: child_id -> DayTemplate for the target date
+        current_by_child: dict = {}
+        for tmpl in templates:
+            if tmpl.institution_profile:
+                for dt in tmpl.day_templates:
+                    if dt.by_date and dt.by_date[:10] == target.isoformat():
+                        current_by_child[tmpl.institution_profile.id] = dt
+
+        # Show current state
+        click.echo()
+        print_heading(f"Current state ({target.isoformat()})")
+        click.echo()
+        for c in children:
+            ov = overviews.get(c.id)
+            tmpl = current_by_child.get(c.id)
+
+            status_str = ov.status.danish_name if ov and ov.status else "?"
+            check_in = _format_time(ov.check_in_time) if ov and ov.check_in_time else "-"
+            check_out = _format_time(ov.check_out_time) if ov and ov.check_out_time else "-"
+            planned_entry = (
+                _format_time(tmpl.entry_time)
+                if tmpl
+                else _format_time(ov.entry_time if ov else None)
+            )
+            planned_exit = (
+                _format_time(tmpl.exit_time) if tmpl else _format_time(ov.exit_time if ov else None)
+            )
+            cur_who = tmpl.exit_with if tmpl else (ov.exit_with if ov else None)
+            cur_comment = tmpl.comment if tmpl else (ov.comment if ov else None)
+            location = ov.location if ov and ov.location else None
+
+            click.echo(f"  {c.name}")
+            click.echo(f"    Status:      {status_str}")
+            if location:
+                click.echo(f"    Location:    {location}")
+            click.echo(f"    Checked in:  {check_in}")
+            click.echo(f"    Checked out: {check_out}")
+            click.echo(f"    Planned:     {planned_entry} - {planned_exit}")
+            if cur_who:
+                click.echo(f"    Pickup by:   {cur_who}")
+            if cur_comment:
+                click.echo(f"    Comment:     {cur_comment}")
+            click.echo()
+
+        # Build merged pickup person list
+        all_names: list[str] = []
+        seen: set[str] = set()
+        for pr in pickup_data:
+            for person in pr.persons:
+                label = person.name
+                if person.relation:
+                    label = f"{person.name} ({person.relation})"
+                if label not in seen:
+                    seen.add(label)
+                    all_names.append(label)
+
+        # --- Interactive mode: prompt for everything ---
+        if interactive:
+            # Date
+            date_input = click.prompt(
+                "  Date",
+                default=target.isoformat(),
+            ).strip()
+            try:
+                target = datetime.date.fromisoformat(date_input)
+            except ValueError:
+                print_error(f"invalid date: {date_input}")
+                return
+
+            # Re-fetch templates if the date changed
+            if date_input != now.date().isoformat():
+                current_by_child.clear()
+                try:
+                    templates = await client.get_presence_templates(
+                        institution_profile_ids, target, target
+                    )
+                    for tmpl in templates:
+                        if tmpl.institution_profile:
+                            for dt in tmpl.day_templates:
+                                if dt.by_date and dt.by_date[:10] == target.isoformat():
+                                    current_by_child[tmpl.institution_profile.id] = dt
+                except Exception:
+                    pass
+
+            # Pick a representative current state for defaults
+            first_tmpl = next(
+                (current_by_child.get(c.id) for c in children if current_by_child.get(c.id)),
+                None,
+            )
+            first_ov = next(
+                (overviews.get(c.id) for c in children if overviews.get(c.id)),
+                None,
+            )
+            default_entry = _format_time_or_none(
+                (first_tmpl.entry_time if first_tmpl else None)
+                or (first_ov.entry_time if first_ov else None)
+            )
+            default_exit = _format_time_or_none(
+                (first_tmpl.exit_time if first_tmpl else None)
+                or (first_ov.exit_time if first_ov else None)
+            )
+
+            click.echo()
+            entry_time = _prompt_time("Entry time", default=default_entry)
+            exit_time = _prompt_time("Exit time", default=default_exit)
+
+            if not entry_time and not exit_time:
+                click.echo("  No changes specified.")
+                return
+
+            # Pickup person
+            click.echo()
+            if all_names:
+                click.echo("  Pickup responsibles:")
+                for i, name in enumerate(all_names, 1):
+                    click.echo(f"    {i}. {name}")
+                click.echo("    0. (keep current)")
+                click.echo()
+                choice = click.prompt("  Pick a person", type=int, default=0)
+                if choice > 0:
+                    if 1 <= choice <= len(all_names):
+                        exit_with = all_names[choice - 1]
+                    else:
+                        print_error(f"invalid choice {choice} (1-{len(all_names)})")
+                        return
+
+            # Comment
+            comment_input = click.prompt("  Comment", default="", show_default=False).strip()
+            if comment_input:
+                comment = comment_input
+
+            # Repeat
+            click.echo()
+            click.echo("  Repeat: 0=Never  1=Weekly  2=Every 2 weeks")
+            repeat_choice = click.prompt("  Repeat", type=int, default=0)
+            repeat_pattern = ["Never", "Weekly", "Every2Weeks"][min(repeat_choice, 2)]
+
+            click.echo()
+
+        # --- Resolve exit_with for non-interactive mode ---
+        if not interactive:
+            resolved, ok = _resolve_pickup(all_names, exit_with)
+            if not ok:
+                print_error(f"--exit-with {exit_with} is out of range (1-{len(all_names)})")
+                return
+            if resolved is not None:
+                exit_with = resolved
+            elif exit_with is None and all_names and not yes:
+                # Prompt for pickup person
+                click.echo("  Pickup responsibles:")
+                for i, name in enumerate(all_names, 1):
+                    click.echo(f"    {i}. {name}")
+                click.echo("    0. (keep current)")
+                click.echo()
+                choice = click.prompt("  Pick a person", type=int, default=0)
+                if choice > 0:
+                    if 1 <= choice <= len(all_names):
+                        exit_with = all_names[choice - 1]
+                    else:
+                        print_error(f"invalid choice {choice} (1-{len(all_names)})")
+                        return
+
+        api_exit_with = _strip_relation(exit_with)
+        if repeat_pattern is None:
+            repeat_pattern = "Never"
+
+        # Show planned changes
+        print_heading(f"Changes for {target.isoformat()}")
+        click.echo()
+
+        click.echo(f"  {'Child':<30s}  {'Current':<25s}    {'New'}")
+        click.echo(f"  {'-' * 30}  {'-' * 25}    {'-' * 25}")
+
+        for c in children:
+            current = current_by_child.get(c.id)
+            ov = overviews.get(c.id)
+            cur_entry = (current.entry_time if current else None) or (ov.entry_time if ov else None)
+            cur_exit = (current.exit_time if current else None) or (ov.exit_time if ov else None)
+            cur_who = (current.exit_with if current else None) or (ov.exit_with if ov else None)
+
+            new_entry = entry_time or _format_time(cur_entry)
+            new_exit = exit_time or _format_time(cur_exit)
+            new_who = api_exit_with if api_exit_with is not None else cur_who
+
+            current_str = f"{_format_time(cur_entry)}-{_format_time(cur_exit)}"
+            if cur_who:
+                current_str += f" ({cur_who})"
+
+            new_str = f"{new_entry}-{new_exit}"
+            if new_who:
+                new_str += f" ({new_who})"
+
+            click.echo(f"  {c.name:<30s}  {current_str:<25s} -> {new_str}")
+
+        click.echo()
+
+        if repeat_pattern.lower() != "never":
+            click.echo(f"  Repeat: {repeat_pattern}")
+        if comment:
+            click.echo(f"  Comment: {comment}")
+            click.echo()
+
+        if not yes and not click.confirm("Apply these changes?"):
+            click.echo("Cancelled.")
+            return
+
+        # Apply updates
+        success_count = 0
+        for c in children:
+            current = current_by_child.get(c.id)
+            ov = overviews.get(c.id)
+            cur_entry = (current.entry_time if current else None) or (ov.entry_time if ov else None)
+            cur_exit = (current.exit_time if current else None) or (ov.exit_time if ov else None)
+            cur_who = (current.exit_with if current else None) or (ov.exit_with if ov else None)
+            template_id = current.id if current else None
+
+            final_entry = entry_time or (_format_time(cur_entry) if cur_entry else "08:00")
+            final_exit = exit_time or (_format_time(cur_exit) if cur_exit else "16:00")
+            final_who = api_exit_with if api_exit_with is not None else cur_who
+
+            try:
+                await client.update_presence_template(
+                    institution_profile_id=c.id,
+                    by_date=target,
+                    entry_time=final_entry,
+                    exit_time=final_exit,
+                    exit_with=final_who,
+                    comment=comment,
+                    template_id=template_id,
+                    repeat_pattern=repeat_pattern,
+                )
+                click.echo(f"  ✓ {c.name}")
+                success_count += 1
+            except Exception as e:
+                click.echo(f"  ✗ {c.name}: {e}")
+
+        click.echo()
+        click.echo(f"Updated {success_count}/{len(children)} children.")
+
+
 @cli.command("presence-templates")
 @click.option(
     "--from-date",

@@ -20,6 +20,7 @@ from .models import (
     Appointment,
     CalendarEvent,
     Child,
+    ChildPickupResponsibles,
     ChildPresenceState,
     DailyOverview,
     LibraryStatus,
@@ -357,6 +358,135 @@ class AulaApiClient:
                 _LOGGER.warning(
                     "Skipping presence week template due to parsing error: %s - Data: %s", e, t
                 )
+        return result
+
+    async def update_presence_template(
+        self,
+        institution_profile_id: int,
+        by_date: date,
+        *,
+        entry_time: str,
+        exit_time: str,
+        activity_type: int = 0,
+        exit_with: str | None = None,
+        comment: str | None = None,
+        template_id: int | None = None,
+        repeat_pattern: str = "Never",
+        expires_at: str | None = None,
+    ) -> bool:
+        """Create or update a presence template (planned entry/exit times).
+
+        Args:
+            institution_profile_id: Child's institution profile ID.
+            by_date: The date for the template.
+            entry_time: Arrival time in HH:mm format (e.g., "08:00").
+            exit_time: Departure time in HH:mm format (e.g., "16:30").
+            activity_type: Activity type enum value (0=PICKED_UP_BY, 1=SELF_DECIDER,
+                2=SEND_HOME, 3=GO_HOME_WITH, 4=DROP_OFF_TIME).
+            exit_with: Name of person picking up, including relation suffix
+                (e.g., "Nick Hansen (Far)"). Required for PICKED_UP_BY and GO_HOME_WITH.
+            comment: Optional daily comment/remark (empty string if not set).
+            template_id: Existing template ID to update (None for new).
+            repeat_pattern: "Never", "Weekly", or "Every2Weeks".
+            expires_at: Expiration datetime in ISO format (e.g., "2026-06-26T00:00:00+00:00").
+                If None, defaults to June 30 of the current school year.
+
+        Returns:
+            True if the update was successful.
+        """
+        # The Aula backend expects camelCase keys (CamelCasePropertyNamesContractResolver)
+        # and enums: ActivityType as int, RepeatPattern as lowercase string.
+        repeat_map = {
+            "never": "never",
+            "weekly": "weekly",
+            "every2weeks": "every_2_weeks",
+        }
+        repeat_value = repeat_map.get(repeat_pattern.lower(), "never")
+
+        # Default expiresAt to end of school year (June 30) if not provided
+        if expires_at is None:
+            year = by_date.year
+            # If we're past June, the school year ends next June
+            end_year = year + 1 if by_date.month > 6 else year
+            expires_at = f"{end_year}-06-30T00:00:00+00:00"
+
+        # Build the activity sub-object based on activity_type
+        activity: dict[str, Any] = {"activityType": activity_type}
+        if activity_type == 0:  # PICKED_UP_BY
+            activity["pickup"] = {
+                "entryTime": entry_time,
+                "exitTime": exit_time,
+                "exitWith": exit_with or "",
+            }
+        elif activity_type == 1:  # SELF_DECIDER
+            activity["selfDecider"] = {
+                "entryTime": entry_time,
+                "exitStartTime": exit_time,
+                "exitEndTime": exit_time,
+            }
+        elif activity_type == 2:  # SEND_HOME
+            activity["sendHome"] = {
+                "entryTime": entry_time,
+                "exitTime": exit_time,
+            }
+        elif activity_type == 3:  # GO_HOME_WITH
+            activity["goHomeWith"] = {
+                "entryTime": entry_time,
+                "exitTime": exit_time,
+                "exitWith": exit_with or "",
+            }
+        else:
+            activity["entryTime"] = entry_time
+            activity["exitTime"] = exit_time
+
+        payload: dict[str, Any] = {
+            "institutionProfileId": institution_profile_id,
+            "byDate": by_date.isoformat(),
+            "presenceActivity": activity,
+            "comment": comment or "",
+            "repeatPattern": repeat_value,
+            "expiresAt": expires_at,
+        }
+        if template_id is not None:
+            payload["id"] = template_id
+
+        resp = await self._request_with_version_retry(
+            "post",
+            f"{self.api_url}?method=presence.updatePresenceTemplate",
+            json=payload,
+        )
+        resp.raise_for_status()
+        return True
+
+    async def get_pickup_responsibles(
+        self,
+        child_ids: list[int],
+    ) -> list[ChildPickupResponsibles]:
+        """Fetch pickup responsibles (family members + saved suggestions) for children.
+
+        Args:
+            child_ids: Institution profile IDs of the children (uniStudentIds).
+
+        Returns:
+            List of ChildPickupResponsibles, one per child.
+        """
+        params: dict[str, Any] = {
+            "method": "presence.getPickupResponsibles",
+            "uniStudentIds[]": child_ids,
+        }
+        resp = await self._request_with_version_retry("get", self.api_url, params=params)
+        resp.raise_for_status()
+        data = resp.json().get("data")
+        if not isinstance(data, list):
+            return []
+        result = []
+        for item in data:
+            if item is None or not isinstance(item, dict):
+                continue
+            try:
+                result.append(ChildPickupResponsibles.from_dict(item))
+            except (TypeError, ValueError, KeyError, AttributeError) as e:
+                _LOGGER.warning("Skipping pickup responsible due to parsing error: %s", e)
         return result
 
     async def get_presence_registrations(
