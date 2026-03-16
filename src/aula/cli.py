@@ -1019,6 +1019,36 @@ async def posts(ctx, institution_profile_id, post_id, comments, limit, page):
             return
 
 
+@cli.command()
+@click.argument("text")
+@click.option("--type", "doc_type", default=None, help="Filter by document type.")
+@click.option("--limit", type=int, default=20, help="Maximum results. Defaults to 20.")
+@click.pass_context
+@async_cmd
+async def search(ctx, text, doc_type, limit):
+    """Search Aula for posts, messages, and more."""
+    async with await _get_client(ctx) as client:
+        try:
+            result = await client.search(text, doc_type=doc_type, limit=limit)
+        except Exception as e:
+            print_error(f"searching: {e}")
+            return
+
+        if output_json(ctx, result):
+            return
+
+        results = result.get("results", [])
+        if not results:
+            print_empty("search results")
+            return
+
+        print_heading(f'Search: "{text}"')
+        for item in results:
+            title = item.get("title", item.get("name", "Untitled"))
+            item_type = item.get("docType", "")
+            click.echo(format_row(title, item_type))
+
+
 @cli.command("widgets")
 @click.pass_context
 @async_cmd

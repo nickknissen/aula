@@ -1519,6 +1519,60 @@ class AulaApiClient:
             return None
         return data
 
+    async def find_recipients(
+        self,
+        text: str,
+        limit: int = 100,
+        doc_types: str | None = None,
+        portal_roles: list[str] | None = None,
+    ) -> list[dict]:
+        """Find message recipients."""
+        params: dict[str, Any] = {
+            "method": "search.findRecipients",
+            "Text": text,
+            "Limit": limit,
+            "TypeAhead": "true",
+        }
+        if doc_types:
+            params["DocTypes"] = doc_types
+        if portal_roles:
+            params["PortalRoles"] = portal_roles
+        resp = await self._request_with_version_retry("get", self.api_url, params=params)
+        resp.raise_for_status()
+        data = resp.json().get("data", {}).get("results", [])
+        if not isinstance(data, list):
+            return []
+        return data
+
+    async def find_profiles_and_groups(self, text: str, limit: int = 100) -> dict:
+        """Find profiles and groups."""
+        params: dict[str, Any] = {
+            "method": "search.findProfilesAndGroups",
+            "Text": text,
+            "Limit": limit,
+            "Typeahead": "true",
+        }
+        resp = await self._request_with_version_retry("get", self.api_url, params=params)
+        resp.raise_for_status()
+        return resp.json().get("data", {})
+
+    async def search(
+        self, text: str, doc_type: str | None = None, limit: int = 20, offset: int = 0
+    ) -> dict:
+        """Global search."""
+        params: dict[str, Any] = {
+            "method": "search.findGeneric",
+            "Text": text,
+            "Limit": limit,
+            "Offset": offset,
+            "DocTypeCount": "true",
+        }
+        if doc_type:
+            params["DocType"] = doc_type
+        resp = await self._request_with_version_retry("get", self.api_url, params=params)
+        resp.raise_for_status()
+        return resp.json().get("data", {})
+
     async def get_media_by_id(self, media_id: int) -> dict | None:
         """Fetch a single media item by ID."""
         params: dict[str, Any] = {

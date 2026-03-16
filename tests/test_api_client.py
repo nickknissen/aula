@@ -2561,3 +2561,102 @@ class TestGetMessageInfo:
 
 
 # ── Section 6: Search ─────────────────────────────────────────────
+class TestFindRecipients:
+    """Tests for AulaApiClient.find_recipients method."""
+
+    @pytest.fixture
+    def client(self):
+        http_client = AsyncMock()
+        return AulaApiClient(http_client=http_client, access_token="test_token")
+
+    @pytest.mark.asyncio
+    async def test_happy_path(self, client):
+        client._request_with_version_retry = AsyncMock(
+            return_value=HttpResponse(
+                status_code=200,
+                data={"data": {"results": [{"name": "Alice", "id": 1}]}},
+            )
+        )
+        result = await client.find_recipients("Alice")
+        assert len(result) == 1
+        assert result[0]["name"] == "Alice"
+
+    @pytest.mark.asyncio
+    async def test_empty_results(self, client):
+        client._request_with_version_retry = AsyncMock(
+            return_value=HttpResponse(
+                status_code=200,
+                data={"data": {"results": []}},
+            )
+        )
+        result = await client.find_recipients("Nobody")
+        assert result == []
+
+
+class TestFindProfilesAndGroups:
+    """Tests for AulaApiClient.find_profiles_and_groups method."""
+
+    @pytest.fixture
+    def client(self):
+        http_client = AsyncMock()
+        return AulaApiClient(http_client=http_client, access_token="test_token")
+
+    @pytest.mark.asyncio
+    async def test_happy_path(self, client):
+        client._request_with_version_retry = AsyncMock(
+            return_value=HttpResponse(
+                status_code=200,
+                data={"data": {"profiles": [{"name": "Alice"}], "groups": []}},
+            )
+        )
+        result = await client.find_profiles_and_groups("Alice")
+        assert isinstance(result, dict)
+        assert len(result["profiles"]) == 1
+
+
+class TestSearch:
+    """Tests for AulaApiClient.search method."""
+
+    @pytest.fixture
+    def client(self):
+        http_client = AsyncMock()
+        return AulaApiClient(http_client=http_client, access_token="test_token")
+
+    @pytest.mark.asyncio
+    async def test_happy_path(self, client):
+        client._request_with_version_retry = AsyncMock(
+            return_value=HttpResponse(
+                status_code=200,
+                data={"data": {"results": [{"title": "Math homework"}], "totalCount": 1}},
+            )
+        )
+        result = await client.search("Math")
+        assert isinstance(result, dict)
+        assert len(result["results"]) == 1
+
+    @pytest.mark.asyncio
+    async def test_empty_results(self, client):
+        client._request_with_version_retry = AsyncMock(
+            return_value=HttpResponse(
+                status_code=200,
+                data={"data": {"results": [], "totalCount": 0}},
+            )
+        )
+        result = await client.search("nonexistent")
+        assert result["results"] == []
+
+    @pytest.mark.asyncio
+    async def test_with_doc_type_filter(self, client):
+        client._request_with_version_retry = AsyncMock(
+            return_value=HttpResponse(
+                status_code=200,
+                data={"data": {"results": [{"title": "Post 1"}], "totalCount": 1}},
+            )
+        )
+        result = await client.search("test", doc_type="post")
+        assert len(result["results"]) == 1
+        call_kwargs = client._request_with_version_retry.call_args
+        assert call_kwargs[1]["params"]["DocType"] == "post"
+
+
+# ── Section 7: Contacts ───────────────────────────────────────────
