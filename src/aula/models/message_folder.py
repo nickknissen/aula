@@ -5,15 +5,15 @@ from .base import AulaDataClass
 
 
 @dataclass
-class MessageThread(AulaDataClass):
-    thread_id: str
-    subject: str
+class MessageFolder(AulaDataClass):
+    id: int
+    name: str
     _raw: dict | None = field(default=None, repr=False)
 
     @classmethod
-    def from_dict(cls, data: dict[str, Any]) -> "MessageThread":
+    def from_dict(cls, data: dict[str, Any]) -> "MessageFolder":
         return cls(
             _raw=data,
-            thread_id=data.get("id", ""),
-            subject=data.get("subject", ""),
+            id=data["id"],
+            name=data.get("name", ""),
         )

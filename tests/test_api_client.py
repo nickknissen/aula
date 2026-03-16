@@ -2452,3 +2452,112 @@ class TestGetMediaByProfile:
 
 
 # ── Section 5: Messaging Reads ────────────────────────────────────
+class TestGetMessageFolders:
+    """Tests for AulaApiClient.get_message_folders method."""
+
+    @pytest.fixture
+    def client(self):
+        http_client = AsyncMock()
+        return AulaApiClient(http_client=http_client, access_token="test_token")
+
+    @pytest.mark.asyncio
+    async def test_happy_path(self, client):
+        client._request_with_version_retry = AsyncMock(
+            return_value=HttpResponse(
+                status_code=200,
+                data={"data": [{"id": 1, "name": "Inbox"}, {"id": 2, "name": "Sent"}]},
+            )
+        )
+        result = await client.get_message_folders()
+        assert len(result) == 2
+        assert result[0].id == 1
+        assert result[0].name == "Inbox"
+
+    @pytest.mark.asyncio
+    async def test_empty_data(self, client):
+        client._request_with_version_retry = AsyncMock(
+            return_value=HttpResponse(status_code=200, data={"data": []})
+        )
+        result = await client.get_message_folders()
+        assert result == []
+
+
+class TestGetCommonInboxes:
+    """Tests for AulaApiClient.get_common_inboxes method."""
+
+    @pytest.fixture
+    def client(self):
+        http_client = AsyncMock()
+        return AulaApiClient(http_client=http_client, access_token="test_token")
+
+    @pytest.mark.asyncio
+    async def test_happy_path(self, client):
+        inboxes = [{"id": 1, "name": "School Inbox"}]
+        client._request_with_version_retry = AsyncMock(
+            return_value=HttpResponse(status_code=200, data={"data": inboxes})
+        )
+        result = await client.get_common_inboxes()
+        assert len(result) == 1
+        assert result[0]["name"] == "School Inbox"
+
+    @pytest.mark.asyncio
+    async def test_empty_data(self, client):
+        client._request_with_version_retry = AsyncMock(
+            return_value=HttpResponse(status_code=200, data={"data": []})
+        )
+        result = await client.get_common_inboxes()
+        assert result == []
+
+
+class TestGetThreadsInBundle:
+    """Tests for AulaApiClient.get_threads_in_bundle method."""
+
+    @pytest.fixture
+    def client(self):
+        http_client = AsyncMock()
+        return AulaApiClient(http_client=http_client, access_token="test_token")
+
+    @pytest.mark.asyncio
+    async def test_happy_path(self, client):
+        client._request_with_version_retry = AsyncMock(
+            return_value=HttpResponse(
+                status_code=200,
+                data={"data": [{"id": "t1", "subject": "Hello"}]},
+            )
+        )
+        result = await client.get_threads_in_bundle(42)
+        assert len(result) == 1
+        assert result[0].thread_id == "t1"
+        assert result[0].subject == "Hello"
+
+    @pytest.mark.asyncio
+    async def test_empty_data(self, client):
+        client._request_with_version_retry = AsyncMock(
+            return_value=HttpResponse(status_code=200, data={"data": []})
+        )
+        result = await client.get_threads_in_bundle(42)
+        assert result == []
+
+
+class TestGetMessageInfo:
+    """Tests for AulaApiClient.get_message_info method."""
+
+    @pytest.fixture
+    def client(self):
+        http_client = AsyncMock()
+        return AulaApiClient(http_client=http_client, access_token="test_token")
+
+    @pytest.mark.asyncio
+    async def test_happy_path(self, client):
+        client._request_with_version_retry = AsyncMock(
+            return_value=HttpResponse(
+                status_code=200,
+                data={"data": {"threadId": "t1", "messageId": "m1", "text": "Hi"}},
+            )
+        )
+        result = await client.get_message_info("t1", "m1")
+        assert result is not None
+        assert result["messageId"] == "m1"
+
+
+# ── Section 6: Search ─────────────────────────────────────────────

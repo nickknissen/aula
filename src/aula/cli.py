@@ -487,11 +487,31 @@ async def overview(ctx, child_id):
 @click.option("--limit", type=int, default=5, help="Number of threads to fetch.")
 @click.option("--unread", is_flag=True, default=False, help="Only show unread message threads.")
 @click.option("--search", type=str, default=None, help="Search messages for the given text.")
+@click.option("--folders", is_flag=True, default=False, help="List message folders.")
 @click.pass_context
 @async_cmd
-async def messages(ctx, limit, unread, search):
+async def messages(ctx, limit, unread, search, folders):
     """Fetch the latest message threads and their messages."""
     async with await _get_client(ctx) as client:
+        if folders:
+            try:
+                folder_list = await client.get_message_folders()
+            except Exception as e:
+                print_error(f"fetching message folders: {e}")
+                return
+
+            if output_json(ctx, [dict(f) for f in folder_list]):
+                return
+
+            if not folder_list:
+                print_empty("message folders")
+                return
+
+            print_heading("Message Folders")
+            for f in folder_list:
+                click.echo(format_row(f.name, f"ID {f.id}"))
+            return
+
         if search:
             try:
                 prof: Profile = await client.get_profile()

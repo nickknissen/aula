@@ -29,6 +29,7 @@ from .models import (
     LibraryStatus,
     MeebookStudentPlan,
     Message,
+    MessageFolder,
     MessageThread,
     MomoUserCourses,
     MUTask,
@@ -1445,6 +1446,78 @@ class AulaApiClient:
             (x for x in participants if x.get("participantRole") == role),
             {},
         )
+
+    async def get_message_folders(self, include_deleted: bool = False) -> list[MessageFolder]:
+        """Fetch message folders."""
+        params: dict[str, Any] = {
+            "method": "messaging.getFolders",
+            "IncludeDeletedFolders": include_deleted,
+        }
+        resp = await self._request_with_version_retry("get", self.api_url, params=params)
+        resp.raise_for_status()
+        raw = resp.json().get("data", [])
+        if not isinstance(raw, list):
+            return []
+        folders: list[MessageFolder] = []
+        for item in raw:
+            try:
+                if not isinstance(item, dict) or "id" not in item:
+                    continue
+                folders.append(MessageFolder.from_dict(item))
+            except (TypeError, ValueError, KeyError):
+                continue
+        return folders
+
+    async def get_common_inboxes(
+        self, institution_profile_ids: list[int] | None = None
+    ) -> list[dict]:
+        """Fetch common inboxes."""
+        params: dict[str, Any] = {
+            "method": "messaging.getCommonInboxes",
+        }
+        if institution_profile_ids:
+            params["InstitutionProfileIds[]"] = institution_profile_ids
+        resp = await self._request_with_version_retry("get", self.api_url, params=params)
+        resp.raise_for_status()
+        data = resp.json().get("data", [])
+        if not isinstance(data, list):
+            return []
+        return data
+
+    async def get_threads_in_bundle(self, bundle_id: int) -> list[MessageThread]:
+        """Fetch threads in a bundle."""
+        params: dict[str, Any] = {
+            "method": "messaging.getThreadsInBundle",
+            "BundleId": bundle_id,
+        }
+        resp = await self._request_with_version_retry("get", self.api_url, params=params)
+        resp.raise_for_status()
+        raw = resp.json().get("data", [])
+        if not isinstance(raw, list):
+            return []
+        threads: list[MessageThread] = []
+        for item in raw:
+            try:
+                if not isinstance(item, dict):
+                    continue
+                threads.append(MessageThread.from_dict(item))
+            except (TypeError, ValueError, KeyError):
+                continue
+        return threads
+
+    async def get_message_info(self, thread_id: str, message_id: str) -> dict | None:
+        """Fetch lightweight message info."""
+        params: dict[str, Any] = {
+            "method": "messaging.getMessageInfoLight",
+            "ThreadId": thread_id,
+            "MessageId": message_id,
+        }
+        resp = await self._request_with_version_retry("get", self.api_url, params=params)
+        resp.raise_for_status()
+        data = resp.json().get("data", {})
+        if not data or not isinstance(data, dict):
+            return None
+        return data
 
     async def get_media_by_id(self, media_id: int) -> dict | None:
         """Fetch a single media item by ID."""

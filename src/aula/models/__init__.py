@@ -10,6 +10,7 @@ from .library import LibraryLoan as LibraryLoan
 from .library import LibraryStatus as LibraryStatus
 from .meebook_weekplan import MeebookStudentPlan as MeebookStudentPlan
 from .message import Message as Message
+from .message_folder import MessageFolder as MessageFolder
 from .message_thread import MessageThread as MessageThread
 from .momo_huskeliste import MomoUserCourses as MomoUserCourses
 from .momo_huskeliste import UserReminders as UserReminders
