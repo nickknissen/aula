@@ -765,6 +765,170 @@ class AulaApiClient:
 
         return events
 
+    async def get_calendar_event(
+        self, event_id: int, occurrence_datetime: str | None = None
+    ) -> dict | None:
+        """Fetch a single calendar event by ID."""
+        params: dict[str, Any] = {
+            "method": "calendar.getEventById",
+            "eventId": event_id,
+        }
+        if occurrence_datetime:
+            params["occurrenceDateTime"] = occurrence_datetime
+
+        resp = await self._request_with_version_retry("get", self.api_url, params=params)
+        resp.raise_for_status()
+
+        data = resp.json().get("data", {})
+        if not data or not isinstance(data, dict):
+            return None
+        return data
+
+    async def get_important_dates(self, limit: int = 10, include_today: bool = True) -> list[dict]:
+        """Fetch upcoming important dates."""
+        params: dict[str, Any] = {
+            "method": "calendar.getImportantDates",
+            "limit": limit,
+            "includeToday": include_today,
+        }
+
+        resp = await self._request_with_version_retry("get", self.api_url, params=params)
+        resp.raise_for_status()
+
+        data = resp.json().get("data", [])
+        if not isinstance(data, list):
+            return []
+        return data
+
+    async def get_birthday_events(
+        self, institution_codes: list[str], start: str, end: str
+    ) -> list[dict]:
+        """Fetch birthday events for institutions."""
+        params: dict[str, Any] = {
+            "method": "calendar.getBirthdayEventsForInstitutions",
+            "InstCodes[]": institution_codes,
+            "Start": start,
+            "End": end,
+        }
+
+        resp = await self._request_with_version_retry("get", self.api_url, params=params)
+        resp.raise_for_status()
+
+        data = resp.json().get("data", [])
+        if not isinstance(data, list):
+            return []
+        return data
+
+    async def get_birthday_events_for_group(
+        self, group_id: int, start: str, end: str
+    ) -> list[dict]:
+        """Fetch birthday events for a group."""
+        params: dict[str, Any] = {
+            "method": "calendar.getBirthdayEventsForGroup",
+            "groupId": group_id,
+            "start": start,
+            "end": end,
+        }
+
+        resp = await self._request_with_version_retry("get", self.api_url, params=params)
+        resp.raise_for_status()
+
+        data = resp.json().get("data", [])
+        if not isinstance(data, list):
+            return []
+        return data
+
+    async def get_event_types(self, institution_codes: list[str] | None = None) -> list[dict]:
+        """Fetch event types."""
+        params: dict[str, Any] = {
+            "method": "calendar.getEventTypes",
+            "Type": "all",
+        }
+        if institution_codes:
+            params["FilterInstitutionCodes[]"] = institution_codes
+
+        resp = await self._request_with_version_retry("get", self.api_url, params=params)
+        resp.raise_for_status()
+
+        data = resp.json().get("data", [])
+        if not isinstance(data, list):
+            return []
+        return data
+
+    async def get_daily_aggregated_events(
+        self, institution_profile_ids: list[int], start: str, end: str
+    ) -> list[dict]:
+        """Fetch daily aggregated events."""
+        params: dict[str, Any] = {
+            "method": "calendar.getDailyAggregatedEvents",
+            "InstProfileIds[]": institution_profile_ids,
+            "Start": start,
+            "End": end,
+        }
+
+        resp = await self._request_with_version_retry("get", self.api_url, params=params)
+        resp.raise_for_status()
+
+        data = resp.json().get("data", [])
+        if not isinstance(data, list):
+            return []
+        return data
+
+    async def get_events_for_institutions(
+        self, institution_codes: list[str], start: str, end: str
+    ) -> list[dict]:
+        """Fetch events for institutions."""
+        params: dict[str, Any] = {
+            "method": "calendar.getEventsForInstitutions",
+            "Start": start,
+            "End": end,
+            "InstCodes[]": institution_codes,
+        }
+
+        resp = await self._request_with_version_retry("get", self.api_url, params=params)
+        resp.raise_for_status()
+
+        data = resp.json().get("data", [])
+        if not isinstance(data, list):
+            return []
+        return data
+
+    async def get_daily_event_count_for_group(
+        self, group_id: int, start: str, end: str
+    ) -> list[dict]:
+        """Fetch event count per day for a group."""
+        params: dict[str, Any] = {
+            "method": "calendar.getDailyEventCountForGroup",
+            "GroupId": group_id,
+            "Start": start,
+            "End": end,
+        }
+
+        resp = await self._request_with_version_retry("get", self.api_url, params=params)
+        resp.raise_for_status()
+
+        data = resp.json().get("data", [])
+        if not isinstance(data, list):
+            return []
+        return data
+
+    async def get_events_by_group(self, group_id: int, start: str, end: str) -> list[dict]:
+        """Fetch events by group ID."""
+        params: dict[str, Any] = {
+            "method": "calendar.geteventsbygroupid",
+            "groupId": group_id,
+            "start": start,
+            "end": end,
+        }
+
+        resp = await self._request_with_version_retry("get", self.api_url, params=params)
+        resp.raise_for_status()
+
+        data = resp.json().get("data", [])
+        if not isinstance(data, list):
+            return []
+        return data
+
     async def get_groups(
         self,
         institution_codes: list[str],

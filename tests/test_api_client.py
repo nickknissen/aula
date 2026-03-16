@@ -2071,3 +2071,230 @@ class TestGetGroupMembers:
         )
         result = await client.get_group_members(1)
         assert result == []
+
+
+class TestGetCalendarEvent:
+    """Tests for AulaApiClient.get_calendar_event method."""
+
+    @pytest.fixture
+    def client(self):
+        http_client = AsyncMock()
+        return AulaApiClient(http_client=http_client, access_token="test_token")
+
+    @pytest.mark.asyncio
+    async def test_happy_path(self, client):
+        client._request_with_version_retry = AsyncMock(
+            return_value=HttpResponse(
+                status_code=200,
+                data={"data": {"id": 1, "title": "Parent meeting"}},
+            )
+        )
+        result = await client.get_calendar_event(1)
+        assert result is not None
+        assert result["id"] == 1
+
+    @pytest.mark.asyncio
+    async def test_null_data(self, client):
+        client._request_with_version_retry = AsyncMock(
+            return_value=HttpResponse(status_code=200, data={"data": None})
+        )
+        result = await client.get_calendar_event(1)
+        assert result is None
+
+    @pytest.mark.asyncio
+    async def test_with_occurrence_datetime(self, client):
+        client._request_with_version_retry = AsyncMock(
+            return_value=HttpResponse(
+                status_code=200,
+                data={"data": {"id": 1, "title": "Recurring"}},
+            )
+        )
+        result = await client.get_calendar_event(1, occurrence_datetime="2026-03-16")
+        assert result is not None
+        client._request_with_version_retry.assert_called_once()
+        call_kwargs = client._request_with_version_retry.call_args
+        assert call_kwargs[1]["params"]["occurrenceDateTime"] == "2026-03-16"
+
+
+class TestGetImportantDates:
+    """Tests for AulaApiClient.get_important_dates method."""
+
+    @pytest.fixture
+    def client(self):
+        http_client = AsyncMock()
+        return AulaApiClient(http_client=http_client, access_token="test_token")
+
+    @pytest.mark.asyncio
+    async def test_happy_path(self, client):
+        client._request_with_version_retry = AsyncMock(
+            return_value=HttpResponse(
+                status_code=200,
+                data={"data": [{"id": 1, "title": "School holiday"}]},
+            )
+        )
+        result = await client.get_important_dates()
+        assert len(result) == 1
+        assert result[0]["title"] == "School holiday"
+
+    @pytest.mark.asyncio
+    async def test_empty_data(self, client):
+        client._request_with_version_retry = AsyncMock(
+            return_value=HttpResponse(status_code=200, data={"data": []})
+        )
+        result = await client.get_important_dates()
+        assert result == []
+
+
+class TestGetBirthdayEvents:
+    """Tests for AulaApiClient.get_birthday_events method."""
+
+    @pytest.fixture
+    def client(self):
+        http_client = AsyncMock()
+        return AulaApiClient(http_client=http_client, access_token="test_token")
+
+    @pytest.mark.asyncio
+    async def test_happy_path(self, client):
+        client._request_with_version_retry = AsyncMock(
+            return_value=HttpResponse(
+                status_code=200,
+                data={"data": [{"name": "Alice", "birthday": "2020-03-16"}]},
+            )
+        )
+        result = await client.get_birthday_events(["INST1"], "2026-03-01", "2026-03-31")
+        assert len(result) == 1
+        assert result[0]["name"] == "Alice"
+
+    @pytest.mark.asyncio
+    async def test_empty_data(self, client):
+        client._request_with_version_retry = AsyncMock(
+            return_value=HttpResponse(status_code=200, data={"data": []})
+        )
+        result = await client.get_birthday_events(["INST1"], "2026-03-01", "2026-03-31")
+        assert result == []
+
+
+class TestGetBirthdayEventsForGroup:
+    """Tests for AulaApiClient.get_birthday_events_for_group method."""
+
+    @pytest.fixture
+    def client(self):
+        http_client = AsyncMock()
+        return AulaApiClient(http_client=http_client, access_token="test_token")
+
+    @pytest.mark.asyncio
+    async def test_happy_path(self, client):
+        client._request_with_version_retry = AsyncMock(
+            return_value=HttpResponse(
+                status_code=200,
+                data={"data": [{"name": "Bob", "birthday": "2019-05-10"}]},
+            )
+        )
+        result = await client.get_birthday_events_for_group(42, "2026-03-01", "2026-03-31")
+        assert len(result) == 1
+        assert result[0]["name"] == "Bob"
+
+
+class TestGetEventTypes:
+    """Tests for AulaApiClient.get_event_types method."""
+
+    @pytest.fixture
+    def client(self):
+        http_client = AsyncMock()
+        return AulaApiClient(http_client=http_client, access_token="test_token")
+
+    @pytest.mark.asyncio
+    async def test_happy_path(self, client):
+        client._request_with_version_retry = AsyncMock(
+            return_value=HttpResponse(
+                status_code=200,
+                data={"data": [{"id": 1, "name": "Meeting"}]},
+            )
+        )
+        result = await client.get_event_types()
+        assert len(result) == 1
+        assert result[0]["name"] == "Meeting"
+
+
+class TestGetDailyAggregatedEvents:
+    """Tests for AulaApiClient.get_daily_aggregated_events method."""
+
+    @pytest.fixture
+    def client(self):
+        http_client = AsyncMock()
+        return AulaApiClient(http_client=http_client, access_token="test_token")
+
+    @pytest.mark.asyncio
+    async def test_happy_path(self, client):
+        client._request_with_version_retry = AsyncMock(
+            return_value=HttpResponse(
+                status_code=200,
+                data={"data": [{"date": "2026-03-16", "count": 3}]},
+            )
+        )
+        result = await client.get_daily_aggregated_events([1, 2], "2026-03-01", "2026-03-31")
+        assert len(result) == 1
+        assert result[0]["count"] == 3
+
+
+class TestGetEventsForInstitutions:
+    """Tests for AulaApiClient.get_events_for_institutions method."""
+
+    @pytest.fixture
+    def client(self):
+        http_client = AsyncMock()
+        return AulaApiClient(http_client=http_client, access_token="test_token")
+
+    @pytest.mark.asyncio
+    async def test_happy_path(self, client):
+        client._request_with_version_retry = AsyncMock(
+            return_value=HttpResponse(
+                status_code=200,
+                data={"data": [{"id": 1, "title": "School event"}]},
+            )
+        )
+        result = await client.get_events_for_institutions(["INST1"], "2026-03-01", "2026-03-31")
+        assert len(result) == 1
+        assert result[0]["title"] == "School event"
+
+
+class TestGetDailyEventCountForGroup:
+    """Tests for AulaApiClient.get_daily_event_count_for_group method."""
+
+    @pytest.fixture
+    def client(self):
+        http_client = AsyncMock()
+        return AulaApiClient(http_client=http_client, access_token="test_token")
+
+    @pytest.mark.asyncio
+    async def test_happy_path(self, client):
+        client._request_with_version_retry = AsyncMock(
+            return_value=HttpResponse(
+                status_code=200,
+                data={"data": [{"date": "2026-03-16", "count": 5}]},
+            )
+        )
+        result = await client.get_daily_event_count_for_group(42, "2026-03-01", "2026-03-31")
+        assert len(result) == 1
+        assert result[0]["count"] == 5
+
+
+class TestGetEventsByGroup:
+    """Tests for AulaApiClient.get_events_by_group method."""
+
+    @pytest.fixture
+    def client(self):
+        http_client = AsyncMock()
+        return AulaApiClient(http_client=http_client, access_token="test_token")
+
+    @pytest.mark.asyncio
+    async def test_happy_path(self, client):
+        client._request_with_version_retry = AsyncMock(
+            return_value=HttpResponse(
+                status_code=200,
+                data={"data": [{"id": 1, "title": "Group event"}]},
+            )
+        )
+        result = await client.get_events_by_group(42, "2026-03-01", "2026-03-31")
+        assert len(result) == 1
+        assert result[0]["title"] == "Group event"

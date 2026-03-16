@@ -712,6 +712,7 @@ async def notifications(ctx, offset, limit, module):
     type=int,
     help="Filter events by specific child ID(s).",
 )
+@click.option("--event-id", type=int, default=None, help="Show a single event by ID.")
 @click.option(
     "--start-date",
     type=click.DateTime(formats=["%Y-%m-%d"]),
@@ -726,9 +727,29 @@ async def notifications(ctx, offset, limit, module):
 )
 @click.pass_context
 @async_cmd
-async def calendar(ctx, institution_profile_id, start_date, end_date):
+async def calendar(ctx, institution_profile_id, event_id, start_date, end_date):
     """Fetch calendar events for children."""
     async with await _get_client(ctx) as client:
+        if event_id:
+            try:
+                event = await client.get_calendar_event(event_id)
+            except Exception as e:
+                print_error(f"fetching calendar event: {e}")
+                return
+
+            if event is None:
+                print_empty("calendar event")
+                return
+
+            if output_json(ctx, event):
+                return
+
+            print_heading(f"Event: {event.get('title', event_id)}")
+            for key in ["id", "title", "startDateTime", "endDateTime", "type", "location"]:
+                if key in event and event[key]:
+                    click.echo(format_row(key, str(event[key])))
+            return
+
         institution_profile_ids = list(institution_profile_id)
 
         if not institution_profile_ids:
@@ -768,6 +789,100 @@ async def calendar(ctx, institution_profile_id, start_date, end_date):
 
         table_data = build_calendar_table(events)
         print_calendar_table(table_data)
+
+
+@cli.command("important-dates")
+@click.option("--limit", type=int, default=10, help="Maximum number of dates to fetch.")
+@click.pass_context
+@async_cmd
+async def important_dates(ctx, limit):
+    """Fetch upcoming important dates."""
+    async with await _get_client(ctx) as client:
+        try:
+            dates = await client.get_important_dates(limit=limit)
+        except Exception as e:
+            print_error(f"fetching important dates: {e}")
+            return
+
+        if output_json(ctx, dates):
+            return
+
+        if not dates:
+            print_empty("important dates")
+            return
+
+        print_heading("Important Dates")
+        for d in dates:
+            title = d.get("title", "Untitled")
+            date_str = d.get("startDateTime", d.get("date", ""))
+            click.echo(format_row(title, date_str))
+
+
+@cli.command()
+@click.option(
+    "--group-id",
+    type=int,
+    default=None,
+    help="Filter birthdays by group ID.",
+)
+@click.option(
+    "--start-date",
+    type=click.DateTime(formats=["%Y-%m-%d"]),
+    default=datetime.datetime.now(ZoneInfo("Europe/Copenhagen")),
+    help="Start date (YYYY-MM-DD). Defaults to today.",
+)
+@click.option(
+    "--end-date",
+    type=click.DateTime(formats=["%Y-%m-%d"]),
+    default=(datetime.datetime.now(ZoneInfo("Europe/Copenhagen")) + datetime.timedelta(days=30)),
+    help="End date (YYYY-MM-DD). Defaults to 30 days from today.",
+)
+@click.pass_context
+@async_cmd
+async def birthdays(ctx, group_id, start_date, end_date):
+    """Fetch birthday events."""
+    start = start_date.strftime("%Y-%m-%d")
+    end = end_date.strftime("%Y-%m-%d")
+
+    async with await _get_client(ctx) as client:
+        if group_id:
+            try:
+                result = await client.get_birthday_events_for_group(group_id, start, end)
+            except Exception as e:
+                print_error(f"fetching birthdays for group: {e}")
+                return
+        else:
+            try:
+                prof: Profile = await client.get_profile()
+            except Exception as e:
+                print_error(f"fetching profile: {e}")
+                return
+
+            institution_codes: list[str] = []
+            for child in prof.children:
+                if child._raw:
+                    code = child._raw.get("institutionProfile", {}).get("institutionCode", "")
+                    if code and str(code) not in institution_codes:
+                        institution_codes.append(str(code))
+
+            try:
+                result = await client.get_birthday_events(institution_codes, start, end)
+            except Exception as e:
+                print_error(f"fetching birthdays: {e}")
+                return
+
+        if output_json(ctx, result):
+            return
+
+        if not result:
+            print_empty("birthdays")
+            return
+
+        print_heading("Birthdays")
+        for item in result:
+            name = item.get("name", "Unknown")
+            bday = item.get("birthday", item.get("date", ""))
+            click.echo(format_row(name, bday))
 
 
 @cli.command()
