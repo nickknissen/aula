@@ -1940,3 +1940,134 @@ class TestGetActivityOverview:
         )
         result = await client.get_activity_overview([201], week=10, year=2026)
         assert result is None
+
+
+class TestGetGroups:
+    """Tests for AulaApiClient.get_groups method."""
+
+    @pytest.fixture
+    def client(self):
+        http_client = AsyncMock()
+        return AulaApiClient(http_client=http_client, access_token="test_token")
+
+    @pytest.mark.asyncio
+    async def test_happy_path(self, client):
+        client._request_with_version_retry = AsyncMock(
+            return_value=HttpResponse(
+                status_code=200,
+                data={
+                    "data": {
+                        "groups": [
+                            {
+                                "id": 1,
+                                "name": "Class 3A",
+                                "type": "primary",
+                                "institutionCode": "123456",
+                                "description": "Main group",
+                            }
+                        ]
+                    }
+                },
+            )
+        )
+        result = await client.get_groups(["123456"], [100])
+        assert len(result) == 1
+        assert result[0].id == 1
+        assert result[0].name == "Class 3A"
+        assert result[0].group_type == "primary"
+
+    @pytest.mark.asyncio
+    async def test_empty_data(self, client):
+        client._request_with_version_retry = AsyncMock(
+            return_value=HttpResponse(status_code=200, data={"data": {"groups": []}})
+        )
+        result = await client.get_groups(["123"], [100])
+        assert result == []
+
+    @pytest.mark.asyncio
+    async def test_malformed_item_skipped(self, client):
+        client._request_with_version_retry = AsyncMock(
+            return_value=HttpResponse(
+                status_code=200,
+                data={
+                    "data": {
+                        "groups": [
+                            {"id": 1, "name": "Good"},
+                            "not-a-dict",
+                            {"no_id": True},
+                        ]
+                    }
+                },
+            )
+        )
+        result = await client.get_groups(["123"], [100])
+        assert len(result) == 1
+        assert result[0].name == "Good"
+
+
+class TestGetGroup:
+    """Tests for AulaApiClient.get_group method."""
+
+    @pytest.fixture
+    def client(self):
+        http_client = AsyncMock()
+        return AulaApiClient(http_client=http_client, access_token="test_token")
+
+    @pytest.mark.asyncio
+    async def test_happy_path(self, client):
+        client._request_with_version_retry = AsyncMock(
+            return_value=HttpResponse(
+                status_code=200,
+                data={"data": {"id": 5, "name": "Group X", "type": "SFO"}},
+            )
+        )
+        result = await client.get_group(5)
+        assert result is not None
+        assert result.id == 5
+        assert result.name == "Group X"
+
+    @pytest.mark.asyncio
+    async def test_null_data(self, client):
+        client._request_with_version_retry = AsyncMock(
+            return_value=HttpResponse(status_code=200, data={"data": None})
+        )
+        result = await client.get_group(5)
+        assert result is None
+
+
+class TestGetGroupMembers:
+    """Tests for AulaApiClient.get_group_members method."""
+
+    @pytest.fixture
+    def client(self):
+        http_client = AsyncMock()
+        return AulaApiClient(http_client=http_client, access_token="test_token")
+
+    @pytest.mark.asyncio
+    async def test_happy_path(self, client):
+        client._request_with_version_retry = AsyncMock(
+            return_value=HttpResponse(
+                status_code=200,
+                data={
+                    "data": [
+                        {
+                            "institutionProfileId": 42,
+                            "name": "Alice",
+                            "portalRole": "guardian",
+                        }
+                    ]
+                },
+            )
+        )
+        result = await client.get_group_members(1)
+        assert len(result) == 1
+        assert result[0].institution_profile_id == 42
+        assert result[0].name == "Alice"
+
+    @pytest.mark.asyncio
+    async def test_empty_data(self, client):
+        client._request_with_version_retry = AsyncMock(
+            return_value=HttpResponse(status_code=200, data={"data": []})
+        )
+        result = await client.get_group_members(1)
+        assert result == []

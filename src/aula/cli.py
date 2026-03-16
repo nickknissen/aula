@@ -298,6 +298,101 @@ async def profile(ctx):
 
 
 @cli.command()
+@click.option("--group-id", type=int, default=None, help="Show a single group by ID.")
+@click.option("--members", is_flag=True, help="List members of the group (requires --group-id).")
+@click.pass_context
+@async_cmd
+async def groups(ctx, group_id, members):
+    """List child's groups, or show group detail / members."""
+    async with await _get_client(ctx) as client:
+        if group_id and members:
+            try:
+                result = await client.get_group_members(group_id)
+            except Exception as e:
+                print_error(f"fetching group members: {e}")
+                return
+
+            if output_json(ctx, [dict(m) for m in result]):
+                return
+
+            if not result:
+                print_empty("group members")
+                return
+
+            print_heading(f"Group {group_id} Members")
+            for m in result:
+                role = f" ({m.portal_role})" if m.portal_role else ""
+                click.echo(format_row(m.name, f"ID {m.institution_profile_id}{role}"))
+            return
+
+        if group_id:
+            try:
+                group = await client.get_group(group_id)
+            except Exception as e:
+                print_error(f"fetching group: {e}")
+                return
+
+            if group is None:
+                print_empty("group")
+                return
+
+            if output_json(ctx, dict(group)):
+                return
+
+            print_heading(f"Group: {group.name}")
+            click.echo(format_row("ID", str(group.id)))
+            if group.group_type:
+                click.echo(format_row("Type", group.group_type))
+            if group.institution_code:
+                click.echo(format_row("Institution", group.institution_code))
+            if group.description:
+                click.echo(format_row("Description", group.description))
+            return
+
+        # List all groups for children
+        try:
+            prof: Profile = await client.get_profile()
+        except Exception as e:
+            print_error(f"fetching profile: {e}")
+            return
+
+        if not prof.children:
+            print_empty("children")
+            return
+
+        institution_codes: list[str] = []
+        child_profile_ids: list[int] = []
+        for child in prof.children:
+            child_profile_ids.append(child.id)
+            if child._raw:
+                code = child._raw.get("institutionProfile", {}).get("institutionCode", "")
+                if code and str(code) not in institution_codes:
+                    institution_codes.append(str(code))
+
+        try:
+            result = await client.get_groups(institution_codes, child_profile_ids)
+        except Exception as e:
+            print_error(f"fetching groups: {e}")
+            return
+
+        if output_json(ctx, [dict(g) for g in result]):
+            return
+
+        if not result:
+            print_empty("groups")
+            return
+
+        print_heading("Groups")
+        for g in result:
+            parts = [f"ID {g.id}"]
+            if g.group_type:
+                parts.append(g.group_type)
+            if g.institution_code:
+                parts.append(f"Inst {g.institution_code}")
+            click.echo(format_row(g.name, *parts))
+
+
+@cli.command()
 @click.option("--child-id", type=int, help="Specify a single child ID.")
 @click.pass_context
 @async_cmd

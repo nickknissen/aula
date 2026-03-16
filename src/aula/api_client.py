@@ -23,6 +23,8 @@ from .models import (
     ChildPickupResponsibles,
     ChildPresenceState,
     DailyOverview,
+    Group,
+    GroupMember,
     LibraryStatus,
     MeebookStudentPlan,
     Message,
@@ -762,6 +764,86 @@ class AulaApiClient:
                 continue
 
         return events
+
+    async def get_groups(
+        self,
+        institution_codes: list[str],
+        child_institution_profile_ids: list[int],
+    ) -> list[Group]:
+        """Fetch groups for the given institution codes and child profile IDs."""
+        params: dict[str, Any] = {
+            "method": "groups.getGroupsByContext",
+            "InstitutionCodes[]": institution_codes,
+            "ChildInstitutionProfileIds[]": child_institution_profile_ids,
+        }
+
+        resp = await self._request_with_version_retry("get", self.api_url, params=params)
+        resp.raise_for_status()
+
+        raw_groups = resp.json().get("data", {}).get("groups", [])
+        if not isinstance(raw_groups, list):
+            return []
+
+        groups: list[Group] = []
+        for item in raw_groups:
+            try:
+                if not isinstance(item, dict) or "id" not in item:
+                    _LOGGER.warning("Skipping invalid group data: %s", item)
+                    continue
+                groups.append(Group.from_dict(item))
+            except (TypeError, ValueError, KeyError) as e:
+                _LOGGER.warning("Skipping group due to parsing error: %s - Data: %s", e, item)
+                continue
+        return groups
+
+    async def get_group(self, group_id: int) -> Group | None:
+        """Fetch a single group by ID."""
+        params: dict[str, Any] = {
+            "method": "groups.getGroupById",
+            "groupId": group_id,
+        }
+
+        resp = await self._request_with_version_retry("get", self.api_url, params=params)
+        resp.raise_for_status()
+
+        data = resp.json().get("data", {})
+        if not data or not isinstance(data, dict):
+            return None
+        return Group.from_dict(data)
+
+    async def get_group_members(
+        self,
+        group_id: int,
+        portal_roles: list[str] | None = None,
+    ) -> list[GroupMember]:
+        """Fetch members of a group."""
+        params: dict[str, Any] = {
+            "method": "groups.getMembershipsLight",
+            "groupId": group_id,
+        }
+        if portal_roles:
+            params["portalRoles[]"] = portal_roles
+
+        resp = await self._request_with_version_retry("get", self.api_url, params=params)
+        resp.raise_for_status()
+
+        raw_members = resp.json().get("data", [])
+        if not isinstance(raw_members, list):
+            return []
+
+        members: list[GroupMember] = []
+        for item in raw_members:
+            try:
+                if not isinstance(item, dict) or "institutionProfileId" not in item:
+                    _LOGGER.warning("Skipping invalid group member data: %s", item)
+                    continue
+                members.append(GroupMember.from_dict(item))
+            except (TypeError, ValueError, KeyError) as e:
+                _LOGGER.warning(
+                    "Skipping group member due to parsing error: %s - Data: %s", e, item
+                )
+                continue
+        return members
 
     async def get_posts(
         self,
