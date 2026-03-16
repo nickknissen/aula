@@ -29,7 +29,7 @@ pip install aula
 uv add aula
 ```
 
-**Requirements:** Python >= 3.10, MitID username and MitID app.
+**Requirements:** Python >= 3.14, MitID username and MitID app.
 
 ### Run without installing
 
@@ -65,7 +65,7 @@ async def main():
 asyncio.run(main())
 ```
 
-Key methods on `AulaApiClient`: `get_profile()`, `get_daily_overview(child_id)`, `get_message_threads()`, `get_messages_for_thread(thread_id)`, `get_calendar_events(...)`, `get_posts(...)`. See `src/aula/api_client.py` for the full list.
+Key methods on `AulaApiClient`: `get_profile()`, `get_daily_overview(child_id)`, `get_message_threads()`, `get_messages_for_thread(thread_id)`, `get_calendar_events(...)`, `get_posts(...)`, `get_groups(...)`, `get_message_folders(...)`, `search(...)`, `update_presence_template(...)`. See `src/aula/api_client.py` for the full list.
 
 ### Widget API (Namespace)
 
@@ -117,13 +117,20 @@ The username can also be set via the `AULA_MITID_USERNAME` environment variable 
 | `login` | Verify credentials |
 | `profile` | Show profile and children |
 | `overview` | Daily overview for all children |
+| `groups` | Groups and group members |
 | `messages` | Recent message threads |
 | `calendar` | Calendar events |
+| `important-dates` | Important dates |
+| `birthdays` | Birthday events |
 | `posts` | Posts and announcements |
+| `search` | Search documents across Aula |
+| `contacts` | Contact list |
 | `notifications` | Recent notifications |
 | `daily-summary` | Today's schedule, homework & messages |
 | `weekly-summary` | Full week overview with provider data |
+| `presence` | Presence registrations and states |
 | `presence-templates` | Planned entry/exit times |
+| `update-presence` | Update pickup/drop-off times |
 | `mu:opgaver` | Min Uddannelse tasks |
 | `mu:ugeplan` | Min Uddannelse weekly letter |
 | `easyiq:ugeplan` | EasyIQ weekly plan |
