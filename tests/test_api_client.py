@@ -2395,3 +2395,60 @@ class TestGetComments:
 
 
 # ── Section 4: Gallery Reads ──────────────────────────────────────
+class TestGetMediaById:
+    """Tests for AulaApiClient.get_media_by_id method."""
+
+    @pytest.fixture
+    def client(self):
+        http_client = AsyncMock()
+        return AulaApiClient(http_client=http_client, access_token="test_token")
+
+    @pytest.mark.asyncio
+    async def test_happy_path(self, client):
+        client._request_with_version_retry = AsyncMock(
+            return_value=HttpResponse(
+                status_code=200,
+                data={"data": {"id": 10, "title": "Photo"}},
+            )
+        )
+        result = await client.get_media_by_id(10)
+        assert result is not None
+        assert result["id"] == 10
+
+    @pytest.mark.asyncio
+    async def test_null_data(self, client):
+        client._request_with_version_retry = AsyncMock(
+            return_value=HttpResponse(status_code=200, data={"data": None})
+        )
+        result = await client.get_media_by_id(10)
+        assert result is None
+
+
+class TestGetMediaByProfile:
+    """Tests for AulaApiClient.get_media_by_profile method."""
+
+    @pytest.fixture
+    def client(self):
+        http_client = AsyncMock()
+        return AulaApiClient(http_client=http_client, access_token="test_token")
+
+    @pytest.mark.asyncio
+    async def test_happy_path(self, client):
+        media = [{"id": 1, "title": "Pic1"}, {"id": 2, "title": "Pic2"}]
+        client._request_with_version_retry = AsyncMock(
+            return_value=HttpResponse(status_code=200, data={"data": media})
+        )
+        result = await client.get_media_by_profile(100)
+        assert len(result) == 2
+        assert result[0]["id"] == 1
+
+    @pytest.mark.asyncio
+    async def test_empty_data(self, client):
+        client._request_with_version_retry = AsyncMock(
+            return_value=HttpResponse(status_code=200, data={"data": []})
+        )
+        result = await client.get_media_by_profile(100)
+        assert result == []
+
+
+# ── Section 5: Messaging Reads ────────────────────────────────────

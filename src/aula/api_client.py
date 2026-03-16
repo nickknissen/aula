@@ -1446,6 +1446,35 @@ class AulaApiClient:
             {},
         )
 
+    async def get_media_by_id(self, media_id: int) -> dict | None:
+        """Fetch a single media item by ID."""
+        params: dict[str, Any] = {
+            "method": "gallery.getMediaById",
+            "id": media_id,
+        }
+        resp = await self._request_with_version_retry("get", self.api_url, params=params)
+        resp.raise_for_status()
+        data = resp.json().get("data", {})
+        if not data or not isinstance(data, dict):
+            return None
+        return data
+
+    async def get_media_by_profile(
+        self, institution_profile_id: int, limit: int = 100
+    ) -> list[dict]:
+        """Fetch media tagged with a profile."""
+        params: dict[str, Any] = {
+            "method": "gallery.getMediaByInstitutionProfileId",
+            "institutionProfileId": institution_profile_id,
+            "Limit": limit,
+        }
+        resp = await self._request_with_version_retry("get", self.api_url, params=params)
+        resp.raise_for_status()
+        data = resp.json().get("data", [])
+        if not isinstance(data, list):
+            return []
+        return data
+
     async def __aenter__(self) -> Self:
         return self
 
