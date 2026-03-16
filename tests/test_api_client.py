@@ -2660,3 +2660,55 @@ class TestSearch:
 
 
 # ── Section 7: Contacts ───────────────────────────────────────────
+class TestGetContactList:
+    """Tests for AulaApiClient.get_contact_list method."""
+
+    @pytest.fixture
+    def client(self):
+        http_client = AsyncMock()
+        return AulaApiClient(http_client=http_client, access_token="test_token")
+
+    @pytest.mark.asyncio
+    async def test_happy_path(self, client):
+        contacts = [{"name": "Alice", "role": "guardian"}]
+        client._request_with_version_retry = AsyncMock(
+            return_value=HttpResponse(status_code=200, data={"data": contacts})
+        )
+        result = await client.get_contact_list(42)
+        assert len(result) == 1
+        assert result[0]["name"] == "Alice"
+
+    @pytest.mark.asyncio
+    async def test_empty_data(self, client):
+        client._request_with_version_retry = AsyncMock(
+            return_value=HttpResponse(status_code=200, data={"data": []})
+        )
+        result = await client.get_contact_list(42)
+        assert result == []
+
+
+class TestGetContactParents:
+    """Tests for AulaApiClient.get_contact_parents method."""
+
+    @pytest.fixture
+    def client(self):
+        http_client = AsyncMock()
+        return AulaApiClient(http_client=http_client, access_token="test_token")
+
+    @pytest.mark.asyncio
+    async def test_happy_path(self, client):
+        parents = [{"name": "Bob", "role": "parent"}]
+        client._request_with_version_retry = AsyncMock(
+            return_value=HttpResponse(status_code=200, data={"data": parents})
+        )
+        result = await client.get_contact_parents()
+        assert len(result) == 1
+        assert result[0]["name"] == "Bob"
+
+    @pytest.mark.asyncio
+    async def test_empty_data(self, client):
+        client._request_with_version_retry = AsyncMock(
+            return_value=HttpResponse(status_code=200, data={"data": []})
+        )
+        result = await client.get_contact_parents()
+        assert result == []

@@ -1573,6 +1573,43 @@ class AulaApiClient:
         resp.raise_for_status()
         return resp.json().get("data", {})
 
+    async def get_contact_list(
+        self, group_id: int, page: int | None = None, order: str | None = None
+    ) -> list[dict]:
+        """Fetch contact list for a group."""
+        params: dict[str, Any] = {
+            "method": "profiles.getContactList",
+            "GroupId": group_id,
+        }
+        if page is not None:
+            params["Page"] = page
+        if order:
+            params["Order"] = order
+        resp = await self._request_with_version_retry("get", self.api_url, params=params)
+        resp.raise_for_status()
+        data = resp.json().get("data", [])
+        if not isinstance(data, list):
+            return []
+        return data
+
+    async def get_contact_parents(
+        self, page: int | None = None, order: str | None = None
+    ) -> list[dict]:
+        """Fetch other parents."""
+        params: dict[str, Any] = {
+            "method": "profiles.getContactParents",
+        }
+        if page is not None:
+            params["Page"] = page
+        if order:
+            params["Order"] = order
+        resp = await self._request_with_version_retry("get", self.api_url, params=params)
+        resp.raise_for_status()
+        data = resp.json().get("data", [])
+        if not isinstance(data, list):
+            return []
+        return data
+
     async def get_media_by_id(self, media_id: int) -> dict | None:
         """Fetch a single media item by ID."""
         params: dict[str, Any] = {

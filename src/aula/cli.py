@@ -1049,6 +1049,44 @@ async def search(ctx, text, doc_type, limit):
             click.echo(format_row(title, item_type))
 
 
+@cli.command()
+@click.option("--group-id", type=int, default=None, help="Filter contacts by group ID.")
+@click.option("--parents", is_flag=True, help="Show other parents instead of group contacts.")
+@click.pass_context
+@async_cmd
+async def contacts(ctx, group_id, parents):
+    """List contacts from groups or other parents."""
+    async with await _get_client(ctx) as client:
+        if parents:
+            try:
+                result = await client.get_contact_parents()
+            except Exception as e:
+                print_error(f"fetching parent contacts: {e}")
+                return
+        elif group_id:
+            try:
+                result = await client.get_contact_list(group_id)
+            except Exception as e:
+                print_error(f"fetching contacts: {e}")
+                return
+        else:
+            click.echo("Please specify --group-id or --parents.")
+            return
+
+        if output_json(ctx, result):
+            return
+
+        if not result:
+            print_empty("contacts")
+            return
+
+        print_heading("Contacts")
+        for item in result:
+            name = item.get("name", item.get("fullName", "Unknown"))
+            role = item.get("portalRole", "")
+            click.echo(format_row(name, role))
+
+
 @cli.command("widgets")
 @click.pass_context
 @async_cmd
