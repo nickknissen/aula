@@ -1,6 +1,7 @@
 from .appointment import Appointment as Appointment
 from .calendar_event import CalendarEvent as CalendarEvent
 from .child import Child as Child
+from .comment import Comment as Comment
 from .daily_overview import DailyOverview as DailyOverview
 from .easyiq_homework import EasyIQHomework as EasyIQHomework
 from .group import Group as Group

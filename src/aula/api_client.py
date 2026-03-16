@@ -22,6 +22,7 @@ from .models import (
     Child,
     ChildPickupResponsibles,
     ChildPresenceState,
+    Comment,
     DailyOverview,
     Group,
     GroupMember,
@@ -1058,6 +1059,63 @@ class AulaApiClient:
                 continue
 
         return posts
+
+    async def get_post(self, post_id: int) -> Post | None:
+        """Fetch a single post by ID."""
+        params = {
+            "method": "posts.getById",
+            "id": post_id,
+        }
+
+        _LOGGER.debug("Fetching post %s", post_id)
+
+        resp = await self._request_with_version_retry("get", self.api_url, params=params)
+        resp.raise_for_status()
+
+        data = resp.json().get("data", {})
+        if not data:
+            return None
+
+        return Post.from_dict(data)
+
+    async def get_comments(
+        self,
+        parent_type: str,
+        parent_id: int,
+        limit: int = 100,
+    ) -> list[Comment]:
+        """Fetch comments for a given parent (e.g. post)."""
+        params = {
+            "method": "comments.getComments",
+            "ParentType": parent_type,
+            "ParentId": parent_id,
+            "Limit": limit,
+        }
+
+        _LOGGER.debug("Fetching comments for %s %s", parent_type, parent_id)
+
+        resp = await self._request_with_version_retry("get", self.api_url, params=params)
+        resp.raise_for_status()
+
+        comments_data = resp.json().get("data", [])
+        comments = []
+
+        for item in comments_data:
+            try:
+                if not isinstance(item, dict):
+                    _LOGGER.warning("Skipping non-dict comment data: %s", item)
+                    continue
+                comments.append(Comment.from_dict(item))
+            except (TypeError, ValueError, KeyError) as e:
+                _LOGGER.warning(
+                    "Skipping comment due to parsing error: %s - Data: %s",
+                    e,
+                    item,
+                    exc_info=_LOGGER.isEnabledFor(logging.DEBUG),
+                )
+                continue
+
+        return comments
 
     async def get_mu_tasks(
         self,

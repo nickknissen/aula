@@ -892,6 +892,8 @@ async def birthdays(ctx, group_id, start_date, end_date):
     type=int,
     help="Filter posts by specific institution profile ID(s).",
 )
+@click.option("--post-id", type=int, default=None, help="Show a single post by ID.")
+@click.option("--comments", is_flag=True, help="Show comments on the post (requires --post-id).")
 @click.option(
     "--limit",
     type=int,
@@ -906,9 +908,51 @@ async def birthdays(ctx, group_id, start_date, end_date):
 )
 @click.pass_context
 @async_cmd
-async def posts(ctx, institution_profile_id, limit, page):
+async def posts(ctx, institution_profile_id, post_id, comments, limit, page):
     """Fetch posts from Aula."""
     async with await _get_client(ctx) as client:
+        if post_id:
+            try:
+                post = await client.get_post(post_id)
+            except Exception as e:
+                print_error(f"fetching post: {e}")
+                return
+
+            if post is None:
+                print_empty("post")
+                return
+
+            post_data = dict(post)
+            comment_list = []
+            if comments:
+                try:
+                    comment_list = await client.get_comments("post", post_id)
+                    post_data["comments"] = [dict(c) for c in comment_list]
+                except Exception as e:
+                    print_error(f"fetching comments: {e}")
+
+            if output_json(ctx, post_data):
+                return
+
+            date_str = post.timestamp.strftime("%Y-%m-%d %H:%M") if post.timestamp else ""
+            for line in format_post_lines(
+                title=post.title,
+                author=post.owner.full_name,
+                date=date_str,
+                body=post.content,
+                attachments_count=len(post.attachments),
+            ):
+                click.echo(line)
+
+            if comment_list:
+                click.echo()
+                print_heading("Comments")
+                for c in comment_list:
+                    click.echo(format_row(c.creator_name, c.created_at))
+                    click.echo(f"  {c.content}")
+                    click.echo()
+            return
+
         institution_profile_ids = list(institution_profile_id)
 
         if not institution_profile_ids:

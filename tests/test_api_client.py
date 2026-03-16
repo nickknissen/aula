@@ -2298,3 +2298,100 @@ class TestGetEventsByGroup:
         result = await client.get_events_by_group(42, "2026-03-01", "2026-03-31")
         assert len(result) == 1
         assert result[0]["title"] == "Group event"
+
+
+class TestGetPost:
+    """Tests for AulaApiClient.get_post method."""
+
+    @pytest.fixture
+    def client(self):
+        http_client = AsyncMock()
+        return AulaApiClient(http_client=http_client, access_token="test_token")
+
+    @pytest.mark.asyncio
+    async def test_happy_path(self, client):
+        client._request_with_version_retry = AsyncMock(
+            return_value=HttpResponse(
+                status_code=200,
+                data={
+                    "data": {
+                        "id": 1,
+                        "title": "Test Post",
+                        "content": {"html": "<p>content</p>"},
+                        "ownerProfile": {
+                            "id": 10,
+                            "profileId": 20,
+                            "name": "Author",
+                        },
+                    }
+                },
+            )
+        )
+        result = await client.get_post(1)
+        assert result is not None
+        assert result.id == 1
+
+    @pytest.mark.asyncio
+    async def test_null_data(self, client):
+        client._request_with_version_retry = AsyncMock(
+            return_value=HttpResponse(status_code=200, data={"data": None})
+        )
+        result = await client.get_post(1)
+        assert result is None
+
+
+class TestGetComments:
+    """Tests for AulaApiClient.get_comments method."""
+
+    @pytest.fixture
+    def client(self):
+        http_client = AsyncMock()
+        return AulaApiClient(http_client=http_client, access_token="test_token")
+
+    @pytest.mark.asyncio
+    async def test_happy_path(self, client):
+        client._request_with_version_retry = AsyncMock(
+            return_value=HttpResponse(
+                status_code=200,
+                data={
+                    "data": [
+                        {
+                            "id": 1,
+                            "text": "Nice!",
+                            "owner": {"name": "Bob", "institutionProfileId": 10},
+                            "createdAt": "2026-03-16",
+                        }
+                    ]
+                },
+            )
+        )
+        result = await client.get_comments("post", 1)
+        assert len(result) == 1
+        assert result[0].id == 1
+
+    @pytest.mark.asyncio
+    async def test_empty_data(self, client):
+        client._request_with_version_retry = AsyncMock(
+            return_value=HttpResponse(status_code=200, data={"data": []})
+        )
+        result = await client.get_comments("post", 1)
+        assert result == []
+
+    @pytest.mark.asyncio
+    async def test_malformed_item_skipped(self, client):
+        client._request_with_version_retry = AsyncMock(
+            return_value=HttpResponse(
+                status_code=200,
+                data={
+                    "data": [
+                        {"id": 1, "text": "Good", "owner": {"name": "A"}},
+                        "bad-item",
+                    ]
+                },
+            )
+        )
+        result = await client.get_comments("post", 1)
+        assert len(result) == 1
+
+
+# ── Section 4: Gallery Reads ──────────────────────────────────────
