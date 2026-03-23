@@ -129,58 +129,58 @@ The username can also be set via the `AULA_MITID_USERNAME` environment variable 
 
 | Command | Description |
 |---|---|
-| `login` | Verify credentials |
-| `profile` | Show profile and children |
-| `overview` | Daily overview for all children |
-| `daily-summary` | Today's schedule, homework & messages |
-| `weekly-summary` | Full week overview with provider data |
+| `aula login` | Verify credentials |
+| `aula profile` | Show profile and children |
+| `aula overview` | Daily overview for all children |
+| `aula daily-summary` | Today's schedule, homework & messages |
+| `aula weekly-summary` | Full week overview with provider data |
 
 ### Messages
 
 | Command | Description |
 |---|---|
-| `messages` | Recent message threads |
-| `contacts` | Contact list |
-| `notifications` | Recent notifications |
-| `search` | Search documents across Aula |
+| `aula messages` | Recent message threads |
+| `aula contacts` | Contact list |
+| `aula notifications` | Recent notifications |
+| `aula search` | Search documents across Aula |
 
 ### Calendar
 
 | Command | Description |
 |---|---|
-| `calendar` | Calendar events |
-| `important-dates` | Important dates |
-| `birthdays` | Birthday events |
+| `aula calendar` | Calendar events |
+| `aula important-dates` | Important dates |
+| `aula birthdays` | Birthday events |
 
 ### Presence
 
 | Command | Description |
 |---|---|
-| `presence` | Presence registrations and states |
-| `presence-templates` | Planned entry/exit times |
-| `update-presence` | Update pickup/drop-off times |
+| `aula presence` | Presence registrations and states |
+| `aula presence-templates` | Planned entry/exit times |
+| `aula update-presence` | Update pickup/drop-off times |
 
 ### Content
 
 | Command | Description |
 |---|---|
-| `posts` | Posts and announcements |
-| `groups` | Groups and group members |
-| `download-images` | Download images from gallery/posts/messages |
+| `aula posts` | Posts and announcements |
+| `aula groups` | Groups and group members |
+| `aula download-images` | Download images from gallery/posts/messages |
 
 ### Widgets
 
 | Command | Description |
 |---|---|
-| `widgets` | List available widgets |
-| `mu:opgaver` | Min Uddannelse tasks |
-| `mu:ugeplan` | Min Uddannelse weekly letter |
-| `easyiq:ugeplan` | EasyIQ weekly plan |
-| `easyiq:homework` | EasyIQ homework |
-| `meebook:ugeplan` | Meebook weekly plan |
-| `momo:forløb` | MoMo courses |
-| `momo:huskeliste` | MoMo reminders |
-| `library:status` | Library loans & reservations |
+| `aula widgets` | List available widgets |
+| `aula mu:opgaver` | Min Uddannelse tasks |
+| `aula mu:ugeplan` | Min Uddannelse weekly letter |
+| `aula easyiq:ugeplan` | EasyIQ weekly plan |
+| `aula easyiq:homework` | EasyIQ homework |
+| `aula meebook:ugeplan` | Meebook weekly plan |
+| `aula momo:forløb` | MoMo courses |
+| `aula momo:huskeliste` | MoMo reminders |
+| `aula library:status` | Library loans & reservations |
 
 ### Global flags
 
