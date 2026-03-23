@@ -4,12 +4,11 @@
 [![Python](https://img.shields.io/pypi/pyversions/aula)](https://pypi.org/project/aula/)
 [![License](https://img.shields.io/pypi/l/aula)](LICENSE)
 
-Async Python client for the Danish school platform **aula.dk**.
+Unofficial async Python client for the Danish school platform **aula.dk**. The project delivers:
 
-- Fetch calendar events, messages, posts, and daily overviews
-- Authenticate via Denmark's MitID national identity system
-- Token caching — MitID app approval only needed on first login
-- Full async API client (`AulaApiClient`) and a CLI included
+1. **Async Python API client** — programmatic access to profiles, messages, calendar, posts, and more
+2. **CLI** — read messages, calendar, posts, presence, and widget data from the terminal
+3. **AI agent skill** — teach [Claude Code](https://docs.anthropic.com/en/docs/claude-code) or [OpenCode](https://opencode.ai) to query school data
 
 ## Table of Contents
 
@@ -17,7 +16,9 @@ Async Python client for the Danish school platform **aula.dk**.
 - [Quick Start](#quick-start)
 - [Authentication](#authentication)
 - [CLI](#cli)
+- [Configuration](#configuration)
 - [AI Agent Integration](#ai-agent-integration)
+- [Project Structure](#project-structure)
 - [Attribution](#attribution)
 - [License](#license)
 
@@ -106,31 +107,72 @@ For a detailed breakdown of the authentication flow (OAuth + SAML + MitID), sess
 
 ## CLI
 
+Install as a standalone tool:
+
+```bash
+# with uv (recommended)
+uv tool install aula
+
+# or with pip
+pip install aula
+```
+
+Then run:
+
 ```bash
 aula --username <your_mitid_username> [COMMAND]
 ```
 
-The username can also be set via the `AULA_MITID_USERNAME` environment variable or a config file (`~/.config/aula/config.json`).
+The username can also be set via the `AULA_MITID_USERNAME` environment variable or a [config file](#configuration).
+
+### Core
 
 | Command | Description |
 |---|---|
 | `login` | Verify credentials |
 | `profile` | Show profile and children |
 | `overview` | Daily overview for all children |
-| `groups` | Groups and group members |
+| `daily-summary` | Today's schedule, homework & messages |
+| `weekly-summary` | Full week overview with provider data |
+
+### Messages
+
+| Command | Description |
+|---|---|
 | `messages` | Recent message threads |
+| `contacts` | Contact list |
+| `notifications` | Recent notifications |
+| `search` | Search documents across Aula |
+
+### Calendar
+
+| Command | Description |
+|---|---|
 | `calendar` | Calendar events |
 | `important-dates` | Important dates |
 | `birthdays` | Birthday events |
-| `posts` | Posts and announcements |
-| `search` | Search documents across Aula |
-| `contacts` | Contact list |
-| `notifications` | Recent notifications |
-| `daily-summary` | Today's schedule, homework & messages |
-| `weekly-summary` | Full week overview with provider data |
+
+### Presence
+
+| Command | Description |
+|---|---|
 | `presence` | Presence registrations and states |
 | `presence-templates` | Planned entry/exit times |
 | `update-presence` | Update pickup/drop-off times |
+
+### Content
+
+| Command | Description |
+|---|---|
+| `posts` | Posts and announcements |
+| `groups` | Groups and group members |
+| `download-images` | Download images from gallery/posts/messages |
+
+### Widgets
+
+| Command | Description |
+|---|---|
+| `widgets` | List available widgets |
 | `mu:opgaver` | Min Uddannelse tasks |
 | `mu:ugeplan` | Min Uddannelse weekly letter |
 | `easyiq:ugeplan` | EasyIQ weekly plan |
@@ -139,17 +181,15 @@ The username can also be set via the `AULA_MITID_USERNAME` environment variable 
 | `momo:forløb` | MoMo courses |
 | `momo:huskeliste` | MoMo reminders |
 | `library:status` | Library loans & reservations |
-| `widgets` | List available widgets |
-| `download-images` | Download images from gallery/posts/messages |
-| `agent-setup` | Install AI agent skill (see below) |
 
-Example:
+### Global flags
 
-```bash
-aula --username johndoe messages --limit 5
-# or without installing
-uvx aula --username johndoe messages --limit 5
-```
+| Flag | Description |
+|---|---|
+| `--username` | MitID username (or `AULA_MITID_USERNAME` env var) |
+| `--output text\|json` | Output format (or `AULA_OUTPUT` env var) |
+| `--auth-method app\|token` | MitID auth method (or `AULA_AUTH_METHOD` env var) |
+| `-v` / `-vv` / `-vvv` | Increase verbosity (warning / info / debug) |
 
 ### JSON output
 
@@ -161,7 +201,25 @@ aula --output json daily-summary --child "Emma"
 aula --output json calendar --start-date 2026-03-10
 ```
 
-Set the `AULA_OUTPUT=json` environment variable to make JSON the default.
+### Examples
+
+```bash
+aula --username johndoe messages --limit 5
+# or without installing
+uvx aula --username johndoe messages --limit 5
+```
+
+## Configuration
+
+`~/.config/aula/config.json`:
+
+```json
+{
+  "mitid_username": "your_mitid_username"
+}
+```
+
+The username is saved automatically on first login. CLI flags and environment variables take precedence over the config file.
 
 ## AI Agent Integration
 
@@ -176,6 +234,24 @@ aula agent-setup --global
 ```
 
 This creates a `SKILL.md` following the [Agent Skills](https://agentskills.io) open standard under `.claude/skills/aula/`, which is read by both Claude Code and OpenCode. Once installed, agents can invoke `/aula` or automatically use the CLI when you ask about school data.
+
+## Project Structure
+
+```
+src/aula/
+  api_client.py             # Async API client (main entry point)
+  cli.py                    # Click CLI commands
+  auth_flow.py              # High-level auth orchestration
+  config.py                 # CLI config (~/.config/aula/config.json)
+  token_storage.py          # Token persistence (ABC + file impl)
+  auth/                     # MitID authentication
+    mitid_client.py         # 7-step OAuth+SAML+MitID flow
+    browser_client.py       # Low-level MitID protocol (QR, OTP, SRP)
+    srp.py                  # Secure Remote Password with AES-GCM
+  models/                   # API data models (one file per model)
+  utils/                    # HTML helpers, table rendering, downloads
+tests/                      # Mirrors src/aula/ structure
+```
 
 ## Attribution
 
