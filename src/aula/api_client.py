@@ -3,6 +3,7 @@ import json
 import logging
 import time
 import warnings
+from collections.abc import Awaitable, Callable
 from datetime import date, datetime
 from types import TracebackType
 from typing import Any, Self
@@ -15,7 +16,15 @@ from .const import (
     CSRF_TOKEN_COOKIE,
     CSRF_TOKEN_HEADER,
 )
-from .http import HttpClient, HttpRequestError, HttpResponse
+from .http import (
+    AulaInvalidTokenError,
+    AulaSessionExpiredError,
+    AulaStepUpRequiredError,
+    AulaUserDeactivatedError,
+    HttpClient,
+    HttpRequestError,
+    HttpResponse,
+)
 from .models import (
     Appointment,
     AutoReply,
@@ -93,15 +102,25 @@ class AulaApiClient:
     subsequent API requests.
     """
 
+    # API response sub-codes from the Aula backend envelope (status.subCode).
+    # Discovered via aulalibre's decompilation of AulaNative.dll.
+    _SUBCODE_USER_DEACTIVATED = 7
+    _SUBCODE_STEP_UP_REQUIRED = 8
+    _SUBCODE_INVALID_TOKEN = 9
+    _SUBCODE_SESSION_EXPIRED = 13
+
     def __init__(
         self,
         http_client: HttpClient,
         access_token: str | None = None,
         csrf_token: str | None = None,
+        on_token_refresh: Callable[[], Awaitable[str | None]] | None = None,
     ) -> None:
         self._client = http_client
         self._access_token = access_token
         self._csrf_token = csrf_token
+        self._on_token_refresh = on_token_refresh
+        self._auth_retry_in_progress = False
         self.api_url = f"{API_URL}{API_VERSION}"
         self.widgets: AulaWidgetsClient = AulaWidgetsClient(self)
 
@@ -114,10 +133,11 @@ class AulaApiClient:
         """
         await self._set_correct_api_version()
 
-        # Establish guardian role in the session (required for child-specific endpoints)
+        # Establish guardian role in the session (required for child-specific endpoints).
+        # deviceId mirrors the mobile app's context init (discovered via aulalibre).
         await self._request_with_version_retry(
             "get",
-            f"{self.api_url}?method=profiles.getProfileContext&portalrole=guardian",
+            f"{self.api_url}?method=profiles.getProfileContext&portalrole=guardian&deviceId=aula-cli",
         )
 
         # Session is now established via cookies; access_token no longer needed.
@@ -135,6 +155,39 @@ class AulaApiClient:
             f"{self.api_url}?method=profiles.getProfilesByLogin",
         )
         resp.raise_for_status()
+
+    @staticmethod
+    def _extract_sub_code(response: HttpResponse) -> int | None:
+        """Extract the sub-code from the Aula API response envelope.
+
+        The Aula backend wraps responses in ``{"status": {"code": N, "subCode": M}, "data": ...}``.
+        Sub-codes carry auth/session state that HTTP status codes alone don't convey.
+        """
+        data = response.json()
+        if not isinstance(data, dict):
+            return None
+        status = data.get("status")
+        if not isinstance(status, dict):
+            return None
+        sub_code = status.get("subCode")
+        return int(sub_code) if sub_code is not None else None
+
+    def _raise_for_sub_code(self, sub_code: int, api_method: str | None) -> None:
+        """Raise a specific error for known Aula API sub-codes."""
+        method_info = f" (method={api_method})" if api_method else ""
+        if sub_code == self._SUBCODE_USER_DEACTIVATED:
+            raise AulaUserDeactivatedError(
+                f"User account is deactivated{method_info}", status_code=403
+            )
+        if sub_code == self._SUBCODE_STEP_UP_REQUIRED:
+            raise AulaStepUpRequiredError(
+                f"Elevated authentication (MitID Level 3) required{method_info}",
+                status_code=403,
+            )
+        if sub_code == self._SUBCODE_INVALID_TOKEN:
+            raise AulaInvalidTokenError(f"Invalid access token{method_info}", status_code=401)
+        if sub_code == self._SUBCODE_SESSION_EXPIRED:
+            raise AulaSessionExpiredError(f"Session expired{method_info}", status_code=401)
 
     async def _request_with_version_retry(
         self,
@@ -154,6 +207,64 @@ class AulaApiClient:
         For POST requests to the Aula API, the ``csrfp-token`` header is
         automatically included (matching the browser's behavior where every
         POST carries this header).
+
+        On HTTP 401 or API sub-code 9 (InvalidToken), attempts a single token
+        refresh via the ``on_token_refresh`` callback (if provided), re-inits
+        the session, and retries the request.
+        """
+        response = await self._do_request(method, url, headers=headers, params=params, json=json)
+
+        # Check for auth failures that can be recovered via token refresh.
+        # Only attempt once to avoid infinite loops.
+        if not self._auth_retry_in_progress and self._on_token_refresh:
+            needs_retry = response.status_code == 401
+            if not needs_retry:
+                sub_code = self._extract_sub_code(response)
+                needs_retry = sub_code in (
+                    self._SUBCODE_INVALID_TOKEN,
+                    self._SUBCODE_SESSION_EXPIRED,
+                )
+
+            if needs_retry:
+                _LOGGER.warning(
+                    "Auth failure (HTTP %d), attempting token refresh and retry",
+                    response.status_code,
+                )
+                self._auth_retry_in_progress = True
+                try:
+                    new_token = await self._on_token_refresh()
+                    if new_token:
+                        self._access_token = new_token
+                        await self.init()
+                        response = await self._do_request(
+                            method, url, headers=headers, params=params, json=json
+                        )
+                except Exception as e:
+                    _LOGGER.warning("Token refresh failed: %s", e)
+                finally:
+                    self._auth_retry_in_progress = False
+
+        # After retry (or no retry), check for sub-code errors on the final response.
+        sub_code = self._extract_sub_code(response)
+        if sub_code is not None:
+            api_method = _extract_api_method(url, params)
+            self._raise_for_sub_code(sub_code, api_method)
+
+        return response
+
+    async def _do_request(
+        self,
+        method: str,
+        url: str,
+        *,
+        headers: dict[str, str] | None = None,
+        params: dict[str, Any] | None = None,
+        json: object | None = None,
+    ) -> HttpResponse:
+        """Execute an HTTP request with version retry on 410 Gone.
+
+        This is the inner request loop handling access token injection,
+        CSRF headers, and API version bumps.
         """
         if self._access_token and url.startswith(API_URL):
             if params is not None:

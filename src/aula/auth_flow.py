@@ -20,12 +20,51 @@ import qrcode
 from .api_client import AulaApiClient
 from .auth.exceptions import MitIDAuthError, OAuthError
 from .auth.mitid_client import MitIDAuthClient
-from .const import CSRF_TOKEN_COOKIE
+from .const import AUTH_BASE_URL, CSRF_TOKEN_COOKIE, OAUTH_CLIENT_ID, OAUTH_TOKEN_PATH
 from .http import AulaAuthenticationError, HttpClient
 from .http_httpx import HttpxHttpClient
 from .token_storage import TokenStorage
 
 _LOGGER = logging.getLogger(__name__)
+
+# Proactive token refresh buffer (seconds). Tokens are considered expired this
+# many seconds before their actual expiry to prevent mid-request failures.
+# Mirrors the mobile app's Conf.BufferOnTokenExpiration (discovered via aulalibre).
+_TOKEN_EXPIRY_BUFFER_SECS = 60
+
+
+async def _refresh_token_via_oidc(refresh_token: str) -> dict[str, Any] | None:
+    """Refresh an access token using the OIDC token endpoint.
+
+    Standalone helper that doesn't require MitIDAuthClient. Used as the
+    ``on_token_refresh`` callback for AulaApiClient's automatic 401 retry.
+
+    Returns:
+        Updated token dict with new access_token, or None if refresh fails.
+    """
+    token_url = f"{AUTH_BASE_URL}{OAUTH_TOKEN_PATH}"
+    try:
+        async with httpx.AsyncClient() as client:
+            response = await client.post(
+                token_url,
+                data={
+                    "grant_type": "refresh_token",
+                    "client_id": OAUTH_CLIENT_ID,
+                    "refresh_token": refresh_token,
+                },
+                headers={"Content-Type": "application/x-www-form-urlencoded"},
+            )
+            if response.status_code != 200:
+                _LOGGER.warning("Token refresh failed: HTTP %d", response.status_code)
+                return None
+            data = response.json()
+            expires_in = data.get("expires_in")
+            if expires_in is not None:
+                data["expires_at"] = time.time() + int(expires_in)
+            return data
+    except Exception as e:
+        _LOGGER.warning("Token refresh request failed: %s", e)
+        return None
 
 
 async def create_client(
@@ -68,7 +107,26 @@ async def create_client(
     if http_client is None:
         http_client = HttpxHttpClient(cookies=cookies)
 
-    client = AulaApiClient(http_client, access_token=access_token, csrf_token=csrf_token)
+    # Build a token refresh callback if a refresh_token is available.
+    refresh_token = tokens.get("refresh_token")
+    on_token_refresh = None
+    if refresh_token:
+
+        async def _do_refresh() -> str | None:
+            result = await _refresh_token_via_oidc(refresh_token)
+            if result and result.get("access_token"):
+                _LOGGER.info("Automatic token refresh successful")
+                return result["access_token"]
+            return None
+
+        on_token_refresh = _do_refresh
+
+    client = AulaApiClient(
+        http_client,
+        access_token=access_token,
+        csrf_token=csrf_token,
+        on_token_refresh=on_token_refresh,
+    )
     await client.init()
     return client
 
@@ -135,7 +193,9 @@ async def authenticate(
         if token_data is not None:
             tokens = token_data.get("tokens", {})
             expires_at = tokens.get("expires_at")
-            if tokens.get("access_token") and (expires_at is None or time.time() < expires_at):
+            if tokens.get("access_token") and (
+                expires_at is None or time.time() + _TOKEN_EXPIRY_BUFFER_SECS < expires_at
+            ):
                 auth_client.tokens = tokens
                 cookies = token_data.get("cookies", {})
                 result_data = token_data

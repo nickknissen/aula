@@ -264,6 +264,7 @@ tests/                      # Mirrors src/aula/ structure
 - Aula API usage was inspired by the [scaarup/aula](https://github.com/scaarup/aula) Home Assistant integration.
 - MitID authentication was inspired by the [Hundter/MitID-BrowserClient](https://github.com/Hundter/MitID-BrowserClient) project.
 - EasyIQ widget integration (weekplan and homework) was inspired by the [esbenwiberg/easyiq](https://github.com/esbenwiberg/easyiq) Home Assistant integration.
+- Additional API endpoints were discovered via the [eisbaw/aulalibre](https://github.com/eisbaw/aulalibre) Rust client, which reverse-engineered the Aula Android app.
 
 ## License
 

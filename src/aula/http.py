@@ -52,6 +52,39 @@ class AulaNotFoundError(HttpRequestError):
     pass
 
 
+class AulaSessionExpiredError(AulaAuthenticationError):
+    """Raised when the Aula backend reports the session has expired (sub-code 13).
+
+    The session needs to be re-established via a fresh login.
+    """
+
+    pass
+
+
+class AulaStepUpRequiredError(AulaAuthenticationError):
+    """Raised when the API requires elevated auth (sub-code 8, Level 3 / MitID).
+
+    The current auth level is insufficient for the requested resource.
+    """
+
+    pass
+
+
+class AulaUserDeactivatedError(AulaAuthenticationError):
+    """Raised when the user account is deactivated (sub-code 7)."""
+
+    pass
+
+
+class AulaInvalidTokenError(AulaAuthenticationError):
+    """Raised when the API reports an invalid access token (sub-code 9).
+
+    A token refresh and retry may resolve this.
+    """
+
+    pass
+
+
 class AulaConnectionError(HttpRequestError):
     """Raised when a network connection error occurs (timeout, network unreachable, etc).
 
