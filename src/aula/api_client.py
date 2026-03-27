@@ -18,11 +18,13 @@ from .const import (
 from .http import HttpClient, HttpRequestError, HttpResponse
 from .models import (
     Appointment,
+    AutoReply,
     CalendarEvent,
     Child,
     ChildPickupResponsibles,
     ChildPresenceState,
     Comment,
+    ConsentResponse,
     DailyOverview,
     Group,
     GroupMember,
@@ -35,6 +37,7 @@ from .models import (
     MUTask,
     MUWeeklyPerson,
     Notification,
+    NotificationSetting,
     Post,
     PresenceConfiguration,
     PresenceRegistration,
@@ -42,6 +45,9 @@ from .models import (
     PresenceWeekOverview,
     PresenceWeekTemplate,
     Profile,
+    ProfileMasterData,
+    SecureDocument,
+    VacationRegistration,
     WidgetConfiguration,
 )
 from .widgets import AulaWidgetsClient
@@ -1246,16 +1252,30 @@ class AulaApiClient:
         )
 
     async def get_gallery_albums(
-        self, institution_profile_ids: list[int], limit: int = 1000
+        self,
+        institution_profile_ids: list[int],
+        limit: int = 1000,
+        *,
+        index: int = 0,
+        sort_on: str = "createdAt",
+        order_direction: str = "desc",
+        filter_by: str = "all",
     ) -> list[dict]:
-        """Fetch gallery albums as raw dicts."""
+        """Fetch gallery albums as raw dicts.
+
+        Args:
+            index: Pagination offset (default 0).
+            sort_on: Sort field — "createdAt" or "title".
+            order_direction: "asc" or "desc".
+            filter_by: Filter mode — "all", "tagged", or "own".
+        """
         params = {
             "method": "gallery.getAlbums",
-            "index": 0,
+            "index": index,
             "limit": limit,
-            "sortOn": "createdAt",
-            "orderDirection": "desc",
-            "filterBy": "all",
+            "sortOn": sort_on,
+            "orderDirection": order_direction,
+            "filterBy": filter_by,
             "filterInstProfileIds[]": institution_profile_ids,
         }
 
@@ -1638,6 +1658,186 @@ class AulaApiClient:
         if not isinstance(data, list):
             return []
         return data
+
+    async def keep_alive(self) -> bool:
+        """Extend the backend session to prevent timeouts."""
+        try:
+            resp = await self._request_with_version_retry(
+                "get", f"{self.api_url}?method=profiles.keepAlive"
+            )
+            resp.raise_for_status()
+            return True
+        except Exception as e:
+            _LOGGER.warning("Keep-alive failed: %s", e)
+            return False
+
+    async def get_profile_master_data(
+        self, institution_profile_id: int
+    ) -> ProfileMasterData | None:
+        """Fetch extended profile master data (email, phone, address)."""
+        params: dict[str, Any] = {
+            "method": "profiles.getProfileMasterData",
+            "institutionProfileId": institution_profile_id,
+        }
+        resp = await self._request_with_version_retry("get", self.api_url, params=params)
+        resp.raise_for_status()
+        data = resp.json().get("data")
+        if not data or not isinstance(data, dict):
+            return None
+        try:
+            return ProfileMasterData.from_dict(data)
+        except (TypeError, ValueError, KeyError) as e:
+            _LOGGER.warning("Failed to parse profile master data: %s", e)
+            return None
+
+    async def get_consent_responses(
+        self, institution_profile_ids: list[int]
+    ) -> list[ConsentResponse]:
+        """Fetch consent responses for the given institution profile IDs."""
+        params: dict[str, Any] = {
+            "method": "consents.getConsentResponses",
+            "institutionProfileIds[]": institution_profile_ids,
+        }
+        resp = await self._request_with_version_retry("get", self.api_url, params=params)
+        resp.raise_for_status()
+        data = resp.json().get("data", [])
+        if not isinstance(data, list):
+            return []
+        result: list[ConsentResponse] = []
+        for item in data:
+            if not isinstance(item, dict):
+                continue
+            try:
+                result.append(ConsentResponse.from_dict(item))
+            except (TypeError, ValueError, KeyError) as e:
+                _LOGGER.warning("Skipping consent response due to parsing error: %s", e)
+        return result
+
+    async def get_auto_reply(self) -> AutoReply | None:
+        """Fetch the current auto-reply configuration."""
+        params: dict[str, Any] = {
+            "method": "messaging.getAutoReply",
+        }
+        resp = await self._request_with_version_retry("get", self.api_url, params=params)
+        resp.raise_for_status()
+        data = resp.json().get("data")
+        if not data or not isinstance(data, dict):
+            return None
+        try:
+            return AutoReply.from_dict(data)
+        except (TypeError, ValueError, KeyError) as e:
+            _LOGGER.warning("Failed to parse auto-reply: %s", e)
+            return None
+
+    async def search_groups(self, text: str, limit: int = 100) -> list[Group]:
+        """Search for groups by name."""
+        params: dict[str, Any] = {
+            "method": "search.searchGroups",
+            "Text": text,
+            "Limit": limit,
+        }
+        resp = await self._request_with_version_retry("get", self.api_url, params=params)
+        resp.raise_for_status()
+        data = resp.json().get("data", {})
+        results = data.get("results", []) if isinstance(data, dict) else []
+        if not isinstance(results, list):
+            return []
+        groups: list[Group] = []
+        for item in results:
+            if not isinstance(item, dict):
+                continue
+            try:
+                groups.append(Group.from_dict(item))
+            except (TypeError, ValueError, KeyError) as e:
+                _LOGGER.warning("Skipping group from search due to parsing error: %s", e)
+        return groups
+
+    async def get_secure_documents(
+        self, institution_profile_ids: list[int]
+    ) -> list[SecureDocument]:
+        """Fetch secure documents shared with/by the user."""
+        params: dict[str, Any] = {
+            "method": "secureDocument.getSecureDocuments",
+            "institutionProfileIds[]": institution_profile_ids,
+        }
+        resp = await self._request_with_version_retry("get", self.api_url, params=params)
+        resp.raise_for_status()
+        data = resp.json().get("data", [])
+        if not isinstance(data, list):
+            return []
+        result: list[SecureDocument] = []
+        for item in data:
+            if not isinstance(item, dict):
+                continue
+            try:
+                result.append(SecureDocument.from_dict(item))
+            except (TypeError, ValueError, KeyError) as e:
+                _LOGGER.warning("Skipping document due to parsing error: %s", e)
+        return result
+
+    async def get_common_files(self, institution_profile_ids: list[int]) -> list[SecureDocument]:
+        """Fetch common institution files."""
+        params: dict[str, Any] = {
+            "method": "secureDocument.getCommonFiles",
+            "institutionProfileIds[]": institution_profile_ids,
+        }
+        resp = await self._request_with_version_retry("get", self.api_url, params=params)
+        resp.raise_for_status()
+        data = resp.json().get("data", [])
+        if not isinstance(data, list):
+            return []
+        result: list[SecureDocument] = []
+        for item in data:
+            if not isinstance(item, dict):
+                continue
+            try:
+                result.append(SecureDocument.from_dict(item))
+            except (TypeError, ValueError, KeyError) as e:
+                _LOGGER.warning("Skipping common file due to parsing error: %s", e)
+        return result
+
+    async def get_vacation_registrations(
+        self, institution_profile_ids: list[int]
+    ) -> list[VacationRegistration]:
+        """Fetch vacation registrations for the given institution profile IDs."""
+        params: dict[str, Any] = {
+            "method": "presence.getVacationRegistrations",
+            "institutionProfileIds[]": institution_profile_ids,
+        }
+        resp = await self._request_with_version_retry("get", self.api_url, params=params)
+        resp.raise_for_status()
+        data = resp.json().get("data", [])
+        if not isinstance(data, list):
+            return []
+        result: list[VacationRegistration] = []
+        for item in data:
+            if not isinstance(item, dict):
+                continue
+            try:
+                result.append(VacationRegistration.from_dict(item))
+            except (TypeError, ValueError, KeyError) as e:
+                _LOGGER.warning("Skipping vacation registration due to parsing error: %s", e)
+        return result
+
+    async def get_notification_settings(self) -> list[NotificationSetting]:
+        """Fetch notification settings for the active profile."""
+        params: dict[str, Any] = {
+            "method": "notifications.getNotificationSettingsForActiveProfile",
+        }
+        resp = await self._request_with_version_retry("get", self.api_url, params=params)
+        resp.raise_for_status()
+        data = resp.json().get("data", [])
+        if not isinstance(data, list):
+            return []
+        result: list[NotificationSetting] = []
+        for item in data:
+            if not isinstance(item, dict):
+                continue
+            try:
+                result.append(NotificationSetting.from_dict(item))
+            except (TypeError, ValueError, KeyError) as e:
+                _LOGGER.warning("Skipping notification setting due to parsing error: %s", e)
+        return result
 
     async def __aenter__(self) -> Self:
         return self

@@ -300,11 +300,36 @@ async def profile(ctx):
 @cli.command()
 @click.option("--group-id", type=int, default=None, help="Show a single group by ID.")
 @click.option("--members", is_flag=True, help="List members of the group (requires --group-id).")
+@click.option("--search", "search_text", default=None, help="Search for groups by name.")
 @click.pass_context
 @async_cmd
-async def groups(ctx, group_id, members):
+async def groups(ctx, group_id, members, search_text):
     """List child's groups, or show group detail / members."""
     async with await _get_client(ctx) as client:
+        if search_text:
+            try:
+                result = await client.search_groups(search_text)
+            except Exception as e:
+                print_error(f"searching groups: {e}")
+                return
+
+            if output_json(ctx, [dict(g) for g in result]):
+                return
+
+            if not result:
+                print_empty("matching groups")
+                return
+
+            print_heading(f'Groups matching "{search_text}"')
+            for g in result:
+                parts = [f"ID {g.id}"]
+                if g.group_type:
+                    parts.append(g.group_type)
+                if g.institution_code:
+                    parts.append(f"Inst {g.institution_code}")
+                click.echo(format_row(g.name, *parts))
+            return
+
         if group_id and members:
             try:
                 result = await client.get_group_members(group_id)
@@ -1085,6 +1110,243 @@ async def contacts(ctx, group_id, parents):
             name = item.get("name", item.get("fullName", "Unknown"))
             role = item.get("portalRole", "")
             click.echo(format_row(name, role))
+
+
+@cli.command("profile-details")
+@click.option(
+    "--institution-profile-id",
+    type=int,
+    default=None,
+    help="Institution profile ID to fetch details for.",
+)
+@click.pass_context
+@async_cmd
+async def profile_details(ctx, institution_profile_id):
+    """Show extended profile details (email, phone, address)."""
+    async with await _get_client(ctx) as client:
+        if not institution_profile_id:
+            try:
+                prof = await client.get_profile()
+                if prof.institution_profile_ids:
+                    institution_profile_id = prof.institution_profile_ids[0]
+                else:
+                    print_error("no institution profile IDs found")
+                    return
+            except Exception as e:
+                print_error(f"fetching profile: {e}")
+                return
+
+        try:
+            master_data = await client.get_profile_master_data(institution_profile_id)
+        except Exception as e:
+            print_error(f"fetching profile details: {e}")
+            return
+
+        if master_data is None:
+            print_empty("profile details")
+            return
+
+        if output_json(ctx, dict(master_data)):
+            return
+
+        print_heading("Profile Details")
+        if master_data.first_name or master_data.last_name:
+            click.echo(format_row("Name", f"{master_data.first_name} {master_data.last_name}"))
+        if master_data.email:
+            click.echo(format_row("Email", master_data.email))
+        if master_data.phone_number:
+            click.echo(format_row("Phone", master_data.phone_number))
+        if master_data.mobile_phone:
+            click.echo(format_row("Mobile", master_data.mobile_phone))
+        if master_data.address:
+            addr_parts = [master_data.address]
+            if master_data.postal_code or master_data.city:
+                addr_parts.append(f"{master_data.postal_code} {master_data.city}".strip())
+            click.echo(format_row("Address", ", ".join(addr_parts)))
+        if master_data.municipality:
+            click.echo(format_row("Municipality", master_data.municipality))
+        if master_data.portal_role:
+            click.echo(format_row("Role", master_data.portal_role))
+
+
+@cli.command("consents")
+@click.pass_context
+@async_cmd
+async def consents(ctx):
+    """Show consent responses."""
+    async with await _get_client(ctx) as client:
+        try:
+            prof = await client.get_profile()
+        except Exception as e:
+            print_error(f"fetching profile: {e}")
+            return
+
+        try:
+            result = await client.get_consent_responses(prof.institution_profile_ids)
+        except Exception as e:
+            print_error(f"fetching consents: {e}")
+            return
+
+        if output_json(ctx, [dict(c) for c in result]):
+            return
+
+        if not result:
+            print_empty("consent responses")
+            return
+
+        print_heading("Consent Responses")
+        for c in result:
+            status_str = f" [{c.status}]" if c.status else ""
+            click.echo(format_row(c.title, f"ID {c.consent_id}{status_str}"))
+            if c.description:
+                click.echo(f"  {c.description}")
+            if c.responded_at:
+                click.echo(f"  Responded: {c.responded_at}")
+            if c.institution_code:
+                click.echo(f"  Institution: {c.institution_code}")
+
+
+@cli.command("auto-reply")
+@click.pass_context
+@async_cmd
+async def auto_reply(ctx):
+    """Show current auto-reply status."""
+    async with await _get_client(ctx) as client:
+        try:
+            result = await client.get_auto_reply()
+        except Exception as e:
+            print_error(f"fetching auto-reply: {e}")
+            return
+
+        if result is None:
+            print_empty("auto-reply configuration")
+            return
+
+        if output_json(ctx, dict(result)):
+            return
+
+        print_heading("Auto-Reply")
+        click.echo(format_row("Enabled", "Yes" if result.is_enabled else "No"))
+        if result.message:
+            click.echo(format_row("Message", result.message))
+        if result.start_date:
+            click.echo(format_row("From", result.start_date))
+        if result.end_date:
+            click.echo(format_row("Until", result.end_date))
+
+
+@cli.command("documents")
+@click.option("--common", is_flag=True, help="Show common institution files instead.")
+@click.pass_context
+@async_cmd
+async def documents(ctx, common):
+    """List secure documents or common institution files."""
+    async with await _get_client(ctx) as client:
+        try:
+            prof = await client.get_profile()
+        except Exception as e:
+            print_error(f"fetching profile: {e}")
+            return
+
+        try:
+            if common:
+                result = await client.get_common_files(prof.institution_profile_ids)
+            else:
+                result = await client.get_secure_documents(prof.institution_profile_ids)
+        except Exception as e:
+            print_error(f"fetching documents: {e}")
+            return
+
+        if output_json(ctx, [dict(d) for d in result]):
+            return
+
+        if not result:
+            print_empty("common files" if common else "documents")
+            return
+
+        print_heading("Common Files" if common else "Secure Documents")
+        for doc in result:
+            parts = [f"ID {doc.id}"]
+            if doc.document_type:
+                parts.append(doc.document_type)
+            if doc.owner_name:
+                parts.append(doc.owner_name)
+            click.echo(format_row(doc.title, *parts))
+            if doc.created_at:
+                click.echo(f"  Created: {doc.created_at}")
+
+
+@cli.command("vacations")
+@click.pass_context
+@async_cmd
+async def vacations(ctx):
+    """Show vacation registrations."""
+    async with await _get_client(ctx) as client:
+        try:
+            prof = await client.get_profile()
+        except Exception as e:
+            print_error(f"fetching profile: {e}")
+            return
+
+        try:
+            result = await client.get_vacation_registrations(prof.institution_profile_ids)
+        except Exception as e:
+            print_error(f"fetching vacations: {e}")
+            return
+
+        if output_json(ctx, [dict(v) for v in result]):
+            return
+
+        if not result:
+            print_empty("vacation registrations")
+            return
+
+        print_heading("Vacation Registrations")
+        for v in result:
+            parts = []
+            if v.vacation_type:
+                parts.append(v.vacation_type)
+            if v.status:
+                parts.append(f"[{v.status}]")
+            click.echo(format_row(v.child_name or f"Profile {v.institution_profile_id}", *parts))
+            dates = []
+            if v.start_date:
+                dates.append(f"From: {v.start_date}")
+            if v.end_date:
+                dates.append(f"To: {v.end_date}")
+            if dates:
+                click.echo(f"  {' | '.join(dates)}")
+
+
+@cli.command("notification-settings")
+@click.pass_context
+@async_cmd
+async def notification_settings(ctx):
+    """Show notification settings for the active profile."""
+    async with await _get_client(ctx) as client:
+        try:
+            result = await client.get_notification_settings()
+        except Exception as e:
+            print_error(f"fetching notification settings: {e}")
+            return
+
+        if output_json(ctx, [dict(s) for s in result]):
+            return
+
+        if not result:
+            print_empty("notification settings")
+            return
+
+        print_heading("Notification Settings")
+        for s in result:
+            status_parts = []
+            if s.push_enabled:
+                status_parts.append("push")
+            if s.email_enabled:
+                status_parts.append("email")
+            enabled = "Yes" if s.is_enabled else "No"
+            channels = f" ({', '.join(status_parts)})" if status_parts else ""
+            click.echo(format_row(s.module, f"Enabled: {enabled}{channels}"))
 
 
 @cli.command("widgets")

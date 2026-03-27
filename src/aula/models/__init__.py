@@ -1,8 +1,11 @@
 from .appointment import Appointment as Appointment
+from .auto_reply import AutoReply as AutoReply
 from .calendar_event import CalendarEvent as CalendarEvent
 from .child import Child as Child
 from .comment import Comment as Comment
+from .consent import ConsentResponse as ConsentResponse
 from .daily_overview import DailyOverview as DailyOverview
+from .document import SecureDocument as SecureDocument
 from .easyiq_homework import EasyIQHomework as EasyIQHomework
 from .group import Group as Group
 from .group import GroupMember as GroupMember
@@ -17,6 +20,7 @@ from .momo_huskeliste import UserReminders as UserReminders
 from .mu_task import MUTask as MUTask
 from .mu_weekly_letter import MUWeeklyPerson as MUWeeklyPerson
 from .notification import Notification as Notification
+from .notification_settings import NotificationSetting as NotificationSetting
 from .pickup_responsible import ChildPickupResponsibles as ChildPickupResponsibles
 from .pickup_responsible import PickupPerson as PickupPerson
 from .post import Post as Post
@@ -31,4 +35,6 @@ from .presence_template import DayTemplate as DayTemplate
 from .presence_template import PresenceWeekTemplate as PresenceWeekTemplate
 from .presence_template import SpareTimeActivity as SpareTimeActivity
 from .profile import Profile as Profile
+from .profile_master_data import ProfileMasterData as ProfileMasterData
+from .vacation_registration import VacationRegistration as VacationRegistration
 from .widget import WidgetConfiguration as WidgetConfiguration

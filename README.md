@@ -66,7 +66,7 @@ async def main():
 asyncio.run(main())
 ```
 
-Key methods on `AulaApiClient`: `get_profile()`, `get_daily_overview(child_id)`, `get_message_threads()`, `get_messages_for_thread(thread_id)`, `get_calendar_events(...)`, `get_posts(...)`, `get_groups(...)`, `get_message_folders(...)`, `search(...)`, `update_presence_template(...)`. See `src/aula/api_client.py` for the full list.
+Key methods on `AulaApiClient`: `get_profile()`, `get_daily_overview(child_id)`, `get_message_threads()`, `get_messages_for_thread(thread_id)`, `get_calendar_events(...)`, `get_posts(...)`, `get_groups(...)`, `get_message_folders(...)`, `search(...)`, `update_presence_template(...)`, `get_profile_master_data(...)`, `get_secure_documents(...)`, `get_consent_responses(...)`, `get_auto_reply()`, `get_vacation_registrations(...)`, `get_notification_settings()`, `keep_alive()`. See `src/aula/api_client.py` for the full list.
 
 ### Widget API (Namespace)
 
@@ -131,6 +131,7 @@ The username can also be set via the `AULA_MITID_USERNAME` environment variable 
 |---|---|
 | `aula login` | Verify credentials |
 | `aula profile` | Show profile and children |
+| `aula profile-details` | Extended profile info (email, phone, address) |
 | `aula overview` | Daily overview for all children |
 | `aula daily-summary` | Today's schedule, homework & messages |
 | `aula weekly-summary` | Full week overview with provider data |
@@ -140,8 +141,10 @@ The username can also be set via the `AULA_MITID_USERNAME` environment variable 
 | Command | Description |
 |---|---|
 | `aula messages` | Recent message threads |
+| `aula auto-reply` | View auto-reply status |
 | `aula contacts` | Contact list |
 | `aula notifications` | Recent notifications |
+| `aula notification-settings` | View notification preferences |
 | `aula search` | Search documents across Aula |
 
 ### Calendar
@@ -151,6 +154,7 @@ The username can also be set via the `AULA_MITID_USERNAME` environment variable 
 | `aula calendar` | Calendar events |
 | `aula important-dates` | Important dates |
 | `aula birthdays` | Birthday events |
+| `aula vacations` | Vacation registrations |
 
 ### Presence
 
@@ -165,7 +169,9 @@ The username can also be set via the `AULA_MITID_USERNAME` environment variable 
 | Command | Description |
 |---|---|
 | `aula posts` | Posts and announcements |
-| `aula groups` | Groups and group members |
+| `aula groups` | Groups and group members (`--search` to search by name) |
+| `aula documents` | Secure documents (`--common` for institution files) |
+| `aula consents` | Consent responses |
 | `aula download-images` | Download images from gallery/posts/messages |
 
 ### Widgets
