@@ -9,7 +9,7 @@ from aula.models.base import AulaDataClass
 
 
 def _default(obj: Any) -> Any:
-    if isinstance(obj, (datetime.datetime, datetime.date)):
+    if isinstance(obj, datetime.datetime | datetime.date):
         return obj.isoformat()
     if isinstance(obj, enum.Enum):
         return obj.value
