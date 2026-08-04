@@ -14,7 +14,7 @@ class Group(AulaDataClass):
     _raw: dict | None = field(default=None, repr=False)
 
     @classmethod
-    def from_dict(cls, data: dict[str, Any]) -> "Group":
+    def from_dict(cls, data: dict[str, Any]) -> Group:
         return cls(
             _raw=data,
             id=data["id"],
@@ -33,7 +33,7 @@ class GroupMember(AulaDataClass):
     _raw: dict | None = field(default=None, repr=False)
 
     @classmethod
-    def from_dict(cls, data: dict[str, Any]) -> "GroupMember":
+    def from_dict(cls, data: dict[str, Any]) -> GroupMember:
         return cls(
             _raw=data,
             institution_profile_id=data["institutionProfileId"],

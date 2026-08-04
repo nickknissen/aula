@@ -31,7 +31,7 @@ class Notification(AulaDataClass):
     _raw: dict | None = field(default=None, repr=False)
 
     @classmethod
-    def from_dict(cls, data: dict) -> "Notification":
+    def from_dict(cls, data: dict) -> Notification:
         notification_id = data.get("id") or data.get("notificationId") or "unknown"
         event_type = data.get("notificationEventType")
         if event_type == "NewMessagePrivateInbox" and data.get("messageText"):

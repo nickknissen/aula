@@ -13,7 +13,7 @@ class AutoReply(AulaDataClass):
     _raw: dict | None = field(default=None, repr=False)
 
     @classmethod
-    def from_dict(cls, data: dict[str, Any]) -> "AutoReply":
+    def from_dict(cls, data: dict[str, Any]) -> AutoReply:
         return cls(
             _raw=data,
             is_enabled=bool(data.get("isAutoReplyOn") or data.get("isEnabled", False)),

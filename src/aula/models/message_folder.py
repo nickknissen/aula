@@ -11,7 +11,7 @@ class MessageFolder(AulaDataClass):
     _raw: dict | None = field(default=None, repr=False)
 
     @classmethod
-    def from_dict(cls, data: dict[str, Any]) -> "MessageFolder":
+    def from_dict(cls, data: dict[str, Any]) -> MessageFolder:
         return cls(
             _raw=data,
             id=data["id"],

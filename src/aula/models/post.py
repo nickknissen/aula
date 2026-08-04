@@ -43,7 +43,7 @@ class Post(AulaDataClass):
         return html_to_markdown(self.content_html)
 
     @classmethod
-    def from_dict(cls, data: dict[str, Any]) -> "Post":
+    def from_dict(cls, data: dict[str, Any]) -> Post:
         """Create a Post instance from API response data."""
 
         def parse_datetime(dt_str: str | None) -> datetime.datetime | None:
@@ -54,7 +54,7 @@ class Post(AulaDataClass):
                 if dt_str.endswith("Z"):
                     dt_str = dt_str[:-1] + "+00:00"
                 return datetime.datetime.fromisoformat(dt_str)
-            except (ValueError, TypeError):
+            except ValueError, TypeError:
                 return None
 
         owner = ProfileReference.from_dict(data.get("ownerProfile", {}))

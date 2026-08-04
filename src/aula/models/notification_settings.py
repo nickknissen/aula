@@ -13,7 +13,7 @@ class NotificationSetting(AulaDataClass):
     _raw: dict | None = field(default=None, repr=False)
 
     @classmethod
-    def from_dict(cls, data: dict[str, Any]) -> "NotificationSetting":
+    def from_dict(cls, data: dict[str, Any]) -> NotificationSetting:
         return cls(
             _raw=data,
             module=data.get("module", "") or data.get("notificationArea", ""),

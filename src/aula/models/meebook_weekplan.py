@@ -15,7 +15,7 @@ class MeebookTask(AulaDataClass):
     _raw: dict | None = field(default=None, repr=False)
 
     @classmethod
-    def from_dict(cls, data: dict[str, Any]) -> "MeebookTask":
+    def from_dict(cls, data: dict[str, Any]) -> MeebookTask:
         return cls(
             _raw=data,
             id=data.get("id", 0),
@@ -34,7 +34,7 @@ class MeebookDayPlan(AulaDataClass):
     _raw: dict | None = field(default=None, repr=False)
 
     @classmethod
-    def from_dict(cls, data: dict[str, Any]) -> "MeebookDayPlan":
+    def from_dict(cls, data: dict[str, Any]) -> MeebookDayPlan:
         tasks = [MeebookTask.from_dict(t) for t in data.get("tasks", [])]
         return cls(
             _raw=data,
@@ -51,7 +51,7 @@ class MeebookStudentPlan(AulaDataClass):
     _raw: dict | None = field(default=None, repr=False)
 
     @classmethod
-    def from_dict(cls, data: dict[str, Any]) -> "MeebookStudentPlan":
+    def from_dict(cls, data: dict[str, Any]) -> MeebookStudentPlan:
         week_plan = [MeebookDayPlan.from_dict(d) for d in data.get("weekPlan", [])]
         return cls(
             _raw=data,

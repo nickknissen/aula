@@ -29,7 +29,7 @@ class InstitutionProfile(AulaDataClass):
     _raw: dict | None = field(default=None, repr=False)
 
     @classmethod
-    def from_dict(cls, data: dict[str, Any]) -> "InstitutionProfile":
+    def from_dict(cls, data: dict[str, Any]) -> InstitutionProfile:
         pic_data = data.get("profilePicture", {})
         return cls(
             profile_id=data.get("profileId"),

@@ -16,7 +16,7 @@ class WidgetConfiguration(AulaDataClass):
     _raw: dict | None = field(default=None, repr=False)
 
     @classmethod
-    def from_dict(cls, data: dict) -> "WidgetConfiguration":
+    def from_dict(cls, data: dict) -> WidgetConfiguration:
         widget = data.get("widget", {})
         return cls(
             widget_id=widget.get("widgetId", ""),

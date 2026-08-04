@@ -24,7 +24,7 @@ class ChildPickupResponsibles(AulaDataClass):
     _raw: dict | None = field(default=None, repr=False)
 
     @classmethod
-    def from_dict(cls, data: dict[str, Any]) -> "ChildPickupResponsibles":
+    def from_dict(cls, data: dict[str, Any]) -> ChildPickupResponsibles:
         persons: list[PickupPerson] = []
 
         for rp in data.get("relatedPersons", []):

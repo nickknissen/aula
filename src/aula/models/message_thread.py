@@ -11,7 +11,7 @@ class MessageThread(AulaDataClass):
     _raw: dict | None = field(default=None, repr=False)
 
     @classmethod
-    def from_dict(cls, data: dict[str, Any]) -> "MessageThread":
+    def from_dict(cls, data: dict[str, Any]) -> MessageThread:
         return cls(
             _raw=data,
             thread_id=data.get("id", ""),

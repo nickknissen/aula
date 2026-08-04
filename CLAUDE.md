@@ -39,7 +39,7 @@ When working with Python, invoke the relevant /astral:\<skill> for uv, ty, and r
 
 ## Ruff Configuration
 
-- Target: Python 3.10 (`py310`)
+- Target: Python 3.14 (`py314`)
 - Line length: 100
 - Rules: `E`, `F`, `W`, `I` (isort), `UP` (pyupgrade), `B` (bugbear), `SIM` (simplify), `LOG` (logging)
 
@@ -93,7 +93,7 @@ cli.py → api_client.py → auth/mitid_client.py → auth/browser_client.py →
 - **`token_storage.py`** — `TokenStorage` ABC with `load()`/`save()` async methods; `FileTokenStorage` is the JSON file implementation.
 - **`cli.py`** — Click command group. Uses `@async_cmd` decorator to bridge sync Click to async via `asyncio.run()`. Sets `WindowsSelectorEventLoopPolicy` on Windows.
 - **`config.py`** — CLI config at `~/.config/aula/config.json`.
-- **`const.py`** — API base URLs (current base version: v22) and user agent.
+- **`const.py`** — API base URLs (current base version: v23) and user agent.
 - **`utils/table.py`** — Calendar table rendering (rich or plain text fallback).
 - **`utils/download.py`** — Image download orchestration for gallery, posts, messages.
 

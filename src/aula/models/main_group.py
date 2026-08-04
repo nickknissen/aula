@@ -15,7 +15,7 @@ class MainGroup(AulaDataClass):
     _raw: dict | None = field(default=None, repr=False)
 
     @classmethod
-    def from_dict(cls, data: dict[str, Any]) -> "MainGroup":
+    def from_dict(cls, data: dict[str, Any]) -> MainGroup:
         return cls(
             id=data.get("id"),
             name=data.get("name"),

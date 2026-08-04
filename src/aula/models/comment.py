@@ -20,7 +20,7 @@ class Comment(AulaDataClass):
         return html_to_plain(self.content_html)
 
     @classmethod
-    def from_dict(cls, data: dict[str, Any]) -> "Comment":
+    def from_dict(cls, data: dict[str, Any]) -> Comment:
         owner = data.get("owner", {}) or {}
         return cls(
             _raw=data,

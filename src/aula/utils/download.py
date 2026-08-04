@@ -5,10 +5,8 @@ import re
 from collections.abc import Callable
 from datetime import date, datetime
 from pathlib import Path
-from typing import TYPE_CHECKING
 
-if TYPE_CHECKING:
-    from ..api_client import AulaApiClient
+from ..api_client import AulaApiClient
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -294,5 +292,5 @@ def _parse_date_str(date_str: str) -> date | None:
         return None
     try:
         return datetime.fromisoformat(date_str).date()
-    except (ValueError, TypeError):
+    except ValueError, TypeError:
         return None

@@ -32,7 +32,7 @@ class DailyOverview(AulaDataClass):
     _raw: dict[str, Any] | None = field(default=None, repr=False)
 
     @classmethod
-    def from_dict(cls, raw_data: dict[str, Any]) -> "DailyOverview":
+    def from_dict(cls, raw_data: dict[str, Any]) -> DailyOverview:
         status_value = raw_data.get("status")
         presence_status = None
         if status_value is not None:

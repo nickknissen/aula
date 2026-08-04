@@ -23,7 +23,7 @@ def load_config() -> dict[str, Any]:
         try:
             with open(CONFIG_FILE) as f:
                 return json.load(f)
-        except (OSError, json.JSONDecodeError):
+        except OSError, json.JSONDecodeError:
             return {}
     return {}
 

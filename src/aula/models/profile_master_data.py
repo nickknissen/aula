@@ -20,7 +20,7 @@ class ProfileMasterData(AulaDataClass):
     _raw: dict | None = field(default=None, repr=False)
 
     @classmethod
-    def from_dict(cls, data: dict[str, Any]) -> "ProfileMasterData":
+    def from_dict(cls, data: dict[str, Any]) -> ProfileMasterData:
         address_data = data.get("address") or {}
         if isinstance(address_data, str):
             address_str = address_data

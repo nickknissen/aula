@@ -1,0 +1,32 @@
+# Configuration file for `prek`, a git hook framework written in Rust.
+# See https://prek.j178.dev for more information.
+#
+# This uses the .pre-commit-config.yaml filename rather than prek.toml so that
+# Dependabot's `pre-commit` ecosystem can keep the `rev` fields below updated.
+# Dependabot does not parse prek.toml. Note that prek prefers prek.toml when both
+# exist, so that file must not be reintroduced alongside this one.
+repos:
+  # prek ships Rust-native implementations of these, so no rev to pin.
+  - repo: builtin
+    hooks:
+      - id: trailing-whitespace
+      - id: end-of-file-fixer
+      - id: check-added-large-files
+
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.16.1
+    hooks:
+      - id: ruff-check
+        args: ["--fix"]
+        files: '^((src|tests)/.+)?[^/]+\.(py|pyi)$'
+      - id: ruff-format
+        files: '^((src|tests)/.+)?[^/]+\.(py|pyi)$'
+
+  - repo: local
+    hooks:
+      - id: pytest
+        name: pytest
+        language: system
+        entry: uv run pytest
+        pass_filenames: false
+        always_run: true

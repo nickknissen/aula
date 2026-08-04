@@ -27,7 +27,7 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-rich = ["rich"]
+rich = ["rich>=13.0"]
 
 [project.scripts]
 aula = "aula.cli:cli"
@@ -42,8 +42,11 @@ requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [tool.ruff]
-target-version = "py313"
+target-version = "py314"
 line-length = 100
+# Sibling git worktrees live under .worktrees/; never format another branch's files.
+# Markdown code blocks are illustrative prose, not code to be reformatted.
+extend-exclude = [".worktrees", "*.md"]
 
 [tool.ruff.lint]
 select = ["E", "F", "W", "I", "UP", "B", "SIM", "LOG"]
@@ -75,19 +78,19 @@ include = ["tests/"]
 [tool.ty.overrides.rules]
 invalid-assignment = "ignore"
 
-[tool.mypy]
-python_version = "3.14"
-warn_return_any = true
-warn_unused_configs = true
-disallow_untyped_defs = true
-
-[tool.pyrefly]
-python-version = "3.14.0"
+# Editor language server (Pyright / Pylance). Pinned explicitly so diagnostics do
+# not depend on whichever `python` happens to be first on PATH.
+[tool.pyright]
+pythonVersion = "3.14"
+venvPath = "."
+venv = ".venv"
+include = ["src", "tests"]
+exclude = [".worktrees", ".venv"]
 
 [dependency-groups]
 dev = [
     "pytest>=9.0.2",
     "pytest-asyncio>=1.3.0",
     "pytest-cov>=7.0.0",
-    "ruff>=0.15.5",
+    "ruff>=0.16.1",
 ]

@@ -14,3 +14,10 @@ updates:
     directory: "/"
     schedule:
       interval: "weekly"
+
+  # Keeps the `rev` pins in .pre-commit-config.yaml current. Dependabot only reads
+  # .pre-commit-config.yaml, which is why the hook config is not prek.toml.
+  - package-ecosystem: "pre-commit"
+    directory: "/"
+    schedule:
+      interval: "weekly"

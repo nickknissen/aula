@@ -23,7 +23,7 @@ class Child(AulaDataClass):
     _raw: dict | None = field(default=None, repr=False)
 
     @classmethod
-    def from_dict(cls, data: dict[str, Any]) -> "Child":
+    def from_dict(cls, data: dict[str, Any]) -> Child:
         return cls(
             _raw=data,
             id=data["id"],

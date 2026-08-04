@@ -1,14 +1,12 @@
 """Shared helpers for consistent human-readable CLI output."""
 
 import datetime
-from typing import TYPE_CHECKING, Any
+from typing import Any
 
 import click
 
+from ..models.notification import Notification
 from .json import to_json
-
-if TYPE_CHECKING:
-    from aula.models.notification import Notification
 
 
 def output_json(ctx: click.Context, data: Any) -> bool:
@@ -86,7 +84,7 @@ def format_message_lines(
 
 
 def format_notification_lines(
-    item: "Notification",
+    item: Notification,
     institution_names: dict[str, str] | None = None,
     album_names: dict[int, str] | None = None,
 ) -> list[str]:

@@ -15,7 +15,7 @@ class Appointment(AulaDataClass):
     _raw: dict | None = field(default=None, repr=False)
 
     @classmethod
-    def from_dict(cls, data: dict[str, Any]) -> "Appointment":
+    def from_dict(cls, data: dict[str, Any]) -> Appointment:
         return cls(
             _raw=data,
             appointment_id=data.get("appointmentId", ""),
