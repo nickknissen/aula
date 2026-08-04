@@ -3299,11 +3299,13 @@ async def presence(ctx, from_date, to_date, week, states):
         print_heading("Presence registrations")
         child_map = {c.id: c.name for c in prof.children}
         for reg in registrations:
-            name = child_map.get(
-                reg.institution_profile_id, f"Profile {reg.institution_profile_id}"
-            )
+            profile_id = reg.institution_profile_id
+            if profile_id is None:
+                name = "Unknown"
+            else:
+                name = child_map.get(profile_id, f"Profile {profile_id}")
             status_text = reg.status.display_name if reg.status else "Unknown"
-            props = [("Child", name), ("Status", status_text)]
+            props: list[tuple[str, str | None]] = [("Child", name), ("Status", status_text)]
             if reg.entry_time or reg.exit_time:
                 props.append(("Time", f"{reg.entry_time or '?'} - {reg.exit_time or '?'}"))
             if reg.check_in_time:
