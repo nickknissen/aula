@@ -9,9 +9,11 @@ from aula.models.calendar_event import CalendarEvent
 from aula.utils.table import (
     CalendarTableData,
     _print_plain,
+    _print_rows_with_rich,
     _print_with_rich,
     build_calendar_table,
     print_calendar_table,
+    print_row_table,
 )
 
 
@@ -150,3 +152,54 @@ class TestPrintCalendarTable:
 
         assert "2026-03-02" in out
         assert "Math" in out
+
+
+class TestPrintRowTable:
+    HEADERS = ["Child", "Guardian", "Class"]
+    ROWS = [("Barn Et", "Værge Et (Far)", "3.1")]
+
+    def test_renders_with_rich(self, capsys):
+        pytest.importorskip("rich")
+
+        print_row_table(self.HEADERS, self.ROWS, title="Contacts")
+        out = capsys.readouterr().out
+
+        assert "Contacts" in out
+        assert "Guardian" in out
+        assert "Barn Et" in out
+
+    def test_rich_reports_failure_when_missing(self, monkeypatch):
+        real_import = builtins.__import__
+
+        def fake_import(name, *args, **kwargs):
+            if name.startswith("rich"):
+                raise ImportError("no rich")
+            return real_import(name, *args, **kwargs)
+
+        monkeypatch.setattr(builtins, "__import__", fake_import)
+
+        assert _print_rows_with_rich(self.HEADERS, self.ROWS, None) is False
+
+    def test_falls_back_to_plain_without_rich(self, monkeypatch, capsys):
+        monkeypatch.setattr("aula.utils.table._print_rows_with_rich", lambda *a: False)
+
+        print_row_table(self.HEADERS, self.ROWS, title="Contacts")
+        out = capsys.readouterr().out
+
+        assert "Contacts" in out
+        assert "Child" in out
+        assert "Værge Et (Far)" in out
+
+    def test_plain_columns_are_width_aligned(self, monkeypatch, capsys):
+        monkeypatch.setattr("aula.utils.table._print_rows_with_rich", lambda *a: False)
+
+        print_row_table(["A", "B"], [("short", "x"), ("much longer value", "y")])
+        lines = [line for line in capsys.readouterr().out.splitlines() if "|" in line]
+
+        # Every rendered row puts its separator at the same offset.
+        offsets = {line.index("|") for line in lines}
+        assert len(offsets) == 1
+
+    def test_no_output_for_empty_rows(self, capsys):
+        print_row_table(self.HEADERS, [], title="Contacts")
+        assert capsys.readouterr().out == ""
