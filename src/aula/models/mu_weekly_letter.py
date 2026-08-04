@@ -14,7 +14,7 @@ class MUWeeklyLetter(AulaDataClass):
     _raw: dict | None = field(default=None, repr=False)
 
     @classmethod
-    def from_dict(cls, data: dict[str, Any]) -> "MUWeeklyLetter":
+    def from_dict(cls, data: dict[str, Any]) -> MUWeeklyLetter:
         return cls(
             _raw=data,
             group_id=data.get("tilknytningId", 0),
@@ -33,7 +33,7 @@ class MUWeeklyInstitution(AulaDataClass):
     _raw: dict | None = field(default=None, repr=False)
 
     @classmethod
-    def from_dict(cls, data: dict[str, Any]) -> "MUWeeklyInstitution":
+    def from_dict(cls, data: dict[str, Any]) -> MUWeeklyInstitution:
         return cls(
             _raw=data,
             name=data.get("navn", ""),
@@ -51,7 +51,7 @@ class MUWeeklyPerson(AulaDataClass):
     _raw: dict | None = field(default=None, repr=False)
 
     @classmethod
-    def from_dict(cls, data: dict[str, Any]) -> "MUWeeklyPerson":
+    def from_dict(cls, data: dict[str, Any]) -> MUWeeklyPerson:
         return cls(
             _raw=data,
             name=data.get("navn", ""),

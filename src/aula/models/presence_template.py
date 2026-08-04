@@ -13,7 +13,7 @@ class SpareTimeActivity(AulaDataClass):
     _raw: dict | None = field(default=None, repr=False)
 
     @classmethod
-    def from_dict(cls, data: dict[str, Any]) -> "SpareTimeActivity":
+    def from_dict(cls, data: dict[str, Any]) -> SpareTimeActivity:
         return cls(
             _raw=data,
             start_time=data.get("startTime"),
@@ -40,7 +40,7 @@ class DayTemplate(AulaDataClass):
     _raw: dict | None = field(default=None, repr=False)
 
     @classmethod
-    def from_dict(cls, data: dict[str, Any]) -> "DayTemplate":
+    def from_dict(cls, data: dict[str, Any]) -> DayTemplate:
         sta_data = data.get("spareTimeActivity")
         return cls(
             _raw=data,
@@ -67,7 +67,7 @@ class PresenceWeekTemplate(AulaDataClass):
     _raw: dict | None = field(default=None, repr=False)
 
     @classmethod
-    def from_dict(cls, data: dict[str, Any]) -> "PresenceWeekTemplate":
+    def from_dict(cls, data: dict[str, Any]) -> PresenceWeekTemplate:
         ip_data = data.get("institutionProfile")
         return cls(
             _raw=data,

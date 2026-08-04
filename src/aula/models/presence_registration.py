@@ -23,7 +23,7 @@ class PresenceRegistration(AulaDataClass):
     _raw: dict | None = field(default=None, repr=False)
 
     @classmethod
-    def from_dict(cls, data: dict[str, Any]) -> "PresenceRegistration":
+    def from_dict(cls, data: dict[str, Any]) -> PresenceRegistration:
         status_value = data.get("status")
         presence_status = None
         if status_value is not None:
@@ -63,7 +63,7 @@ class PresenceRegistrationDetail(AulaDataClass):
     _raw: dict | None = field(default=None, repr=False)
 
     @classmethod
-    def from_dict(cls, data: dict[str, Any]) -> "PresenceRegistrationDetail":
+    def from_dict(cls, data: dict[str, Any]) -> PresenceRegistrationDetail:
         status_value = data.get("status")
         presence_status = None
         if status_value is not None:
@@ -98,7 +98,7 @@ class ChildPresenceState(AulaDataClass):
     _raw: dict | None = field(default=None, repr=False)
 
     @classmethod
-    def from_dict(cls, data: dict[str, Any]) -> "ChildPresenceState":
+    def from_dict(cls, data: dict[str, Any]) -> ChildPresenceState:
         # The API uses "state" (not "status") at the top level
         status_value = data.get("state", data.get("status"))
         presence_status = None
@@ -134,7 +134,7 @@ class PresenceConfiguration(AulaDataClass):
     _raw: dict | None = field(default=None, repr=False)
 
     @classmethod
-    def from_dict(cls, data: dict[str, Any]) -> "PresenceConfiguration":
+    def from_dict(cls, data: dict[str, Any]) -> PresenceConfiguration:
         # Real API nests config under "presenceConfiguration"
         config = data.get("presenceConfiguration", {}) or {}
         institution = config.get("institution", {}) or {}
@@ -160,7 +160,7 @@ class PresenceActivity(AulaDataClass):
     _raw: dict | None = field(default=None, repr=False)
 
     @classmethod
-    def from_dict(cls, data: dict[str, Any]) -> "PresenceActivity":
+    def from_dict(cls, data: dict[str, Any]) -> PresenceActivity:
         return cls(
             _raw=data,
             title=data.get("title"),
@@ -178,7 +178,7 @@ class PresenceDay(AulaDataClass):
     _raw: dict | None = field(default=None, repr=False)
 
     @classmethod
-    def from_dict(cls, data: dict[str, Any]) -> "PresenceDay":
+    def from_dict(cls, data: dict[str, Any]) -> PresenceDay:
         return cls(
             _raw=data,
             date=data.get("date"),
@@ -194,7 +194,7 @@ class PresenceWeekOverview(AulaDataClass):
     _raw: dict | None = field(default=None, repr=False)
 
     @classmethod
-    def from_dict(cls, data: dict[str, Any]) -> "PresenceWeekOverview":
+    def from_dict(cls, data: dict[str, Any]) -> PresenceWeekOverview:
         return cls(
             _raw=data,
             days=[PresenceDay.from_dict(d) for d in data.get("days", []) if d],

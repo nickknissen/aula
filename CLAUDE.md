@@ -39,7 +39,7 @@ When working with Python, invoke the relevant /astral:\<skill> for uv, ty, and r
 
 ## Ruff Configuration
 
-- Target: Python 3.10 (`py310`)
+- Target: Python 3.14 (`py314`)
 - Line length: 100
 - Rules: `E`, `F`, `W`, `I` (isort), `UP` (pyupgrade), `B` (bugbear), `SIM` (simplify), `LOG` (logging)
 

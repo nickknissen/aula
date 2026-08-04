@@ -86,7 +86,7 @@ def _extract_api_method(url: str, params: dict[str, Any] | None) -> str | None:
 def _compact_payload_for_log(payload: Any, *, max_chars: int = 4000) -> str:
     try:
         rendered = json.dumps(payload, ensure_ascii=True, separators=(",", ":"), default=str)
-    except (TypeError, ValueError):
+    except TypeError, ValueError:
         rendered = str(payload)
     if len(rendered) > max_chars:
         return f"{rendered[:max_chars]}...<truncated>"
@@ -1523,7 +1523,7 @@ class AulaApiClient:
                         thread_date = datetime.fromisoformat(last_date_str).date()
                         if thread_date < cutoff_date:
                             return all_threads
-                    except (ValueError, TypeError):
+                    except ValueError, TypeError:
                         pass
                 all_threads.append(t)
 
@@ -1595,7 +1595,7 @@ class AulaApiClient:
                 if not isinstance(item, dict) or "id" not in item:
                     continue
                 folders.append(MessageFolder.from_dict(item))
-            except (TypeError, ValueError, KeyError):
+            except TypeError, ValueError, KeyError:
                 continue
         return folders
 
@@ -1632,7 +1632,7 @@ class AulaApiClient:
                 if not isinstance(item, dict):
                     continue
                 threads.append(MessageThread.from_dict(item))
-            except (TypeError, ValueError, KeyError):
+            except TypeError, ValueError, KeyError:
                 continue
         return threads
 

@@ -42,7 +42,7 @@ requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [tool.ruff]
-target-version = "py313"
+target-version = "py314"
 line-length = 100
 # Sibling git worktrees live under .worktrees/; never format another branch's files.
 # Markdown code blocks are illustrative prose, not code to be reformatted.

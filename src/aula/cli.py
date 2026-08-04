@@ -216,7 +216,7 @@ async def _get_client(ctx: click.Context) -> AulaApiClient:
 
 async def _get_widget_context(
     client: AulaApiClient,
-    prof: "Profile",
+    prof: Profile,
 ) -> tuple[list[str], list[str], str] | None:
     """Extract child IDs, institution codes, and session UUID for widget API calls.
 
@@ -3218,7 +3218,7 @@ async def presence(ctx, from_date, to_date, week, states):
             try:
                 year, w = week.split("-W")
                 year_int, week_int = int(year), int(w)
-            except (ValueError, AttributeError):
+            except ValueError, AttributeError:
                 print_error(f"Invalid week format '{week}'. Expected YYYY-Wnn (e.g. 2026-W10).")
                 return
 

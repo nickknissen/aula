@@ -18,7 +18,7 @@ class SecureDocument(AulaDataClass):
     _raw: dict | None = field(default=None, repr=False)
 
     @classmethod
-    def from_dict(cls, data: dict[str, Any]) -> "SecureDocument":
+    def from_dict(cls, data: dict[str, Any]) -> SecureDocument:
         owner = data.get("owner") or {}
         owner_name = ""
         if isinstance(owner, dict):

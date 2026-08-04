@@ -16,7 +16,7 @@ class LibraryLoan(AulaDataClass):
     _raw: dict | None = field(default=None, repr=False)
 
     @classmethod
-    def from_dict(cls, data: dict[str, Any]) -> "LibraryLoan":
+    def from_dict(cls, data: dict[str, Any]) -> LibraryLoan:
         return cls(
             _raw=data,
             id=data.get("id", 0),
@@ -38,7 +38,7 @@ class LibraryStatus(AulaDataClass):
     _raw: dict | None = field(default=None, repr=False)
 
     @classmethod
-    def from_dict(cls, data: dict[str, Any]) -> "LibraryStatus":
+    def from_dict(cls, data: dict[str, Any]) -> LibraryStatus:
         return cls(
             _raw=data,
             loans=[LibraryLoan.from_dict(item) for item in data.get("loans", [])],

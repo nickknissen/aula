@@ -16,7 +16,7 @@ class VacationRegistration(AulaDataClass):
     _raw: dict | None = field(default=None, repr=False)
 
     @classmethod
-    def from_dict(cls, data: dict[str, Any]) -> "VacationRegistration":
+    def from_dict(cls, data: dict[str, Any]) -> VacationRegistration:
         return cls(
             _raw=data,
             id=data.get("id", 0),

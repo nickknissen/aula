@@ -13,7 +13,7 @@ class MomoCourse(AulaDataClass):
     _raw: dict | None = field(default=None, repr=False)
 
     @classmethod
-    def from_dict(cls, data: dict[str, Any]) -> "MomoCourse":
+    def from_dict(cls, data: dict[str, Any]) -> MomoCourse:
         return cls(
             _raw=data,
             id=str(data.get("id", "")),
@@ -31,7 +31,7 @@ class MomoUserCourses(AulaDataClass):
     _raw: dict | None = field(default=None, repr=False)
 
     @classmethod
-    def from_dict(cls, data: dict[str, Any]) -> "MomoUserCourses":
+    def from_dict(cls, data: dict[str, Any]) -> MomoUserCourses:
         courses = [MomoCourse.from_dict(c) for c in data.get("courses", [])]
         return cls(
             _raw=data,
@@ -56,7 +56,7 @@ class TeamReminder(AulaDataClass):
     _raw: dict | None = field(default=None, repr=False)
 
     @classmethod
-    def from_dict(cls, data: dict[str, Any]) -> "TeamReminder":
+    def from_dict(cls, data: dict[str, Any]) -> TeamReminder:
         return cls(
             _raw=data,
             id=data.get("id", 0),
@@ -86,7 +86,7 @@ class AssignmentReminder(AulaDataClass):
     _raw: dict | None = field(default=None, repr=False)
 
     @classmethod
-    def from_dict(cls, data: dict[str, Any]) -> "AssignmentReminder":
+    def from_dict(cls, data: dict[str, Any]) -> AssignmentReminder:
         return cls(
             _raw=data,
             id=data.get("id", 0),
@@ -110,7 +110,7 @@ class UserReminders(AulaDataClass):
     _raw: dict | None = field(default=None, repr=False)
 
     @classmethod
-    def from_dict(cls, data: dict[str, Any]) -> "UserReminders":
+    def from_dict(cls, data: dict[str, Any]) -> UserReminders:
         team = [TeamReminder.from_dict(r) for r in data.get("teamReminders", [])]
         assignment = [AssignmentReminder.from_dict(r) for r in data.get("assignmentReminders", [])]
         return cls(

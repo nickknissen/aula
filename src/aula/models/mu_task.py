@@ -25,7 +25,7 @@ class MUTaskClass(AulaDataClass):
     _raw: dict | None = field(default=None, repr=False)
 
     @classmethod
-    def from_dict(cls, data: dict[str, Any]) -> "MUTaskClass":
+    def from_dict(cls, data: dict[str, Any]) -> MUTaskClass:
         return cls(
             _raw=data,
             id=data.get("id", 0),
@@ -46,7 +46,7 @@ class MUTaskCourse(AulaDataClass):
     _raw: dict | None = field(default=None, repr=False)
 
     @classmethod
-    def from_dict(cls, data: dict[str, Any]) -> "MUTaskCourse":
+    def from_dict(cls, data: dict[str, Any]) -> MUTaskCourse:
         return cls(
             _raw=data,
             id=data.get("id", ""),
@@ -79,7 +79,7 @@ class MUTask(AulaDataClass):
     _raw: dict | None = field(default=None, repr=False)
 
     @classmethod
-    def from_dict(cls, data: dict[str, Any]) -> "MUTask":
+    def from_dict(cls, data: dict[str, Any]) -> MUTask:
         classes = [MUTaskClass.from_dict(h) for h in data.get("hold", [])]
         forloeb = data.get("forloeb")
         return cls(

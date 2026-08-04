@@ -16,7 +16,7 @@ class ConsentResponse(AulaDataClass):
     _raw: dict | None = field(default=None, repr=False)
 
     @classmethod
-    def from_dict(cls, data: dict[str, Any]) -> "ConsentResponse":
+    def from_dict(cls, data: dict[str, Any]) -> ConsentResponse:
         return cls(
             _raw=data,
             id=data.get("id", 0),

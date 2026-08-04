@@ -20,7 +20,7 @@ class ProfileReference(AulaDataClass):
     _raw: dict | None = field(default=None, repr=False)
 
     @classmethod
-    def from_dict(cls, data: dict[str, Any]) -> "ProfileReference":
+    def from_dict(cls, data: dict[str, Any]) -> ProfileReference:
         return cls(
             id=data["id"],
             profile_id=data["profileId"],
