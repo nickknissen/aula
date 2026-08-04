@@ -78,6 +78,15 @@ include = ["tests/"]
 [tool.ty.overrides.rules]
 invalid-assignment = "ignore"
 
+# Editor language server (Pyright / Pylance). Pinned explicitly so diagnostics do
+# not depend on whichever `python` happens to be first on PATH.
+[tool.pyright]
+pythonVersion = "3.14"
+venvPath = "."
+venv = ".venv"
+include = ["src", "tests"]
+exclude = [".worktrees", ".venv"]
+
 [dependency-groups]
 dev = [
     "pytest>=9.0.2",
