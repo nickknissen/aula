@@ -6,6 +6,7 @@ import functools
 import logging
 import os
 import sys
+from collections.abc import Awaitable, Callable
 from zoneinfo import ZoneInfo
 
 import click
@@ -14,10 +15,11 @@ import qrcode
 from .api_client import AulaApiClient
 from .auth_flow import authenticate_and_create_client
 from .config import CONFIG_FILE, DEFAULT_TOKEN_FILE, load_config, save_config
-from .models import DailyOverview, Message, MessageThread, Notification, Profile
+from .models import DailyOverview, Group, Message, MessageThread, Notification, Profile
 from .token_storage import FileTokenStorage
 from .utils.json import to_json
 from .utils.output import (
+    build_contact_table,
     clip,
     format_calendar_context_lines,
     format_message_lines,
@@ -30,7 +32,9 @@ from .utils.output import (
     print_empty,
     print_error,
     print_heading,
+    scope_relations_to_children,
 )
+from .utils.table import print_row_table
 
 
 # Decorator to run async functions within Click commands
@@ -214,6 +218,85 @@ async def _get_client(ctx: click.Context) -> AulaApiClient:
     )
 
 
+async def _fetch_groups(client: AulaApiClient) -> list[Group] | None:
+    """Fetch the groups available in the user's context.
+
+    Returns None and prints an error if the profile or groups can't be fetched.
+    """
+    try:
+        prof: Profile = await client.get_profile()
+    except Exception as e:
+        print_error(f"fetching profile: {e}")
+        return None
+
+    # Guardians filter by child institution profile IDs, which surfaces the
+    # children's own class and SFO groups. Employees (and guardians with no
+    # children listed) fall back to their institution codes.
+    child_institution_profile_ids = [child.id for child in prof.children]
+
+    institution_codes: list[str] = []
+    if not child_institution_profile_ids and prof._raw:
+        for inst_profile in prof._raw.get("institutionProfiles", []):
+            code = inst_profile.get("institutionCode", "") if isinstance(inst_profile, dict) else ""
+            if code and str(code) not in institution_codes:
+                institution_codes.append(str(code))
+
+    if not child_institution_profile_ids and not institution_codes:
+        print_error("no children or institutions found on this profile")
+        return None
+
+    try:
+        return await client.get_groups(
+            institution_codes=institution_codes,
+            child_institution_profile_ids=child_institution_profile_ids,
+        )
+    except Exception as e:
+        print_error(f"fetching groups: {e}")
+        return None
+
+
+#: The contacts endpoints return at most this many profiles per page.
+CONTACTS_PAGE_SIZE = 20
+#: Safety stop so a server that never returns a short page can't loop forever.
+MAX_CONTACT_PAGES = 200
+
+
+async def _fetch_contact_pages(
+    fetch_page: Callable[[int], Awaitable[list[dict]]],
+    page: int | None = None,
+) -> list[dict]:
+    """Fetch one contact page, or walk every page when ``page`` is None.
+
+    Paging stops on the first short page, matching how the Aula web client
+    decides there is nothing more to load.
+    """
+    if page is not None:
+        return await fetch_page(page)
+
+    items: list[dict] = []
+    for current in range(1, MAX_CONTACT_PAGES + 1):
+        batch = await fetch_page(current)
+        items.extend(batch)
+        if len(batch) < CONTACTS_PAGE_SIZE:
+            return items
+
+    click.echo(
+        f"Warning: stopped after {MAX_CONTACT_PAGES} pages; "
+        "results may be incomplete. Use --page to fetch further pages."
+    )
+    return items
+
+
+def _format_group_row(group: Group) -> str:
+    """Render a group as a display row with its ID and metadata."""
+    parts = [f"ID {group.id}"]
+    if group.group_type:
+        parts.append(group.group_type)
+    if group.institution_code:
+        parts.append(f"Inst {group.institution_code}")
+    return format_row(group.name, *parts)
+
+
 async def _get_widget_context(
     client: AulaApiClient,
     prof: Profile,
@@ -322,12 +405,7 @@ async def groups(ctx, group_id, members, search_text):
 
             print_heading(f'Groups matching "{search_text}"')
             for g in result:
-                parts = [f"ID {g.id}"]
-                if g.group_type:
-                    parts.append(g.group_type)
-                if g.institution_code:
-                    parts.append(f"Inst {g.institution_code}")
-                click.echo(format_row(g.name, *parts))
+                click.echo(_format_group_row(g))
             return
 
         if group_id and members:
@@ -375,29 +453,8 @@ async def groups(ctx, group_id, members, search_text):
             return
 
         # List all groups for children
-        try:
-            prof: Profile = await client.get_profile()
-        except Exception as e:
-            print_error(f"fetching profile: {e}")
-            return
-
-        if not prof.children:
-            print_empty("children")
-            return
-
-        institution_codes: list[str] = []
-        child_profile_ids: list[int] = []
-        for child in prof.children:
-            child_profile_ids.append(child.id)
-            if child._raw:
-                code = child._raw.get("institutionProfile", {}).get("institutionCode", "")
-                if code and str(code) not in institution_codes:
-                    institution_codes.append(str(code))
-
-        try:
-            result = await client.get_groups(institution_codes, child_profile_ids)
-        except Exception as e:
-            print_error(f"fetching groups: {e}")
+        result = await _fetch_groups(client)
+        if result is None:
             return
 
         if output_json(ctx, [dict(g) for g in result]):
@@ -409,12 +466,7 @@ async def groups(ctx, group_id, members, search_text):
 
         print_heading("Groups")
         for g in result:
-            parts = [f"ID {g.id}"]
-            if g.group_type:
-                parts.append(g.group_type)
-            if g.institution_code:
-                parts.append(f"Inst {g.institution_code}")
-            click.echo(format_row(g.name, *parts))
+            click.echo(_format_group_row(g))
 
 
 @cli.command()
@@ -1075,27 +1127,80 @@ async def search(ctx, text, doc_type, limit):
 
 
 @cli.command()
-@click.option("--group-id", type=int, default=None, help="Filter contacts by group ID.")
+@click.option(
+    "--group-id",
+    type=int,
+    default=None,
+    help="Filter contacts by group ID. Omit to list the available group IDs.",
+)
 @click.option("--parents", is_flag=True, help="Show other parents instead of group contacts.")
+@click.option(
+    "--profile-type",
+    type=click.Choice(["guardian", "child", "boy", "girl", "employee"]),
+    default="guardian",
+    show_default=True,
+    help="Which profiles to list. A group only has contacts for the types it contains.",
+)
+@click.option(
+    "--page",
+    type=int,
+    default=None,
+    help="Fetch only this 1-based page (20 per page). Default: every page.",
+)
 @click.pass_context
 @async_cmd
-async def contacts(ctx, group_id, parents):
-    """List contacts from groups or other parents."""
+async def contacts(ctx, group_id, parents, profile_type, page):
+    """List contacts from groups or other parents.
+
+    Rows pair each child with their guardians. With neither --group-id nor
+    --parents, lists the available groups and their IDs.
+    """
     async with await _get_client(ctx) as client:
         if parents:
             try:
-                result = await client.get_contact_parents()
+                result = await _fetch_contact_pages(
+                    lambda p: client.get_contact_parents(page=p), page
+                )
             except Exception as e:
                 print_error(f"fetching parent contacts: {e}")
                 return
         elif group_id:
             try:
-                result = await client.get_contact_list(group_id)
+                result = await _fetch_contact_pages(
+                    lambda p: client.get_contact_list(group_id, page=p, profile_type=profile_type),
+                    page,
+                )
+                if profile_type == "guardian" and result:
+                    # Guardians carry every child they have, so scope the pairing
+                    # to the children who are actually in this group. Always read
+                    # the full membership, even when --page limited the guardians.
+                    group_children = await _fetch_contact_pages(
+                        lambda p: client.get_contact_list(group_id, page=p, profile_type="child")
+                    )
+                    result = scope_relations_to_children(result, group_children)
             except Exception as e:
                 print_error(f"fetching contacts: {e}")
                 return
         else:
-            click.echo("Please specify --group-id or --parents.")
+            # No group given: show the group IDs available to pick from.
+            groups_result = await _fetch_groups(client)
+            if groups_result is None:
+                return
+
+            if output_json(ctx, [dict(g) for g in groups_result]):
+                return
+
+            if not groups_result:
+                print_empty("groups")
+                return
+
+            print_row_table(
+                ["Group ID", "Name", "Institution"],
+                [(str(g.id), g.name, g.institution_code) for g in groups_result],
+                title="Available groups",
+            )
+            click.echo("")
+            click.echo("Specify one with --group-id <ID>, or use --parents for other parents.")
             return
 
         if output_json(ctx, result):
@@ -1105,11 +1210,8 @@ async def contacts(ctx, group_id, parents):
             print_empty("contacts")
             return
 
-        print_heading("Contacts")
-        for item in result:
-            name = item.get("name", item.get("fullName", "Unknown"))
-            role = item.get("portalRole", "")
-            click.echo(format_row(name, role))
+        headers, rows = build_contact_table(result)
+        print_row_table(headers, rows, title="Contacts")
 
 
 @cli.command("profile-details")

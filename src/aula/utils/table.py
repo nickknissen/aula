@@ -1,4 +1,5 @@
 from collections import defaultdict
+from collections.abc import Sequence
 from datetime import date, time
 from typing import TypedDict
 
@@ -44,6 +45,62 @@ def build_calendar_table(events: list[CalendarEvent]) -> CalendarTableData:
         matrix.append(row)
 
     return {"dates": dates, "slots": slots, "matrix": matrix}
+
+
+def _print_rows_with_rich(
+    headers: Sequence[str], rows: Sequence[Sequence[str]], title: str | None
+) -> bool:
+    """Render a row table with ``rich``. Returns ``False`` if rich is not installed."""
+    try:
+        from rich.console import Console  # type: ignore[import-not-found]
+        from rich.table import Table  # type: ignore[import-not-found]
+    except ImportError:
+        return False
+
+    table = Table(title=title, show_header=True, header_style="bold magenta")
+    for header in headers:
+        table.add_column(header, overflow="fold")
+    for row in rows:
+        table.add_row(*row)
+    Console().print(table)
+    return True
+
+
+def _print_rows_plain(
+    headers: Sequence[str], rows: Sequence[Sequence[str]], title: str | None
+) -> None:
+    """Render a row table as fixed-width plain text."""
+    widths = [
+        max([len(str(header))] + [len(str(row[index])) for row in rows])
+        for index, header in enumerate(headers)
+    ]
+
+    def render(cells: Sequence[str]) -> str:
+        padded = [str(cell).ljust(width) for cell, width in zip(cells, widths, strict=True)]
+        return " | ".join(padded).rstrip()
+
+    if title:
+        click.echo(title)
+    header_line = render(headers)
+    click.echo(header_line)
+    click.echo("-" * len(header_line))
+    for row in rows:
+        click.echo(render(row))
+
+
+def print_row_table(
+    headers: Sequence[str],
+    rows: Sequence[Sequence[str]],
+    title: str | None = None,
+) -> None:
+    """Print a header + rows table using rich if available, else plain text.
+
+    Every row must have exactly as many cells as ``headers``.
+    """
+    if not rows:
+        return
+    if not _print_rows_with_rich(headers, rows, title):
+        _print_rows_plain(headers, rows, title)
 
 
 def _print_with_rich(

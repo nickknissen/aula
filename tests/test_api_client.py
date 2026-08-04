@@ -1952,36 +1952,113 @@ class TestGetGroups:
 
     @pytest.mark.asyncio
     async def test_happy_path(self, client):
+        """The live API wraps groups in a list of per-profile contexts."""
         client._request_with_version_retry = AsyncMock(
             return_value=HttpResponse(
                 status_code=200,
                 data={
-                    "data": {
-                        "groups": [
-                            {
-                                "id": 1,
-                                "name": "Class 3A",
-                                "type": "primary",
-                                "institutionCode": "123456",
-                                "description": "Main group",
-                            }
-                        ]
-                    }
+                    "data": [
+                        {
+                            "profileId": 2043929,
+                            "displayName": "Parent Name",
+                            "groups": [
+                                {
+                                    "id": 1,
+                                    "name": "Class 3A",
+                                    "type": "primary",
+                                    "institutionCode": "123456",
+                                    "description": "Main group",
+                                }
+                            ],
+                        }
+                    ]
                 },
             )
         )
-        result = await client.get_groups(["123456"], [100])
+        result = await client.get_groups(institution_codes=["123456"])
         assert len(result) == 1
         assert result[0].id == 1
         assert result[0].name == "Class 3A"
         assert result[0].group_type == "primary"
 
     @pytest.mark.asyncio
+    async def test_institution_codes_filter(self, client):
+        client._request_with_version_retry = AsyncMock(
+            return_value=HttpResponse(status_code=200, data={"data": []})
+        )
+        await client.get_groups(institution_codes=["123456"])
+        params = client._request_with_version_retry.call_args.kwargs["params"]
+        assert params["institutionCodes[]"] == ["123456"]
+        assert "childInstitutionProfileIds[]" not in params
+
+    @pytest.mark.asyncio
+    async def test_child_filter_wins_and_is_exclusive(self, client):
+        """Sending both filters together answers HTTP 400, so only one goes out."""
+        client._request_with_version_retry = AsyncMock(
+            return_value=HttpResponse(status_code=200, data={"data": []})
+        )
+        await client.get_groups(
+            institution_codes=["123456"], child_institution_profile_ids=[100, 200]
+        )
+        params = client._request_with_version_retry.call_args.kwargs["params"]
+        assert params["childInstitutionProfileIds[]"] == [100, 200]
+        assert "institutionCodes[]" not in params
+
+    @pytest.mark.asyncio
+    async def test_requires_a_filter(self, client):
+        client._request_with_version_retry = AsyncMock()
+        with pytest.raises(ValueError, match="requires either"):
+            await client.get_groups()
+        client._request_with_version_retry.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_flattens_and_dedupes_contexts(self, client):
+        client._request_with_version_retry = AsyncMock(
+            return_value=HttpResponse(
+                status_code=200,
+                data={
+                    "data": [
+                        {"profileId": 1, "groups": [{"id": 10, "name": "Shared"}]},
+                        {
+                            "profileId": 2,
+                            "groups": [
+                                {"id": 10, "name": "Shared"},
+                                {"id": 11, "name": "Other"},
+                            ],
+                        },
+                    ]
+                },
+            )
+        )
+        result = await client.get_groups(institution_codes=["123"])
+        assert [g.id for g in result] == [10, 11]
+
+    @pytest.mark.asyncio
+    async def test_dict_shaped_data(self, client):
+        """A dict-shaped ``data`` with a top-level groups list is still accepted."""
+        client._request_with_version_retry = AsyncMock(
+            return_value=HttpResponse(
+                status_code=200,
+                data={"data": {"groups": [{"id": 1, "name": "Class 3A"}]}},
+            )
+        )
+        result = await client.get_groups(institution_codes=["123"])
+        assert [g.name for g in result] == ["Class 3A"]
+
+    @pytest.mark.asyncio
     async def test_empty_data(self, client):
         client._request_with_version_retry = AsyncMock(
-            return_value=HttpResponse(status_code=200, data={"data": {"groups": []}})
+            return_value=HttpResponse(status_code=200, data={"data": []})
         )
-        result = await client.get_groups(["123"], [100])
+        result = await client.get_groups(institution_codes=["123"])
+        assert result == []
+
+    @pytest.mark.asyncio
+    async def test_null_data(self, client):
+        client._request_with_version_retry = AsyncMock(
+            return_value=HttpResponse(status_code=200, data={"data": None})
+        )
+        result = await client.get_groups(institution_codes=["123"])
         assert result == []
 
     @pytest.mark.asyncio
@@ -1990,17 +2067,21 @@ class TestGetGroups:
             return_value=HttpResponse(
                 status_code=200,
                 data={
-                    "data": {
-                        "groups": [
-                            {"id": 1, "name": "Good"},
-                            "not-a-dict",
-                            {"no_id": True},
-                        ]
-                    }
+                    "data": [
+                        {
+                            "profileId": 1,
+                            "groups": [
+                                {"id": 1, "name": "Good"},
+                                "not-a-dict",
+                                {"no_id": True},
+                            ],
+                        },
+                        "not-a-context",
+                    ]
                 },
             )
         )
-        result = await client.get_groups(["123"], [100])
+        result = await client.get_groups(institution_codes=["123"])
         assert len(result) == 1
         assert result[0].name == "Good"
 
@@ -2686,6 +2767,34 @@ class TestGetContactList:
         result = await client.get_contact_list(42)
         assert result == []
 
+    @pytest.mark.asyncio
+    async def test_sends_all_required_params(self, client):
+        """The API 400s unless method casing and every param are exactly right."""
+        client._request_with_version_retry = AsyncMock(
+            return_value=HttpResponse(status_code=200, data={"data": []})
+        )
+        await client.get_contact_list(42)
+        params = client._request_with_version_retry.call_args.kwargs["params"]
+        assert params == {
+            "method": "profiles.getContactlist",
+            "groupId": 42,
+            "filter": "guardian",
+            "field": "name",
+            "page": 1,
+            "order": "asc",
+        }
+
+    @pytest.mark.asyncio
+    async def test_profile_type_and_page_forwarded(self, client):
+        client._request_with_version_retry = AsyncMock(
+            return_value=HttpResponse(status_code=200, data={"data": []})
+        )
+        await client.get_contact_list(42, page=3, order="desc", profile_type="child")
+        params = client._request_with_version_retry.call_args.kwargs["params"]
+        assert params["filter"] == "child"
+        assert params["page"] == 3
+        assert params["order"] == "desc"
+
 
 class TestGetContactParents:
     """Tests for AulaApiClient.get_contact_parents method."""
@@ -2712,3 +2821,17 @@ class TestGetContactParents:
         )
         result = await client.get_contact_parents()
         assert result == []
+
+    @pytest.mark.asyncio
+    async def test_sends_required_params(self, client):
+        """page and order are required; omitting them answers HTTP 400."""
+        client._request_with_version_retry = AsyncMock(
+            return_value=HttpResponse(status_code=200, data={"data": []})
+        )
+        await client.get_contact_parents()
+        params = client._request_with_version_retry.call_args.kwargs["params"]
+        assert params == {
+            "method": "profiles.getContactParents",
+            "page": 1,
+            "order": "asc",
+        }
