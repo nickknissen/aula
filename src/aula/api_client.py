@@ -1050,29 +1050,55 @@ class AulaApiClient:
 
     async def get_groups(
         self,
-        institution_codes: list[str],
-        child_institution_profile_ids: list[int],
+        institution_codes: list[str] | None = None,
+        child_institution_profile_ids: list[int] | None = None,
     ) -> list[Group]:
-        """Fetch groups for the given institution codes and child profile IDs."""
-        params: dict[str, Any] = {
-            "method": "groups.getGroupsByContext",
-            "InstitutionCodes[]": institution_codes,
-            "ChildInstitutionProfileIds[]": child_institution_profile_ids,
-        }
+        """Fetch the groups available in the logged-in user's context.
+
+        The API accepts exactly one of the two filters and answers HTTP 400 if
+        both are sent together. Mirroring the Aula web client: guardians filter
+        by ``child_institution_profile_ids`` (which yields the children's own
+        class and SFO groups), employees by ``institution_codes``. When both are
+        given, the child filter wins.
+
+        ``data`` comes back as a list of profile contexts, each carrying its own
+        ``groups`` list; those are flattened and de-duplicated by group ID.
+
+        Raises:
+            ValueError: If neither filter is supplied.
+        """
+        params: dict[str, Any] = {"method": "groups.getGroupsByContext"}
+        if child_institution_profile_ids:
+            params["childInstitutionProfileIds[]"] = child_institution_profile_ids
+        elif institution_codes:
+            params["institutionCodes[]"] = institution_codes
+        else:
+            raise ValueError(
+                "get_groups requires either institution_codes or child_institution_profile_ids"
+            )
 
         resp = await self._request_with_version_retry("get", self.api_url, params=params)
         resp.raise_for_status()
 
-        raw_groups = resp.json().get("data", {}).get("groups", [])
-        if not isinstance(raw_groups, list):
-            return []
+        data = resp.json().get("data")
+        raw_groups: list[Any] = []
+        if isinstance(data, list):
+            for context in data:
+                if isinstance(context, dict) and isinstance(context.get("groups"), list):
+                    raw_groups.extend(context["groups"])
+        elif isinstance(data, dict) and isinstance(data.get("groups"), list):
+            raw_groups = data["groups"]
 
         groups: list[Group] = []
+        seen_ids: set[Any] = set()
         for item in raw_groups:
             try:
                 if not isinstance(item, dict) or "id" not in item:
                     _LOGGER.warning("Skipping invalid group data: %s", item)
                     continue
+                if item["id"] in seen_ids:
+                    continue
+                seen_ids.add(item["id"])
                 groups.append(Group.from_dict(item))
             except (TypeError, ValueError, KeyError) as e:
                 _LOGGER.warning("Skipping group due to parsing error: %s - Data: %s", e, item)
@@ -1705,17 +1731,38 @@ class AulaApiClient:
         return resp.json().get("data", {})
 
     async def get_contact_list(
-        self, group_id: int, page: int | None = None, order: str | None = None
+        self,
+        group_id: int,
+        page: int = 1,
+        order: str = "asc",
+        profile_type: str = "guardian",
+        field: str = "name",
     ) -> list[dict]:
-        """Fetch contact list for a group."""
+        """Fetch the contact list for a group.
+
+        The API method name is ``profiles.getContactlist`` (lowercase ``l``) and
+        every parameter here is required: omitting ``filter``, ``field``,
+        ``page`` or ``order`` answers HTTP 400, as does ``page=0`` (pages are
+        1-based).
+
+        Args:
+            group_id: Group to list contacts for.
+            page: 1-based page number; each page holds up to 20 contacts.
+            order: ``asc`` or ``desc``.
+            profile_type: Which profiles to return - ``child``, ``boy``,
+                ``girl``, ``guardian`` or ``employee``. Note that a group only
+                returns contacts for the types it actually contains, so a
+                parents-only group yields nothing for ``child``.
+            field: Field to sort by (``name``).
+        """
         params: dict[str, Any] = {
-            "method": "profiles.getContactList",
-            "GroupId": group_id,
+            "method": "profiles.getContactlist",
+            "groupId": group_id,
+            "filter": profile_type,
+            "field": field,
+            "page": page,
+            "order": order,
         }
-        if page is not None:
-            params["Page"] = page
-        if order:
-            params["Order"] = order
         resp = await self._request_with_version_retry("get", self.api_url, params=params)
         resp.raise_for_status()
         data = resp.json().get("data", [])
@@ -1723,17 +1770,21 @@ class AulaApiClient:
             return []
         return data
 
-    async def get_contact_parents(
-        self, page: int | None = None, order: str | None = None
-    ) -> list[dict]:
-        """Fetch other parents."""
+    async def get_contact_parents(self, page: int = 1, order: str = "asc") -> list[dict]:
+        """Fetch other parents.
+
+        Both parameters are required by the API; omitting them answers HTTP 400.
+        Accounts without access to the "other parents" list get HTTP 403.
+
+        Args:
+            page: 1-based page number.
+            order: ``asc`` or ``desc``.
+        """
         params: dict[str, Any] = {
             "method": "profiles.getContactParents",
+            "page": page,
+            "order": order,
         }
-        if page is not None:
-            params["Page"] = page
-        if order:
-            params["Order"] = order
         resp = await self._request_with_version_retry("get", self.api_url, params=params)
         resp.raise_for_status()
         data = resp.json().get("data", [])
