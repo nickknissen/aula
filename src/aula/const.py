@@ -19,6 +19,32 @@ WIDGET_HUSKELISTEN = "0062"
 
 USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/135.0.0.0 Safari/537.36"  # noqa: E501
 
+# Headers a real Chrome sends on a top-level navigation, used for the MitID auth
+# flow. The UniLogin broker path sits behind an F5 bot-defense filter
+# (security-check.stil.dk) that can serve a JS challenge plus CAPTCHA, which a
+# plain HTTP client cannot pass. Sending only User-Agent while claiming to be
+# Chrome is a stronger bot signal than being consistent, so keep this in sync
+# with the Chrome version in USER_AGENT above.
+#
+# Accept-Encoding is deliberately absent: httpx sets it from the decoders that
+# are actually installed, and advertising an encoding we cannot decode (zstd)
+# would break responses.
+BROWSER_HEADERS = {
+    "Accept": (
+        "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,"
+        "image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.7"
+    ),
+    "Accept-Language": "da-DK,da;q=0.9,en-US;q=0.8,en;q=0.7",
+    "sec-ch-ua": '"Google Chrome";v="135", "Not;A=Brand";v="8", "Chromium";v="135"',
+    "sec-ch-ua-mobile": "?0",
+    "sec-ch-ua-platform": '"Windows"',
+    "Sec-Fetch-Dest": "document",
+    "Sec-Fetch-Mode": "navigate",
+    "Sec-Fetch-Site": "cross-site",
+    "Sec-Fetch-User": "?1",
+    "Upgrade-Insecure-Requests": "1",
+}
+
 # Auth endpoints (validated against Android app network traffic)
 AUTH_BASE_URL = "https://login.aula.dk"
 OAUTH_AUTHORIZE_PATH = "/simplesaml/module.php/oidc/authorize.php"

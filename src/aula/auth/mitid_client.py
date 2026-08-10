@@ -20,6 +20,7 @@ from ..const import (
     APP_REDIRECT_URI,
     AUTH_BASE_URL,
     BROKER_URL,
+    BROWSER_HEADERS,
     MITID_BASE_URL,
     OAUTH_AUTHORIZE_PATH,
     OAUTH_CLIENT_ID,
@@ -91,7 +92,12 @@ class MitIDAuthClient:
         on_password: Callable[[], Awaitable[str]] | None = None,
     ):
         self._owns_client = httpx_client is None
-        self._client = httpx_client or httpx.AsyncClient(follow_redirects=False, timeout=timeout)
+        # http2 matters as much as the headers below: a client claiming to be
+        # Chrome 135 but negotiating HTTP/1.1 is an obvious mismatch to the bot
+        # filter in front of the UniLogin broker.
+        self._client = httpx_client or httpx.AsyncClient(
+            follow_redirects=False, timeout=timeout, http2=True
+        )
         self._mitid_username = mitid_username
         self._timeout = timeout
         self._on_qr_codes = on_qr_codes
@@ -100,8 +106,13 @@ class MitIDAuthClient:
         self._on_token_digits = on_token_digits
         self._on_password = on_password
 
-        # The real Android app just sends User-Agent: Android — the server
-        # doesn't validate browser-style headers (sec-ch-ua, etc.).
+        # Present a header set consistent with the Chrome version in USER_AGENT.
+        # Aula's own API does not care, but the UniLogin broker leg of the flow
+        # is behind an F5 bot filter that does. These are applied unconditionally
+        # rather than with setdefault: httpx pre-populates its own Accept, and a
+        # half-applied set defeats the point. Callers needing different headers
+        # can set them on the client after constructing this object.
+        self._client.headers.update(BROWSER_HEADERS)
         self._client.headers["User-Agent"] = USER_AGENT
 
         # Session state
