@@ -2835,3 +2835,115 @@ class TestGetContactParents:
             "page": 1,
             "order": "asc",
         }
+
+
+class TestUpdatePresenceTemplate:
+    """Tests for AulaApiClient.update_presence_template method."""
+
+    @pytest.fixture
+    def mock_client(self):
+        """Create a mock API client with a stubbed request layer."""
+        client = AulaApiClient(http_client=AsyncMock(), access_token="test_token")
+        mock_response = HttpResponse(status_code=200, data={"status": {"code": 200}})
+        mock_response.raise_for_status = MagicMock()  # type: ignore[assignment]
+        client._request_with_version_retry = AsyncMock(return_value=mock_response)
+        return client
+
+    @staticmethod
+    def _payload(mock_client):
+        """Return the JSON body of the recorded request."""
+        return mock_client._request_with_version_retry.await_args.kwargs["json"]
+
+    @pytest.mark.asyncio
+    async def test_accepts_activity_type_enum(self, mock_client):
+        """An ActivityType member is serialised as its int value."""
+        from aula.models.presence import ActivityType
+
+        await mock_client.update_presence_template(
+            institution_profile_id=10,
+            by_date=date(2026, 2, 25),
+            entry_time="08:00",
+            exit_time="16:00",
+            activity_type=ActivityType.GO_HOME_WITH,
+            exit_with="Nick Nissen (Far)",
+        )
+
+        activity = self._payload(mock_client)["presenceActivity"]
+        assert activity["activityType"] == 3
+        assert activity["goHomeWith"] == {
+            "entryTime": "08:00",
+            "exitTime": "16:00",
+            "exitWith": "Nick Nissen (Far)",
+        }
+
+    @pytest.mark.asyncio
+    async def test_accepts_raw_int_for_compatibility(self, mock_client):
+        """A raw int still selects the same activity shape as the enum."""
+        await mock_client.update_presence_template(
+            institution_profile_id=10,
+            by_date=date(2026, 2, 25),
+            entry_time="08:00",
+            exit_time="16:00",
+            activity_type=1,
+        )
+
+        activity = self._payload(mock_client)["presenceActivity"]
+        assert activity["activityType"] == 1
+        assert activity["selfDecider"] == {
+            "entryTime": "08:00",
+            "exitStartTime": "16:00",
+            "exitEndTime": "16:00",
+        }
+
+    @pytest.mark.asyncio
+    async def test_defaults_to_picked_up_by(self, mock_client):
+        """Omitting activity_type keeps the previous default of 0."""
+        await mock_client.update_presence_template(
+            institution_profile_id=10,
+            by_date=date(2026, 2, 25),
+            entry_time="08:00",
+            exit_time="16:00",
+            exit_with="Mor",
+        )
+
+        activity = self._payload(mock_client)["presenceActivity"]
+        assert activity["activityType"] == 0
+        assert activity["pickup"]["exitWith"] == "Mor"
+
+    @pytest.mark.asyncio
+    async def test_unknown_activity_type_uses_flat_shape(self, mock_client):
+        """An int Aula adds later is passed through rather than rejected."""
+        await mock_client.update_presence_template(
+            institution_profile_id=10,
+            by_date=date(2026, 2, 25),
+            entry_time="08:00",
+            exit_time="16:00",
+            activity_type=99,
+        )
+
+        activity = self._payload(mock_client)["presenceActivity"]
+        assert activity == {
+            "activityType": 99,
+            "entryTime": "08:00",
+            "exitTime": "16:00",
+        }
+
+    @pytest.mark.asyncio
+    async def test_drop_off_time_uses_flat_shape(self, mock_client):
+        """DROP_OFF_TIME has no nested sub-object."""
+        from aula.models.presence import ActivityType
+
+        await mock_client.update_presence_template(
+            institution_profile_id=10,
+            by_date=date(2026, 2, 25),
+            entry_time="08:00",
+            exit_time="16:00",
+            activity_type=ActivityType.DROP_OFF_TIME,
+        )
+
+        activity = self._payload(mock_client)["presenceActivity"]
+        assert activity == {
+            "activityType": 4,
+            "entryTime": "08:00",
+            "exitTime": "16:00",
+        }

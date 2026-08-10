@@ -21,11 +21,13 @@ from .http import (
 )
 from .http_httpx import HttpxHttpClient
 from .models import (
+    ActivityType,
     CalendarEvent,
     Child,
     DailyOverview,
     Message,
     MessageThread,
+    PresenceState,
     Profile,
     WidgetConfiguration,
 )
@@ -55,5 +57,7 @@ __all__ = [
     "Message",
     "CalendarEvent",
     "WidgetConfiguration",
+    "ActivityType",
+    "PresenceState",
     "__version__",
 ]
