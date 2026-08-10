@@ -7,7 +7,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 
 from aula.api_client import AulaApiClient
-from aula.const import CSRF_TOKEN_HEADER
+from aula.const import API_URL, API_VERSION, CSRF_TOKEN_HEADER
 from aula.http import (
     AulaAuthenticationError,
     AulaServerError,
@@ -45,10 +45,10 @@ class TestRequestWithVersionRetry:
             ]
         )
         resp = await client._request_with_version_retry(
-            "get", "https://www.aula.dk/api/v23?method=test"
+            "get", f"{API_URL}{API_VERSION}?method=test"
         )
         assert resp.status_code == 200
-        assert client.api_url == "https://www.aula.dk/api/v24"
+        assert client.api_url == f"{API_URL}{int(API_VERSION) + 1}"
 
     @pytest.mark.asyncio
     async def test_multiple_410_bumps(self, client):
@@ -61,10 +61,10 @@ class TestRequestWithVersionRetry:
             ]
         )
         resp = await client._request_with_version_retry(
-            "get", "https://www.aula.dk/api/v23?method=test"
+            "get", f"{API_URL}{API_VERSION}?method=test"
         )
         assert resp.status_code == 200
-        assert client.api_url == "https://www.aula.dk/api/v25"
+        assert client.api_url == f"{API_URL}{int(API_VERSION) + 2}"
 
     @pytest.mark.asyncio
     async def test_max_retries_exceeded_raises_runtime_error(self, client):
