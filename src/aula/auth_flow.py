@@ -142,6 +142,7 @@ async def authenticate(
     auth_method: str = "app",
     on_token_digits: Callable[[], Awaitable[str]] | None = None,
     on_password: Callable[[], Awaitable[str]] | None = None,
+    on_otp_code: Callable[[str], None] | None = None,
 ) -> dict[str, Any]:
     """Authenticate via MitID (or cached tokens) and return credential data.
 
@@ -157,6 +158,8 @@ async def authenticate(
             provided, cached tokens are loaded/saved automatically.  When
             *None*, a fresh MitID login is always performed.
         on_qr_codes: Callback for displaying QR codes during MitID flow.
+        on_otp_code: Callback for displaying the OTP code the user types into
+            the MitID app instead of scanning the QR codes.
         on_login_required: Callback invoked when fresh login is needed.
         httpx_client: Optional ``httpx.AsyncClient`` to use for the MitID
             auth flow.  When provided, the caller retains ownership and must
@@ -178,6 +181,7 @@ async def authenticate(
         auth_method=auth_method,
         on_token_digits=on_token_digits,
         on_password=on_password,
+        on_otp_code=on_otp_code,
     ) as auth_client:
         token_data = (
             None if force_login else (await token_storage.load() if token_storage else None)
@@ -249,6 +253,7 @@ async def authenticate_and_create_client(
     auth_method: str = "app",
     on_token_digits: Callable[[], Awaitable[str]] | None = None,
     on_password: Callable[[], Awaitable[str]] | None = None,
+    on_otp_code: Callable[[str], None] | None = None,
 ) -> AulaApiClient:
     """Authenticate via MitID (or cached tokens) and return a ready-to-use client.
 
@@ -273,6 +278,7 @@ async def authenticate_and_create_client(
         auth_method=auth_method,
         on_token_digits=on_token_digits,
         on_password=on_password,
+        on_otp_code=on_otp_code,
     )
     try:
         return await create_client(token_data)
@@ -292,6 +298,7 @@ async def authenticate_and_create_client(
             auth_method=auth_method,
             on_token_digits=on_token_digits,
             on_password=on_password,
+            on_otp_code=on_otp_code,
         )
         return await create_client(fresh_token_data)
 

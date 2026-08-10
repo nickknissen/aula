@@ -509,6 +509,7 @@ class TestAuthenticateAndCreateClient:
             auth_method="app",
             on_token_digits=None,
             on_password=None,
+            on_otp_code=None,
         )
 
 

@@ -104,6 +104,18 @@ def get_mitid_username(ctx: click.Context) -> str:
     help="MitID auth method: 'app' (QR/OTP) or 'token' (code token + password).",
 )
 @click.option(
+    "--password",
+    envvar="AULA_MITID_PASSWORD",
+    help="MitID password for --auth-method token (or AULA_MITID_PASSWORD env var). "
+    "Prompted for when omitted.",
+)
+@click.option(
+    "--token-code",
+    envvar="AULA_MITID_TOKEN_CODE",
+    help="6 digits from your MitID kodeviser (or AULA_MITID_TOKEN_CODE env var). "
+    "Prompted for when omitted; the code rotates, so this is only useful per-run.",
+)
+@click.option(
     "--output",
     "output_format",
     type=click.Choice(["text", "json"], case_sensitive=False),
@@ -112,7 +124,15 @@ def get_mitid_username(ctx: click.Context) -> str:
     help="Output format: 'text' (human-readable) or 'json' (machine-readable).",
 )
 @click.pass_context
-def cli(ctx, username: str | None, verbose: int, auth_method: str, output_format: str):
+def cli(
+    ctx,
+    username: str | None,
+    verbose: int,
+    auth_method: str,
+    password: str | None,
+    token_code: str | None,
+    output_format: str,
+):
     """CLI for interacting with Aula API"""
     # Configure logging based on verbosity
     log_level = logging.ERROR  # Default: errors only (no warnings in normal output)
@@ -140,6 +160,8 @@ def cli(ctx, username: str | None, verbose: int, auth_method: str, output_format
 
     ctx.obj["AUTH_METHOD"] = auth_method
     ctx.obj["OUTPUT_FORMAT"] = output_format
+    ctx.obj["MITID_PASSWORD"] = password
+    ctx.obj["MITID_TOKEN_CODE"] = token_code
 
     if username:
         ctx.obj["MITID_USERNAME"] = username
@@ -194,12 +216,35 @@ async def _select_identity(identities: list[str]) -> int:
     return choice - 1
 
 
-async def _prompt_token_digits() -> str:
-    return click.prompt("MitID token code (6 digits)", type=str)
+def _print_otp_code(code: str) -> None:
+    """Show the code the user types into the MitID app in place of scanning."""
+    click.echo("=" * 60)
+    click.echo(f"ENTER THIS CODE IN YOUR MITID APP: {code}")
+    click.echo("=" * 60)
 
 
-async def _prompt_password() -> str:
-    return click.prompt("MitID password", hide_input=True, type=str)
+def _token_digits_provider(ctx: click.Context) -> Callable[[], Awaitable[str]]:
+    """Supply the kodeviser digits from the CLI/env, falling back to a prompt."""
+
+    async def provide() -> str:
+        supplied = ctx.obj.get("MITID_TOKEN_CODE")
+        if supplied:
+            return supplied
+        return click.prompt("MitID token code (6 digits)", type=str)
+
+    return provide
+
+
+def _password_provider(ctx: click.Context) -> Callable[[], Awaitable[str]]:
+    """Supply the MitID password from the CLI/env, falling back to a prompt."""
+
+    async def provide() -> str:
+        supplied = ctx.obj.get("MITID_PASSWORD")
+        if supplied:
+            return supplied
+        return click.prompt("MitID password", hide_input=True, type=str)
+
+    return provide
 
 
 async def _get_client(ctx: click.Context) -> AulaApiClient:
@@ -210,11 +255,12 @@ async def _get_client(ctx: click.Context) -> AulaApiClient:
         username,
         token_storage,
         on_qr_codes=_print_qr_codes_in_terminal,
+        on_otp_code=_print_otp_code,
         on_login_required=_on_login_required,
         on_identity_selected=_select_identity,
         auth_method=ctx.obj.get("AUTH_METHOD", "app"),
-        on_token_digits=_prompt_token_digits,
-        on_password=_prompt_password,
+        on_token_digits=_token_digits_provider(ctx),
+        on_password=_password_provider(ctx),
     )
 
 
