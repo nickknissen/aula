@@ -26,6 +26,7 @@ from .http import (
     HttpResponse,
 )
 from .models import (
+    ActivityType,
     Appointment,
     AutoReply,
     CalendarEvent,
@@ -488,7 +489,7 @@ class AulaApiClient:
         *,
         entry_time: str,
         exit_time: str,
-        activity_type: int = 0,
+        activity_type: ActivityType | int = ActivityType.PICKED_UP_BY,
         exit_with: str | None = None,
         comment: str | None = None,
         template_id: int | None = None,
@@ -502,8 +503,8 @@ class AulaApiClient:
             by_date: The date for the template.
             entry_time: Arrival time in HH:mm format (e.g., "08:00").
             exit_time: Departure time in HH:mm format (e.g., "16:30").
-            activity_type: Activity type enum value (0=PICKED_UP_BY, 1=SELF_DECIDER,
-                2=SEND_HOME, 3=GO_HOME_WITH, 4=DROP_OFF_TIME).
+            activity_type: How the child leaves at the end of the day. Prefer an
+                ``ActivityType`` member; raw ints are accepted for compatibility.
             exit_with: Name of person picking up, including relation suffix
                 (e.g., "Nick Hansen (Far)"). Required for PICKED_UP_BY and GO_HOME_WITH.
             comment: Optional daily comment/remark (empty string if not set).
@@ -531,26 +532,32 @@ class AulaApiClient:
             end_year = year + 1 if by_date.month > 6 else year
             expires_at = f"{end_year}-06-30T00:00:00+00:00"
 
+        # Unknown ints fall through to the flat shape rather than raising, so a
+        # newly-added Aula activity type still reaches the backend.
+        activity_value = (
+            activity_type.value if isinstance(activity_type, ActivityType) else activity_type
+        )
+
         # Build the activity sub-object based on activity_type
-        activity: dict[str, Any] = {"activityType": activity_type}
-        if activity_type == 0:  # PICKED_UP_BY
+        activity: dict[str, Any] = {"activityType": activity_value}
+        if activity_value == ActivityType.PICKED_UP_BY.value:
             activity["pickup"] = {
                 "entryTime": entry_time,
                 "exitTime": exit_time,
                 "exitWith": exit_with or "",
             }
-        elif activity_type == 1:  # SELF_DECIDER
+        elif activity_value == ActivityType.SELF_DECIDER.value:
             activity["selfDecider"] = {
                 "entryTime": entry_time,
                 "exitStartTime": exit_time,
                 "exitEndTime": exit_time,
             }
-        elif activity_type == 2:  # SEND_HOME
+        elif activity_value == ActivityType.SEND_HOME.value:
             activity["sendHome"] = {
                 "entryTime": entry_time,
                 "exitTime": exit_time,
             }
-        elif activity_type == 3:  # GO_HOME_WITH
+        elif activity_value == ActivityType.GO_HOME_WITH.value:
             activity["goHomeWith"] = {
                 "entryTime": entry_time,
                 "exitTime": exit_time,
