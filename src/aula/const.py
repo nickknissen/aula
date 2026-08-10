@@ -17,14 +17,27 @@ WIDGET_MIN_UDDANNELSE_TASKS = "0030"
 WIDGET_MEEBOOK = "0004"
 WIDGET_HUSKELISTEN = "0062"
 
-USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/135.0.0.0 Safari/537.36"  # noqa: E501
+# Chrome major version claimed by USER_AGENT and by the sec-ch-ua hint below.
+# Both are built from this constant so the two can never disagree. A user agent
+# stuck many majors behind current stable is itself a bot signal, so this is
+# worth bumping when it drifts far from the real Chrome release.
+CHROME_VERSION = "151"
+
+# Chrome freezes the minor version parts at 0.0.0 in the user agent string.
+USER_AGENT = (
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+    f"(KHTML, like Gecko) Chrome/{CHROME_VERSION}.0.0.0 Safari/537.36"
+)
+
+_SEC_CH_UA = (
+    f'"Google Chrome";v="{CHROME_VERSION}", "Not;A=Brand";v="8", "Chromium";v="{CHROME_VERSION}"'
+)
 
 # Headers a real Chrome sends on a top-level navigation, used for the MitID auth
 # flow. The UniLogin broker path sits behind an F5 bot-defense filter
 # (security-check.stil.dk) that can serve a JS challenge plus CAPTCHA, which a
 # plain HTTP client cannot pass. Sending only User-Agent while claiming to be
-# Chrome is a stronger bot signal than being consistent, so keep this in sync
-# with the Chrome version in USER_AGENT above.
+# Chrome is a stronger bot signal than being consistent.
 #
 # Accept-Encoding is deliberately absent: httpx sets it from the decoders that
 # are actually installed, and advertising an encoding we cannot decode (zstd)
@@ -35,7 +48,7 @@ BROWSER_HEADERS = {
         "image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.7"
     ),
     "Accept-Language": "da-DK,da;q=0.9,en-US;q=0.8,en;q=0.7",
-    "sec-ch-ua": '"Google Chrome";v="135", "Not;A=Brand";v="8", "Chromium";v="135"',
+    "sec-ch-ua": _SEC_CH_UA,
     "sec-ch-ua-mobile": "?0",
     "sec-ch-ua-platform": '"Windows"',
     "Sec-Fetch-Dest": "document",

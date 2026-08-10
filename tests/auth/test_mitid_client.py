@@ -3,7 +3,7 @@
 import httpx
 
 from aula.auth.mitid_client import MitIDAuthClient
-from aula.const import BROWSER_HEADERS, USER_AGENT
+from aula.const import BROWSER_HEADERS, CHROME_VERSION, USER_AGENT
 
 
 def test_browser_headers_applied_to_owned_client():
@@ -51,5 +51,6 @@ def test_owned_client_enables_http2():
 
 def test_sec_ch_ua_matches_user_agent_version():
     """Both carry the Chrome major version; drift between them is a bot signal."""
-    assert "Chrome/135." in USER_AGENT
-    assert 'v="135"' in BROWSER_HEADERS["sec-ch-ua"]
+    assert f"Chrome/{CHROME_VERSION}.0.0.0" in USER_AGENT
+    assert f'v="{CHROME_VERSION}"' in BROWSER_HEADERS["sec-ch-ua"]
+    assert "Chromium" in BROWSER_HEADERS["sec-ch-ua"]
