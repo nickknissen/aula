@@ -39,6 +39,26 @@ def test_item_type_accepts_a_string():
     assert EasyIQCalendarEvent.from_dict({"itemType": "not-a-number"}).item_type is None
 
 
+def test_pascal_case_keys_are_read():
+    """EasyIQ's homework controller answers in PascalCase, the calendar one does not."""
+    event = EasyIQCalendarEvent.from_dict(
+        {
+            "ItemType": 4,
+            "Start": "2026-02-28T00:00:00",
+            "End": "2026-02-28T09:00:00",
+            "Courses": "Dansk",
+            "Activities": "Læselektie",
+            "Description": "<p>Side 40</p>",
+        }
+    )
+    assert event.item_type == 4
+    assert event.start == "2026-02-28T00:00:00"
+    assert event.end == "2026-02-28T09:00:00"
+    assert event.courses == "Dansk"
+    assert event.activities == "Læselektie"
+    assert event.description == "<p>Side 40</p>"
+
+
 def test_alternate_keys_are_read():
     event = EasyIQCalendarEvent.from_dict(
         {"type": 8, "startDateTime": "2026-02-24T08:00:00", "subject": "Idræt", "note": "Husk tøj"}

@@ -1,10 +1,11 @@
-import datetime
 import logging
 from typing import Any, Protocol
 
 from ..const import (
     CICERO_API,
     EASYIQ_API,
+    EASYIQ_CALENDAR_PATH,
+    EASYIQ_HOMEWORK_PATH,
     EASYIQ_PORTAL,
     MEEBOOK_API,
     MIN_UDDANNELSE_API,
@@ -28,6 +29,7 @@ from ..models import (
     MUWeeklyPerson,
     UserReminders,
 )
+from ..utils.week import monday_of_week
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -57,22 +59,6 @@ def _as_list(data: Any, provider: str) -> list[Any]:
             len(data) - len(items),
         )
     return items
-
-
-def _monday_of_week(week: str) -> str:
-    """Return the Monday of ``YYYY-Wnn`` as the timestamp EasyIQ's portal wants.
-
-    The portal takes a single ``date`` and answers with the week containing it,
-    so any day in the week would do; Monday keeps it unambiguous. Falls back to
-    today when ``week`` cannot be parsed, which is better than sending nothing.
-    """
-    try:
-        year_part, week_part = week.split("-W")
-        monday = datetime.date.fromisocalendar(int(year_part), int(week_part), 1)
-    except ValueError, AttributeError:
-        _LOGGER.warning("Could not parse week %r, using today's date instead", week)
-        monday = datetime.date.today()
-    return f"{monday.isoformat()}T00:00:00Z"
 
 
 def _ordered_unique(pairs: list[tuple[str, str]]) -> list[tuple[str, str]]:
@@ -194,50 +180,30 @@ class AulaWidgetsClient:
         resp.raise_for_status()
         return [MUWeeklyPerson.from_dict(p) for p in resp.json().get("personer", [])]
 
-    async def get_easyiq_calendar_events(
-        self,
-        *,
-        week: str,
-        institution_filter: list[str],
-        child_profile_id: str,
-        child_user_id: str,
-        guardian_login: str,
-        widget_id: str = WIDGET_EASYIQ_WEEKPLAN,
-    ) -> list[EasyIQCalendarEvent]:
-        """Fetch a child's whole EasyIQ week from the school portal.
-
-        One request returns lessons, calendar entries and homework together;
-        callers split them on ``item_type``.
-
-        EasyIQ accepts different Aula identifiers for ``loginId`` and the child
-        headers depending on the institution, and answers 200-with-nothing for
-        the combinations it does not recognise. Rather than guess, this tries
-        the known combinations in turn and keeps the one that returns rows,
-        remembering it so later weeks cost a single request. A remembered
-        combination that stops working just costs one wasted request before
-        the rest are tried again.
-        """
-        token = await self._get_bearer_token(widget_id)
-        base_headers = {
+    def easyiq_headers(
+        self, token: str, institution_filter: list[str], guardian_login: str
+    ) -> dict[str, str]:
+        """Headers the EasyIQ portal expects from its embedded widgets."""
+        return {
             "Authorization": token,
             "Accept": "application/json",
             "x-institutionfilter": ",".join(institution_filter),
             "x-userprofile": "guardian",
             "x-login": guardian_login,
             "x-requested-with": "XMLHttpRequest",
-            # EasyIQ only serves the calendar to callers that look like the
-            # embedded widget.
+            # EasyIQ only serves these controllers to callers that look like
+            # the embedded widget.
             "Referer": f"{EASYIQ_PORTAL}/UgeplanWidget",
         }
-        params = {
-            "date": _monday_of_week(week),
-            "activityFilter": "-1",
-            "courseFilter": "-1",
-            "textFilter": "",
-            "ownWeekPlan": "false",
-        }
 
-        variants = _ordered_unique(
+    def easyiq_identifier_variants(
+        self, child_profile_id: str, child_user_id: str, guardian_login: str
+    ) -> list[tuple[str, str]]:
+        """Return the ``(loginId, child header)`` pairs to try, best guess first.
+
+        A pair already known to work for this child is moved to the front.
+        """
+        return _ordered_unique(
             self._easyiq_identifiers.get(child_user_id, [])
             + [
                 (child_profile_id, child_user_id),
@@ -247,22 +213,50 @@ class AulaWidgetsClient:
             ]
         )
 
+    async def _get_easyiq_events(
+        self,
+        *,
+        path: str,
+        extra_params: dict[str, str],
+        week: str,
+        institution_filter: list[str],
+        child_profile_id: str,
+        child_user_id: str,
+        guardian_login: str,
+        widget_id: str,
+    ) -> list[EasyIQCalendarEvent]:
+        """Read one of the EasyIQ portal's week controllers for a child.
+
+        EasyIQ accepts different Aula identifiers for ``loginId`` and the child
+        headers depending on the institution, and answers either 500 or
+        200-with-nothing for the ones it does not recognise. Rather than guess,
+        this tries the known combinations in turn and keeps the one that
+        returns rows, remembering it so later weeks cost a single request. A
+        remembered combination that stops working costs one wasted request
+        before the rest are tried again.
+        """
+        token = await self._get_bearer_token(widget_id)
+        base_headers = self.easyiq_headers(token, institution_filter, guardian_login)
+        params = {"date": monday_of_week(week), **extra_params}
+
         first_empty: list[EasyIQCalendarEvent] | None = None
         last_error: Exception | None = None
 
-        for login_id, child_header in variants:
+        for login_id, child_header in self.easyiq_identifier_variants(
+            child_profile_id, child_user_id, guardian_login
+        ):
             headers = {**base_headers, "x-child": child_header, "x-childfilter": child_header}
             try:
                 resp = await self._api_client._request_with_version_retry(
                     "get",
-                    f"{EASYIQ_PORTAL}/Calendar/CalendarGetWeekplanEvents",
+                    f"{EASYIQ_PORTAL}{path}",
                     params={**params, "loginId": login_id},
                     headers=headers,
                 )
                 resp.raise_for_status()
             except Exception as e:
                 last_error = e
-                _LOGGER.debug("EasyIQ calendar rejected loginId=%s: %s", login_id, e)
+                _LOGGER.debug("EasyIQ %s rejected loginId=%s: %s", path, login_id, e)
                 continue
 
             events = [EasyIQCalendarEvent.from_dict(e) for e in _extract_events(resp.json())]
@@ -277,6 +271,64 @@ class AulaWidgetsClient:
         if last_error is not None:
             raise last_error
         return []
+
+    async def get_easyiq_calendar_events(
+        self,
+        *,
+        week: str,
+        institution_filter: list[str],
+        child_profile_id: str,
+        child_user_id: str,
+        guardian_login: str,
+        widget_id: str = WIDGET_EASYIQ_WEEKPLAN,
+    ) -> list[EasyIQCalendarEvent]:
+        """Fetch a child's EasyIQ week of lessons and calendar entries.
+
+        This controller carries the weekly plan only. Homework has its own,
+        see :meth:`get_easyiq_homework_events`.
+        """
+        return await self._get_easyiq_events(
+            path=EASYIQ_CALENDAR_PATH,
+            extra_params={
+                "activityFilter": "-1",
+                "courseFilter": "-1",
+                "textFilter": "",
+                "ownWeekPlan": "false",
+            },
+            week=week,
+            institution_filter=institution_filter,
+            child_profile_id=child_profile_id,
+            child_user_id=child_user_id,
+            guardian_login=guardian_login,
+            widget_id=widget_id,
+        )
+
+    async def get_easyiq_homework_events(
+        self,
+        *,
+        week: str,
+        institution_filter: list[str],
+        child_profile_id: str,
+        child_user_id: str,
+        guardian_login: str,
+        widget_id: str = WIDGET_EASYIQ_HOMEWORK,
+    ) -> list[EasyIQCalendarEvent]:
+        """Fetch a child's EasyIQ homework rows for a week.
+
+        The weekly plan controller never returns homework, so this reads the
+        homework widget's own controller. Guardians send an empty
+        ``activityFilter``, which is what the widget itself does.
+        """
+        return await self._get_easyiq_events(
+            path=EASYIQ_HOMEWORK_PATH,
+            extra_params={"activityFilter": ""},
+            week=week,
+            institution_filter=institution_filter,
+            child_profile_id=child_profile_id,
+            child_user_id=child_user_id,
+            guardian_login=guardian_login,
+            widget_id=widget_id,
+        )
 
     async def get_easyiq_weekplan(
         self,
@@ -364,19 +416,25 @@ class AulaWidgetsClient:
         ``child_id`` is the child's Aula user ID and ``child_profile_id`` their
         institution profile ID; EasyIQ wants both.
         """
-        events = await self.get_easyiq_calendar_events(
+        events = await self.get_easyiq_homework_events(
             week=week,
             institution_filter=institution_filter,
             child_profile_id=child_profile_id,
             child_user_id=child_id,
             guardian_login=session_uuid,
-            widget_id=WIDGET_EASYIQ_HOMEWORK,
         )
-        return [
-            EasyIQHomework.from_calendar_event(event)
-            for event in events
-            if event.item_type in HOMEWORK_ITEM_TYPES
-        ]
+        homework = [event for event in events if event.item_type in HOMEWORK_ITEM_TYPES]
+        if events and not homework:
+            # The controller only serves homework, so an unfamiliar item type
+            # is no reason to drop the rows and report nothing.
+            _LOGGER.info(
+                "EasyIQ homework returned %d row(s) of item type %s, none of type %s; keeping them",
+                len(events),
+                sorted({event.item_type for event in events}, key=str),
+                HOMEWORK_ITEM_TYPES,
+            )
+            homework = events
+        return [EasyIQHomework.from_calendar_event(event) for event in homework]
 
     async def get_meebook_weekplan(
         self,

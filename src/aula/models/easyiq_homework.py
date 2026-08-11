@@ -36,9 +36,10 @@ class EasyIQHomework(AulaDataClass):
         ``False``. The subject doubles as the title, matching how the EasyIQ
         widget itself labels homework.
         """
+        row = {str(k).lower(): v for k, v in (event._raw or {}).items()}
         return cls(
             _raw=event._raw,
-            id=str(event._raw.get("id", "") if event._raw else "") or event.start,
+            id=str(row.get("id") or "") or event.start,
             title=event.title,
             description=event.description,
             due_date=event.start,

@@ -8,6 +8,8 @@ from aula.api_client import AulaApiClient
 from aula.const import (
     CICERO_API,
     EASYIQ_API,
+    EASYIQ_CALENDAR_PATH,
+    EASYIQ_HOMEWORK_PATH,
     EASYIQ_PORTAL,
     MEEBOOK_API,
     MIN_UDDANNELSE_API,
@@ -19,7 +21,8 @@ from aula.const import (
 )
 from aula.http import AulaNotFoundError
 
-EASYIQ_CALENDAR_URL = f"{EASYIQ_PORTAL}/Calendar/CalendarGetWeekplanEvents"
+EASYIQ_CALENDAR_URL = f"{EASYIQ_PORTAL}{EASYIQ_CALENDAR_PATH}"
+EASYIQ_HOMEWORK_URL = f"{EASYIQ_PORTAL}{EASYIQ_HOMEWORK_PATH}"
 
 
 def _token_response(token: str) -> Mock:
@@ -29,10 +32,10 @@ def _token_response(token: str) -> Mock:
     return resp
 
 
-def _calendar_response(events: list[dict]) -> Mock:
+def _calendar_response(payload: object) -> Mock:
     resp = Mock()
     resp.raise_for_status = Mock()
-    resp.json = Mock(return_value=events)
+    resp.json = Mock(return_value=payload)
     return resp
 
 
@@ -205,26 +208,21 @@ class TestWidgetsClient:
         assert easyiq_response.method_calls == [call.raise_for_status(), call.json()]
 
     @pytest.mark.asyncio
-    async def test_get_easyiq_homework_reads_the_portal_calendar(self, client):
-        """Homework comes from the portal calendar; ``/homeworkinfo`` 404s."""
-        calendar = _calendar_response(
+    async def test_get_easyiq_homework_reads_the_homework_controller(self, client):
+        """The calendar controller never returns homework; this one does."""
+        homework_rows = _calendar_response(
             [
                 {
-                    "itemType": 4,
-                    "start": "2026-02-28T00:00:00",
-                    "courses": "Dansk",
-                    "activities": "Læselektie",
-                    "description": "<p>Pages 40-55</p>",
-                },
-                {
-                    "itemType": 9,
-                    "start": "2026-02-24T08:00:00",
-                    "courses": "Matematik",
-                },
+                    "ItemType": 4,
+                    "Start": "2026-02-28T00:00:00",
+                    "Courses": "Dansk",
+                    "Activities": "Læselektie",
+                    "Description": "<p>Pages 40-55</p>",
+                }
             ]
         )
         client._request_with_version_retry = AsyncMock(
-            side_effect=[_token_response("token-easy-hw"), calendar]
+            side_effect=[_token_response("token-easy-hw"), homework_rows]
         )
 
         homework = await client.widgets.get_easyiq_homework(
@@ -235,7 +233,7 @@ class TestWidgetsClient:
             child_profile_id="4242",
         )
 
-        # The weekplan row of the same response is not homework.
+        # PascalCase keys: this controller does not answer in camelCase.
         assert len(homework) == 1
         assert homework[0].title == "Dansk"
         assert homework[0].subject == "Dansk"
@@ -248,13 +246,10 @@ class TestWidgetsClient:
             "get",
             f"{client.api_url}?method=aulaToken.getAulaToken&widgetId={WIDGET_EASYIQ_HOMEWORK}",
         )
-        assert calls[1].args == ("get", EASYIQ_CALENDAR_URL)
+        assert calls[1].args == ("get", EASYIQ_HOMEWORK_URL)
         assert calls[1].kwargs["params"] == {
             "date": "2026-02-23T00:00:00Z",
-            "activityFilter": "-1",
-            "courseFilter": "-1",
-            "textFilter": "",
-            "ownWeekPlan": "false",
+            "activityFilter": "",
             "loginId": "4242",
         }
         assert calls[1].kwargs["headers"] == {
@@ -268,6 +263,44 @@ class TestWidgetsClient:
             "x-child": "child-user-1",
             "x-childfilter": "child-user-1",
         }
+
+    @pytest.mark.asyncio
+    async def test_get_easyiq_homework_keeps_rows_of_an_unfamiliar_item_type(self, client):
+        """The controller only serves homework, so never report nothing instead."""
+        client._request_with_version_retry = AsyncMock(
+            side_effect=[
+                _token_response("token-easy-hw"),
+                _calendar_response([{"ItemType": 11, "Courses": "Dansk"}]),
+            ]
+        )
+
+        homework = await client.widgets.get_easyiq_homework(
+            week="2026-W09",
+            session_uuid="guardian-1",
+            institution_filter=["inst-1"],
+            child_id="child-user-1",
+            child_profile_id="4242",
+        )
+
+        assert [hw.subject for hw in homework] == ["Dansk"]
+
+    @pytest.mark.asyncio
+    async def test_get_easyiq_weekplan_does_not_use_the_homework_controller(self, client):
+        client._request_with_version_retry = AsyncMock(
+            side_effect=[
+                _token_response("token-easy"),
+                _calendar_response({"data": {"appointments": []}}),
+                _token_response("token-easy"),
+                _calendar_response([{"itemType": 9, "courses": "Matematik"}]),
+            ]
+        )
+
+        await client.widgets.get_easyiq_weekplan(
+            "2026-W09", "guardian-1", ["inst-1"], "child-user-1", child_profile_id="4242"
+        )
+
+        calls = client._request_with_version_retry.await_args_list
+        assert calls[3].args == ("get", EASYIQ_CALENDAR_URL)
 
     @pytest.mark.asyncio
     async def test_easyiq_calendar_falls_through_to_the_accepted_identifiers(self, client):

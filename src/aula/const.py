@@ -6,7 +6,12 @@ SYSTEMATIC_API = "https://systematic-momo.dk/api/aula"
 EASYIQ_API = "https://api.easyiqcloud.dk/api/aula"
 # EasyIQ serves homework and weekplan rows from its school portal, not from the
 # aula REST API. ``/api/aula/homeworkinfo`` was removed upstream and now 404s.
+# The two data types live on separate controllers: the calendar one never
+# returns homework rows.
 EASYIQ_PORTAL = "https://skoleportal.easyiqcloud.dk"
+EASYIQ_CALENDAR_PATH = "/Calendar/CalendarGetWeekplanEvents"
+EASYIQ_HOMEWORK_PATH = "/AulaHuskeliste/GetWeekplanEvents"
+EASYIQ_CHILDREN_PATH = "/Aula/GetChildren"
 MEEBOOK_API = "https://app.meebook.com/aulaapi"
 CICERO_API = "https://surf.cicero-suite.com/portal-api/rest/aula"
 

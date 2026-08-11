@@ -8,18 +8,26 @@ from .base import AulaDataClass
 WEEKPLAN_ITEM_TYPES = (8, 9)
 HOMEWORK_ITEM_TYPES = (4,)
 
-_START_KEYS = ("start", "startDateTime", "startTime", "from")
-_END_KEYS = ("end", "endDateTime", "endTime", "to")
+#: Keys are matched case-insensitively: EasyIQ's calendar controller answers in
+#: camelCase (``itemType``) and its homework controller in PascalCase
+#: (``ItemType``), so a case-sensitive lookup silently parses nothing.
+_START_KEYS = ("start", "startdatetime", "starttime", "from")
+_END_KEYS = ("end", "enddatetime", "endtime", "to")
 _COURSE_KEYS = ("courses", "course", "subject", "title", "name")
-_ACTIVITY_KEYS = ("activities", "activity", "lesson", "className")
+_ACTIVITY_KEYS = ("activities", "activity", "lesson", "classname")
 _DESCRIPTION_KEYS = ("description", "details", "note", "content")
-_ITEM_TYPE_KEYS = ("itemType", "itemTypeId", "type")
+_ITEM_TYPE_KEYS = ("itemtype", "itemtypeid", "type")
 
 
-def _first_text(data: dict[str, Any], keys: tuple[str, ...]) -> str:
+def _fold_keys(data: dict[str, Any]) -> dict[str, Any]:
+    """Index a row by lowercased key so either casing resolves."""
+    return {str(key).lower(): value for key, value in data.items()}
+
+
+def _first_text(folded: dict[str, Any], keys: tuple[str, ...]) -> str:
     """Return the first non-empty string value among ``keys``."""
     for key in keys:
-        value = data.get(key)
+        value = folded.get(key)
         if isinstance(value, list):
             value = ", ".join(str(v) for v in value if v)
         if value is None or isinstance(value, bool):
@@ -30,10 +38,10 @@ def _first_text(data: dict[str, Any], keys: tuple[str, ...]) -> str:
     return ""
 
 
-def _item_type(data: dict[str, Any]) -> int | None:
+def _item_type(folded: dict[str, Any]) -> int | None:
     """Return the EasyIQ item type as an int, tolerating string encodings."""
     for key in _ITEM_TYPE_KEYS:
-        value = data.get(key)
+        value = folded.get(key)
         if isinstance(value, dict):
             value = value.get("id", value.get("value"))
         if value is None or isinstance(value, bool):
@@ -65,14 +73,15 @@ class EasyIQCalendarEvent(AulaDataClass):
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> EasyIQCalendarEvent:
+        folded = _fold_keys(data)
         return cls(
             _raw=data,
-            item_type=_item_type(data),
-            start=_first_text(data, _START_KEYS),
-            end=_first_text(data, _END_KEYS),
-            courses=_first_text(data, _COURSE_KEYS),
-            activities=_first_text(data, _ACTIVITY_KEYS),
-            description=_first_text(data, _DESCRIPTION_KEYS),
+            item_type=_item_type(folded),
+            start=_first_text(folded, _START_KEYS),
+            end=_first_text(folded, _END_KEYS),
+            courses=_first_text(folded, _COURSE_KEYS),
+            activities=_first_text(folded, _ACTIVITY_KEYS),
+            description=_first_text(folded, _DESCRIPTION_KEYS),
         )
 
     @property
