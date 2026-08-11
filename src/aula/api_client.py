@@ -623,7 +623,59 @@ class AulaApiClient:
         from_date: date,
         to_date: date,
     ) -> list[PresenceRegistration]:
-        """Fetch presence registrations for the given profiles and date range."""
+        """Fetch presence registrations for the given profiles and date range.
+
+        Aula rejects the whole batch when any one profile cannot be queried -
+        a school child alongside a daycare child is enough to turn the request
+        into an HTTP 400. Rather than lose every child's data to one of them,
+        a failed batch is retried per profile and the profiles that still fail
+        are skipped with a warning. The error is only raised when no profile
+        can be read at all.
+        """
+        try:
+            return await self._fetch_presence_registrations(
+                institution_profile_ids, from_date, to_date
+            )
+        except HttpRequestError as e:
+            if len(institution_profile_ids) <= 1:
+                raise
+            _LOGGER.warning(
+                "Presence registrations failed for %d profiles at once (%s), retrying one by one",
+                len(institution_profile_ids),
+                e,
+            )
+            batch_error = e
+
+        result: list[PresenceRegistration] = []
+        failed: list[int] = []
+        for profile_id in institution_profile_ids:
+            try:
+                result.extend(
+                    await self._fetch_presence_registrations([profile_id], from_date, to_date)
+                )
+            except HttpRequestError as e:
+                _LOGGER.debug(
+                    "Presence registrations unavailable for profile %s: %s", profile_id, e
+                )
+                failed.append(profile_id)
+
+        if len(failed) == len(institution_profile_ids):
+            raise batch_error
+        if failed:
+            _LOGGER.warning(
+                "Skipped presence registrations for profile(s) %s; "
+                "their institution likely does not use the presence module",
+                ", ".join(str(profile_id) for profile_id in failed),
+            )
+        return result
+
+    async def _fetch_presence_registrations(
+        self,
+        institution_profile_ids: list[int],
+        from_date: date,
+        to_date: date,
+    ) -> list[PresenceRegistration]:
+        """Fetch presence registrations for exactly the profiles given."""
         params: dict[str, Any] = {
             "method": "presence.getPresenceRegistrations",
             "institutionProfileIds[]": institution_profile_ids,

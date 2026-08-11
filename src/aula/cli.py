@@ -1724,10 +1724,15 @@ async def easyiq_ugeplan(ctx, week):
                 child_id = str(child._raw["userId"])
                 try:
                     appointments = await client.widgets.get_easyiq_weekplan(
-                        week, session_uuid, institution_filter, child_id
+                        week,
+                        session_uuid,
+                        institution_filter,
+                        child_id,
+                        child_profile_id=str(child.id),
                     )
                     all_appointments.extend(dict(a) for a in appointments)
-                except Exception:
+                except Exception as e:
+                    print_error(f"fetching EasyIQ weekplan for {child.name}: {e}", err=True)
                     continue
             click.echo(to_json(all_appointments))
             return
@@ -1742,7 +1747,11 @@ async def easyiq_ugeplan(ctx, week):
 
             try:
                 appointments = await client.widgets.get_easyiq_weekplan(
-                    week, session_uuid, institution_filter, child_id
+                    week,
+                    session_uuid,
+                    institution_filter,
+                    child_id,
+                    child_profile_id=str(child.id),
                 )
             except Exception as e:
                 print_error(f"fetching EasyIQ weekplan for {child.name}: {e}")
@@ -1817,10 +1826,15 @@ async def easyiq_homework(ctx, week):
                 child_id = str(child._raw["userId"])
                 try:
                     homework = await client.widgets.get_easyiq_homework(
-                        week, session_uuid, institution_filter, child_id
+                        week,
+                        session_uuid,
+                        institution_filter,
+                        child_id,
+                        child_profile_id=str(child.id),
                     )
                     all_homework.extend(dict(hw) for hw in homework)
-                except Exception:
+                except Exception as e:
+                    print_error(f"fetching EasyIQ homework for {child.name}: {e}", err=True)
                     continue
             click.echo(to_json(all_homework))
             return
@@ -1835,7 +1849,11 @@ async def easyiq_homework(ctx, week):
 
             try:
                 homework = await client.widgets.get_easyiq_homework(
-                    week, session_uuid, institution_filter, child_id
+                    week,
+                    session_uuid,
+                    institution_filter,
+                    child_id,
+                    child_profile_id=str(child.id),
                 )
             except Exception as e:
                 print_error(f"fetching EasyIQ homework for {child.name}: {e}")
@@ -2693,7 +2711,11 @@ async def weekly_summary(ctx, child, week, providers):
 
                 try:
                     appointments = await client.widgets.get_easyiq_weekplan(
-                        week, session_uuid, c_institutions or institution_filter, c_user_id
+                        week,
+                        session_uuid,
+                        c_institutions or institution_filter,
+                        c_user_id,
+                        child_profile_id=str(c.id),
                     )
                 except Exception as e:
                     _log.warning("Could not fetch EasyIQ weekplan for %s: %s", c.name, e)
@@ -2740,7 +2762,11 @@ async def weekly_summary(ctx, child, week, providers):
 
                 try:
                     homework = await client.widgets.get_easyiq_homework(
-                        week, session_uuid, c_institutions or institution_filter, c_user_id
+                        week,
+                        session_uuid,
+                        c_institutions or institution_filter,
+                        c_user_id,
+                        child_profile_id=str(c.id),
                     )
                 except Exception as e:
                     _log.warning("Could not fetch EasyIQ homework for %s: %s", c.name, e)

@@ -6,6 +6,9 @@ from .comment import Comment as Comment
 from .consent import ConsentResponse as ConsentResponse
 from .daily_overview import DailyOverview as DailyOverview
 from .document import SecureDocument as SecureDocument
+from .easyiq_calendar_event import HOMEWORK_ITEM_TYPES as HOMEWORK_ITEM_TYPES
+from .easyiq_calendar_event import WEEKPLAN_ITEM_TYPES as WEEKPLAN_ITEM_TYPES
+from .easyiq_calendar_event import EasyIQCalendarEvent as EasyIQCalendarEvent
 from .easyiq_homework import EasyIQHomework as EasyIQHomework
 from .group import Group as Group
 from .group import GroupMember as GroupMember

@@ -8,13 +8,32 @@ from aula.api_client import AulaApiClient
 from aula.const import (
     CICERO_API,
     EASYIQ_API,
+    EASYIQ_PORTAL,
     MEEBOOK_API,
     MIN_UDDANNELSE_API,
     SYSTEMATIC_API,
+    WIDGET_EASYIQ_HOMEWORK,
     WIDGET_HUSKELISTEN,
     WIDGET_MIN_UDDANNELSE_TASKS,
     WIDGET_MIN_UDDANNELSE_UGEPLAN,
 )
+from aula.http import AulaNotFoundError
+
+EASYIQ_CALENDAR_URL = f"{EASYIQ_PORTAL}/Calendar/CalendarGetWeekplanEvents"
+
+
+def _token_response(token: str) -> Mock:
+    resp = Mock()
+    resp.raise_for_status = Mock()
+    resp.json = Mock(return_value={"data": token})
+    return resp
+
+
+def _calendar_response(events: list[dict]) -> Mock:
+    resp = Mock()
+    resp.raise_for_status = Mock()
+    resp.json = Mock(return_value=events)
+    return resp
 
 
 class TestWidgetsClient:
@@ -186,63 +205,207 @@ class TestWidgetsClient:
         assert easyiq_response.method_calls == [call.raise_for_status(), call.json()]
 
     @pytest.mark.asyncio
-    async def test_get_easyiq_homework_uses_token_and_expected_request_shape(self, client):
-        token_response = Mock()
-        token_response.raise_for_status = Mock()
-        token_response.json = Mock(return_value={"data": "token-easy-hw"})
-
-        homework_response = Mock()
-        homework_response.raise_for_status = Mock()
-        homework_response.json = Mock(
-            return_value={
-                "data": {
-                    "homework": [
-                        {
-                            "id": "hw-1",
-                            "title": "Read chapter 5",
-                            "description": "<p>Pages 40-55</p>",
-                            "dueDate": "2026-02-28",
-                            "subject": "Danish",
-                            "isCompleted": False,
-                        }
-                    ]
-                }
-            }
+    async def test_get_easyiq_homework_reads_the_portal_calendar(self, client):
+        """Homework comes from the portal calendar; ``/homeworkinfo`` 404s."""
+        calendar = _calendar_response(
+            [
+                {
+                    "itemType": 4,
+                    "start": "2026-02-28T00:00:00",
+                    "courses": "Dansk",
+                    "activities": "Læselektie",
+                    "description": "<p>Pages 40-55</p>",
+                },
+                {
+                    "itemType": 9,
+                    "start": "2026-02-24T08:00:00",
+                    "courses": "Matematik",
+                },
+            ]
         )
-
         client._request_with_version_retry = AsyncMock(
-            side_effect=[token_response, homework_response]
+            side_effect=[_token_response("token-easy-hw"), calendar]
         )
 
         homework = await client.widgets.get_easyiq_homework(
             week="2026-W09",
-            session_uuid="session-1",
+            session_uuid="guardian-1",
             institution_filter=["inst-1", "inst-2"],
-            child_id="child-1",
+            child_id="child-user-1",
+            child_profile_id="4242",
         )
 
+        # The weekplan row of the same response is not homework.
         assert len(homework) == 1
-        assert homework[0].id == "hw-1"
-        assert homework[0].title == "Read chapter 5"
+        assert homework[0].title == "Dansk"
+        assert homework[0].subject == "Dansk"
         assert homework[0].description == "<p>Pages 40-55</p>"
-        assert homework[0].due_date == "2026-02-28"
-        assert homework[0].subject == "Danish"
+        assert homework[0].due_date == "2026-02-28T00:00:00"
         assert homework[0].is_completed is False
 
         calls = client._request_with_version_retry.await_args_list
-        assert calls[1].args == ("post", f"{EASYIQ_API}/homeworkinfo")
+        assert calls[0].args == (
+            "get",
+            f"{client.api_url}?method=aulaToken.getAulaToken&widgetId={WIDGET_EASYIQ_HOMEWORK}",
+        )
+        assert calls[1].args == ("get", EASYIQ_CALENDAR_URL)
+        assert calls[1].kwargs["params"] == {
+            "date": "2026-02-23T00:00:00Z",
+            "activityFilter": "-1",
+            "courseFilter": "-1",
+            "textFilter": "",
+            "ownWeekPlan": "false",
+            "loginId": "4242",
+        }
         assert calls[1].kwargs["headers"] == {
             "Authorization": "Bearer token-easy-hw",
-            "x-aula-institutionfilter": "inst-1,inst-2",
+            "Accept": "application/json",
+            "x-institutionfilter": "inst-1,inst-2",
+            "x-userprofile": "guardian",
+            "x-login": "guardian-1",
+            "x-requested-with": "XMLHttpRequest",
+            "Referer": f"{EASYIQ_PORTAL}/UgeplanWidget",
+            "x-child": "child-user-1",
+            "x-childfilter": "child-user-1",
         }
-        assert calls[1].kwargs["json"] == {
-            "sessionId": "session-1",
-            "currentWeekNr": "2026-W09",
-            "userProfile": "guardian",
-            "institutionFilter": ["inst-1", "inst-2"],
-            "childFilter": ["child-1"],
+
+    @pytest.mark.asyncio
+    async def test_easyiq_calendar_falls_through_to_the_accepted_identifiers(self, client):
+        """EasyIQ answers 200-with-nothing for identifiers it does not know."""
+        client._request_with_version_retry = AsyncMock(
+            side_effect=[
+                _token_response("token-easy"),
+                _calendar_response([]),  # profile login / user child
+                _calendar_response([{"itemType": 4, "courses": "Dansk"}]),  # user login
+            ]
+        )
+
+        homework = await client.widgets.get_easyiq_homework(
+            week="2026-W09",
+            session_uuid="guardian-1",
+            institution_filter=["inst-1"],
+            child_id="child-user-1",
+            child_profile_id="4242",
+        )
+
+        assert [hw.subject for hw in homework] == ["Dansk"]
+        calls = client._request_with_version_retry.await_args_list
+        assert [c.kwargs["params"]["loginId"] for c in calls[1:]] == ["4242", "child-user-1"]
+
+    @pytest.mark.asyncio
+    async def test_easyiq_calendar_reuses_the_identifiers_that_worked(self, client):
+        """A second week must not re-probe every identifier combination."""
+        client._request_with_version_retry = AsyncMock(
+            side_effect=[
+                _token_response("token-easy"),
+                _calendar_response([]),
+                _calendar_response([{"itemType": 4, "courses": "Dansk"}]),
+                _token_response("token-easy"),
+                _calendar_response([{"itemType": 4, "courses": "Matematik"}]),
+            ]
+        )
+        kwargs = {
+            "session_uuid": "guardian-1",
+            "institution_filter": ["inst-1"],
+            "child_id": "child-user-1",
+            "child_profile_id": "4242",
         }
-        assert homework_response.method_calls == [call.raise_for_status(), call.json()]
+
+        await client.widgets.get_easyiq_homework(week="2026-W09", **kwargs)
+        homework = await client.widgets.get_easyiq_homework(week="2026-W10", **kwargs)
+
+        assert [hw.subject for hw in homework] == ["Matematik"]
+        calls = client._request_with_version_retry.await_args_list
+        assert len(calls) == 5
+        assert calls[4].kwargs["params"]["loginId"] == "child-user-1"
+
+    @pytest.mark.asyncio
+    async def test_easyiq_calendar_raises_when_every_identifier_is_rejected(self, client):
+        rejected = Mock()
+        rejected.raise_for_status = Mock(side_effect=AulaNotFoundError("HTTP 404", 404))
+        client._request_with_version_retry = AsyncMock(
+            side_effect=[_token_response("token-easy"), rejected, rejected, rejected, rejected]
+        )
+
+        with pytest.raises(AulaNotFoundError):
+            await client.widgets.get_easyiq_homework(
+                week="2026-W09",
+                session_uuid="guardian-1",
+                institution_filter=["inst-1"],
+                child_id="child-user-1",
+                child_profile_id="4242",
+            )
+
+    @pytest.mark.asyncio
+    async def test_get_easyiq_weekplan_falls_back_to_the_portal_when_the_api_fails(self, client):
+        failing = Mock()
+        failing.raise_for_status = Mock(side_effect=AulaNotFoundError("HTTP 404", 404))
+        client._request_with_version_retry = AsyncMock(
+            side_effect=[
+                _token_response("token-easy"),
+                failing,
+                _token_response("token-easy"),
+                _calendar_response(
+                    [
+                        {"itemType": 9, "courses": "Matematik", "start": "2026-02-24T08:00:00"},
+                        {"itemType": 4, "courses": "Dansk"},
+                    ]
+                ),
+            ]
+        )
+
+        appointments = await client.widgets.get_easyiq_weekplan(
+            "2026-W09",
+            "guardian-1",
+            ["inst-1"],
+            "child-user-1",
+            child_profile_id="4242",
+        )
+
+        # Homework rows in the same response stay out of the weekly plan.
+        assert [a.title for a in appointments] == ["Matematik"]
+        assert appointments[0].start == "2026-02-24T08:00:00"
+        calls = client._request_with_version_retry.await_args_list
+        assert calls[1].args == ("post", f"{EASYIQ_API}/weekplaninfo")
+        assert calls[3].args == ("get", EASYIQ_CALENDAR_URL)
+
+    @pytest.mark.asyncio
+    async def test_get_easyiq_weekplan_falls_back_when_the_api_returns_nothing(self, client):
+        """A 200 with an empty appointment list is the shape issue #45 reported."""
+        empty = Mock()
+        empty.raise_for_status = Mock()
+        empty.json = Mock(return_value={"data": {"appointments": []}})
+        client._request_with_version_retry = AsyncMock(
+            side_effect=[
+                _token_response("token-easy"),
+                empty,
+                _token_response("token-easy"),
+                _calendar_response([{"itemType": 8, "courses": "Idræt"}]),
+            ]
+        )
+
+        appointments = await client.widgets.get_easyiq_weekplan(
+            "2026-W09",
+            "guardian-1",
+            ["inst-1"],
+            "child-user-1",
+            child_profile_id="4242",
+        )
+
+        assert [a.title for a in appointments] == ["Idræt"]
+
+    @pytest.mark.asyncio
+    async def test_get_easyiq_weekplan_raises_when_no_profile_id_to_fall_back_with(self, client):
+        failing = Mock()
+        failing.raise_for_status = Mock(side_effect=AulaNotFoundError("HTTP 404", 404))
+        client._request_with_version_retry = AsyncMock(
+            side_effect=[_token_response("token-easy"), failing]
+        )
+
+        with pytest.raises(AulaNotFoundError):
+            await client.widgets.get_easyiq_weekplan(
+                "2026-W09", "guardian-1", ["inst-1"], "child-user-1"
+            )
 
     @pytest.mark.asyncio
     async def test_get_meebook_weekplan_uses_token_and_expected_request_shape(self, client):

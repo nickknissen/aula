@@ -34,9 +34,13 @@ def print_empty(resource: str) -> None:
     click.echo(f"No {resource} found.")
 
 
-def print_error(message: str) -> None:
-    """Print the shared error sentence."""
-    click.echo(f"Error: {message}")
+def print_error(message: str, err: bool = False) -> None:
+    """Print the shared error sentence.
+
+    Pass ``err=True`` to route it to stderr, which commands must do while
+    emitting JSON so the error does not land in the middle of the document.
+    """
+    click.echo(f"Error: {message}", err=err)
 
 
 def clip(text: str, max_len: int = 120) -> str:

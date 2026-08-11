@@ -4,11 +4,13 @@ API_VERSION = "24"
 MIN_UDDANNELSE_API = "https://api.minuddannelse.net/aula"
 SYSTEMATIC_API = "https://systematic-momo.dk/api/aula"
 EASYIQ_API = "https://api.easyiqcloud.dk/api/aula"
+# EasyIQ serves homework and weekplan rows from its school portal, not from the
+# aula REST API. ``/api/aula/homeworkinfo`` was removed upstream and now 404s.
+EASYIQ_PORTAL = "https://skoleportal.easyiqcloud.dk"
 MEEBOOK_API = "https://app.meebook.com/aulaapi"
 CICERO_API = "https://surf.cicero-suite.com/portal-api/rest/aula"
 
 # Widget IDs for third-party integrations
-WIDGET_EASYIQ = "0001"
 WIDGET_EASYIQ_WEEKPLAN = "0128"
 WIDGET_EASYIQ_HOMEWORK = "0142"
 WIDGET_BIBLIOTEKET = "0019"

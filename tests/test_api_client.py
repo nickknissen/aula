@@ -11,6 +11,7 @@ from aula.const import API_URL, API_VERSION, CSRF_TOKEN_HEADER
 from aula.http import (
     AulaAuthenticationError,
     AulaServerError,
+    HttpRequestError,
     HttpResponse,
 )
 
@@ -1805,6 +1806,53 @@ class TestGetPresenceRegistrations:
         )
         result = await client.get_presence_registrations([201], date(2026, 3, 8), date(2026, 3, 8))
         assert result == []
+
+    @pytest.mark.asyncio
+    async def test_batch_400_retries_each_profile_and_keeps_what_works(self, client):
+        """One profile without presence must not blank out the others."""
+        ok = HttpResponse(
+            status_code=200,
+            data={"data": [{"id": 1, "institutionProfileId": 201, "status": 3}]},
+        )
+        client._request_with_version_retry = AsyncMock(
+            side_effect=[
+                HttpResponse(status_code=400, data=None),  # both profiles at once
+                ok,  # 201 alone
+                HttpResponse(status_code=400, data=None),  # 202 alone
+            ]
+        )
+
+        result = await client.get_presence_registrations(
+            [201, 202], date(2026, 3, 8), date(2026, 3, 8)
+        )
+
+        assert [r.institution_profile_id for r in result] == [201]
+        retried = client._request_with_version_retry.await_args_list
+        assert [c.kwargs["params"]["institutionProfileIds[]"] for c in retried] == [
+            [201, 202],
+            [201],
+            [202],
+        ]
+
+    @pytest.mark.asyncio
+    async def test_batch_400_raises_when_no_profile_can_be_read(self, client):
+        client._request_with_version_retry = AsyncMock(
+            return_value=HttpResponse(status_code=400, data=None)
+        )
+
+        with pytest.raises(HttpRequestError):
+            await client.get_presence_registrations([201, 202], date(2026, 3, 8), date(2026, 3, 8))
+
+    @pytest.mark.asyncio
+    async def test_single_profile_failure_is_not_retried(self, client):
+        client._request_with_version_retry = AsyncMock(
+            return_value=HttpResponse(status_code=400, data=None)
+        )
+
+        with pytest.raises(HttpRequestError):
+            await client.get_presence_registrations([201], date(2026, 3, 8), date(2026, 3, 8))
+
+        assert client._request_with_version_retry.await_count == 1
 
 
 class TestGetPresenceRegistrationDetail:
