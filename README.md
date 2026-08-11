@@ -91,11 +91,31 @@ Legacy direct widget methods on `AulaApiClient` are deprecated and will be remov
 ### What You Need
 
 - **MitID username** — your MitID username (not your Aula username). Find it at [mitid.dk](https://mitid.dk/).
-- **MitID app** — installed and set up on your phone.
+- **A MitID authenticator** — either the MitID app on your phone, or a MitID kodeviser (code display device) plus your MitID password.
+
+### Authentication Methods
+
+Pick with `--auth-method` (or the `AULA_AUTH_METHOD` env var):
+
+| Method | Flag | What happens |
+|---|---|---|
+| MitID app | `--auth-method app` (default) | QR codes are printed in the terminal for you to scan. If your app asks for a code instead of a scan, that code is printed too. |
+| MitID kodeviser | `--auth-method token` | You're asked for the 6 digits on your kodeviser, then your MitID password. |
+
+MitID chip and audio code readers (kodeoplæser) are not supported. If your account offers one, it's listed in a warning at `-v` and the login falls back to whatever else you have.
 
 ### First Login
 
-On first run you'll be prompted to approve the login in your MitID app. You may need to scan a QR code or enter an OTP shown in the terminal. Tokens are saved to the storage file and reused on subsequent runs — no app interaction needed until they expire.
+On first run you'll be prompted to approve the login. Tokens are saved to the storage file and reused on subsequent runs — no authenticator interaction needed until they expire.
+
+For the kodeviser method you can skip the prompts:
+
+```bash
+export AULA_MITID_PASSWORD='...'      # or --password
+aula --auth-method token --token-code 123456 messages
+```
+
+The kodeviser code rotates, so `--token-code` is only useful for a single run. The password is never written to the config file; supply it per-run or via the environment.
 
 ### Token Security
 
@@ -195,6 +215,8 @@ The username can also be set via the `AULA_MITID_USERNAME` environment variable 
 | `--username` | MitID username (or `AULA_MITID_USERNAME` env var) |
 | `--output text\|json` | Output format (or `AULA_OUTPUT` env var) |
 | `--auth-method app\|token` | MitID auth method (or `AULA_AUTH_METHOD` env var) |
+| `--password` | MitID password for `--auth-method token` (or `AULA_MITID_PASSWORD` env var) |
+| `--token-code` | 6 digits from your MitID kodeviser (or `AULA_MITID_TOKEN_CODE` env var) |
 | `-v` / `-vv` / `-vvv` | Increase verbosity (warning / info / debug) |
 
 ### JSON output

@@ -1,3 +1,4 @@
+import logging
 from typing import Any, Protocol
 
 from ..const import (
@@ -22,6 +23,35 @@ from ..models import (
     MUWeeklyPerson,
     UserReminders,
 )
+
+_LOGGER = logging.getLogger(__name__)
+
+
+def _as_list(data: Any, provider: str) -> list[Any]:
+    """Return ``data`` if it is a list of dicts, else log and return an empty list.
+
+    Widget providers sometimes answer 2xx with an error object instead of the
+    documented array, e.g. Meebook's ``{"message": "JWT-Token expired, please
+    renew."}``. Iterating that yields the keys as strings, which blows up in
+    ``from_dict``. ``data`` is also ``None`` when the body was not valid JSON.
+    """
+    if not isinstance(data, list):
+        _LOGGER.warning(
+            "%s returned %s instead of a list, treating as empty: %s",
+            provider,
+            type(data).__name__,
+            data,
+        )
+        return []
+
+    items = [item for item in data if isinstance(item, dict)]
+    if len(items) != len(data):
+        _LOGGER.warning(
+            "%s returned %d non-dict item(s), skipping them",
+            provider,
+            len(data) - len(items),
+        )
+    return items
 
 
 class _WidgetRequestClient(Protocol):
@@ -193,7 +223,8 @@ class AulaWidgetsClient:
             headers=headers,
         )
         resp.raise_for_status()
-        return [MeebookStudentPlan.from_dict(s) for s in resp.json()]
+        plans = _as_list(resp.json(), "Meebook weekplan")
+        return [MeebookStudentPlan.from_dict(s) for s in plans]
 
     async def get_momo_courses(
         self,
@@ -218,7 +249,8 @@ class AulaWidgetsClient:
             headers={"Aula-Authorization": token},
         )
         resp.raise_for_status()
-        return [MomoUserCourses.from_dict(u) for u in resp.json()]
+        courses = _as_list(resp.json(), "Huskelisten courses")
+        return [MomoUserCourses.from_dict(u) for u in courses]
 
     async def get_momo_reminders(
         self,
@@ -247,7 +279,8 @@ class AulaWidgetsClient:
             headers={"Aula-Authorization": token},
         )
         resp.raise_for_status()
-        return [UserReminders.from_dict(u) for u in resp.json()]
+        reminders = _as_list(resp.json(), "Huskelisten reminders")
+        return [UserReminders.from_dict(u) for u in reminders]
 
     async def get_library_status(
         self,
@@ -273,4 +306,12 @@ class AulaWidgetsClient:
             headers={"Authorization": token, "Accept": "application/json"},
         )
         resp.raise_for_status()
-        return LibraryStatus.from_dict(resp.json())
+        data = resp.json()
+        if not isinstance(data, dict):
+            _LOGGER.warning(
+                "Library status returned %s instead of an object, treating as empty: %s",
+                type(data).__name__,
+                data,
+            )
+            return LibraryStatus()
+        return LibraryStatus.from_dict(data)

@@ -486,3 +486,119 @@ class TestWidgetsClient:
             "Accept": "application/json",
         }
         assert library_response.method_calls == [call.raise_for_status(), call.json()]
+
+
+class TestWidgetsClientMalformedResponses:
+    """Providers sometimes answer 2xx with an error object instead of an array.
+
+    Meebook returns ``{"message": "JWT-Token expired, please renew."}`` when its
+    widget token has expired; iterating that yields the keys as strings.
+    """
+
+    JWT_EXPIRED = {"message": "JWT-Token expired, please renew."}
+
+    @pytest.fixture
+    def client(self):
+        return AulaApiClient(http_client=AsyncMock(), access_token="token")
+
+    @staticmethod
+    def _responses(client, body):
+        token_response = Mock()
+        token_response.raise_for_status = Mock()
+        token_response.json = Mock(return_value={"data": "token-123"})
+
+        provider_response = Mock()
+        provider_response.raise_for_status = Mock()
+        provider_response.json = Mock(return_value=body)
+
+        client._request_with_version_retry = AsyncMock(
+            side_effect=[token_response, provider_response]
+        )
+
+    @pytest.mark.asyncio
+    async def test_meebook_weekplan_returns_empty_on_jwt_expiry_message(self, client, caplog):
+        self._responses(client, self.JWT_EXPIRED)
+
+        plans = await client.widgets.get_meebook_weekplan(
+            child_filter=["child-1"],
+            institution_filter=["inst-1"],
+            week="2026-W09",
+            session_uuid="session-1",
+        )
+
+        assert plans == []
+        assert "Meebook weekplan returned dict instead of a list" in caplog.text
+        assert "JWT-Token expired" in caplog.text
+
+    @pytest.mark.asyncio
+    async def test_meebook_weekplan_skips_non_dict_items(self, client, caplog):
+        self._responses(client, [{"name": "Child", "unilogin": "abc123"}, "junk", None])
+
+        plans = await client.widgets.get_meebook_weekplan(
+            child_filter=["child-1"],
+            institution_filter=["inst-1"],
+            week="2026-W09",
+            session_uuid="session-1",
+        )
+
+        assert [plan.name for plan in plans] == ["Child"]
+        assert "Meebook weekplan returned 2 non-dict item(s)" in caplog.text
+
+    @pytest.mark.asyncio
+    async def test_meebook_weekplan_returns_empty_on_unparseable_body(self, client):
+        # http_httpx sets data to None when the body is not valid JSON.
+        self._responses(client, None)
+
+        plans = await client.widgets.get_meebook_weekplan(
+            child_filter=["child-1"],
+            institution_filter=["inst-1"],
+            week="2026-W09",
+            session_uuid="session-1",
+        )
+
+        assert plans == []
+
+    @pytest.mark.asyncio
+    async def test_momo_courses_returns_empty_on_error_object(self, client, caplog):
+        self._responses(client, self.JWT_EXPIRED)
+
+        courses = await client.widgets.get_momo_courses(
+            children=["child-1"],
+            institutions=["inst-1"],
+            session_uuid="session-1",
+        )
+
+        assert courses == []
+        assert "Huskelisten courses returned dict instead of a list" in caplog.text
+
+    @pytest.mark.asyncio
+    async def test_momo_reminders_returns_empty_on_error_object(self, client, caplog):
+        self._responses(client, self.JWT_EXPIRED)
+
+        reminders = await client.widgets.get_momo_reminders(
+            children=["child-1"],
+            institutions=["inst-1"],
+            session_uuid="session-1",
+            from_date="2026-03-01",
+            due_no_later_than="2026-03-31",
+        )
+
+        assert reminders == []
+        assert "Huskelisten reminders returned dict instead of a list" in caplog.text
+
+    @pytest.mark.asyncio
+    async def test_library_status_returns_empty_on_list_body(self, client, caplog):
+        self._responses(client, ["unexpected"])
+
+        status = await client.widgets.get_library_status(
+            widget_id=WIDGET_HUSKELISTEN,
+            children=["child-1"],
+            institutions=["inst-1"],
+            session_uuid="session-1",
+        )
+
+        assert status.loans == []
+        assert status.longterm_loans == []
+        assert status.reservations == []
+        assert status.branch_ids == []
+        assert "Library status returned list instead of an object" in caplog.text

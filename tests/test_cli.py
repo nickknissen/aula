@@ -1,8 +1,18 @@
 """Tests for aula.cli helpers."""
 
+from unittest.mock import MagicMock
+
+import click
 import pytest
 
-from aula.cli import CONTACTS_PAGE_SIZE, MAX_CONTACT_PAGES, _fetch_contact_pages
+from aula.cli import (
+    CONTACTS_PAGE_SIZE,
+    MAX_CONTACT_PAGES,
+    _fetch_contact_pages,
+    _password_provider,
+    _print_otp_code,
+    _token_digits_provider,
+)
 
 
 def _pager(total: int):
@@ -69,3 +79,60 @@ class TestFetchContactPages:
         assert len(calls) == MAX_CONTACT_PAGES
         assert len(result) == MAX_CONTACT_PAGES * CONTACTS_PAGE_SIZE
         assert "may be incomplete" in capsys.readouterr().out
+
+
+def _ctx(**obj) -> click.Context:
+    ctx = click.Context(click.Command("aula"))
+    ctx.obj = obj
+    return ctx
+
+
+class TestCredentialProviders:
+    """MitID credentials come from a flag, an env var, or a prompt — in that order."""
+
+    @pytest.mark.asyncio
+    async def test_token_code_from_context_skips_the_prompt(self, monkeypatch):
+        prompt = MagicMock()
+        monkeypatch.setattr(click, "prompt", prompt)
+
+        provide = _token_digits_provider(_ctx(MITID_TOKEN_CODE="123456"))
+
+        assert await provide() == "123456"
+        prompt.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_token_code_falls_back_to_the_prompt(self, monkeypatch):
+        monkeypatch.setattr(click, "prompt", MagicMock(return_value="654321"))
+
+        provide = _token_digits_provider(_ctx(MITID_TOKEN_CODE=None))
+
+        assert await provide() == "654321"
+
+    @pytest.mark.asyncio
+    async def test_password_from_context_skips_the_prompt(self, monkeypatch):
+        prompt = MagicMock()
+        monkeypatch.setattr(click, "prompt", prompt)
+
+        provide = _password_provider(_ctx(MITID_PASSWORD="hunter2"))
+
+        assert await provide() == "hunter2"
+        prompt.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_password_prompt_hides_input(self, monkeypatch):
+        """A MitID password echoed into the terminal would linger in scrollback."""
+        prompt = MagicMock(return_value="typed")
+        monkeypatch.setattr(click, "prompt", prompt)
+
+        provide = _password_provider(_ctx(MITID_PASSWORD=None))
+
+        assert await provide() == "typed"
+        assert prompt.call_args.kwargs["hide_input"] is True
+
+
+class TestOtpDisplay:
+    def test_prints_the_code(self, capsys):
+        """App users who cannot scan need the code MitID expects them to type."""
+        _print_otp_code("A1B2")
+
+        assert "A1B2" in capsys.readouterr().out

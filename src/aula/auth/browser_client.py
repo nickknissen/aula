@@ -8,6 +8,7 @@ import json
 import logging
 import time
 from collections.abc import Callable
+from typing import Self
 
 import httpx
 import qrcode
@@ -38,6 +39,30 @@ def _pkcs7_pad(s: str) -> str:
     return s + pad_len * chr(pad_len)
 
 
+class _ComputeTimer:
+    """Accumulate local compute time across several blocks, skipping the gaps.
+
+    MitID's ``frontEndProcessingTime`` reports how long the browser client spent
+    on crypto. Timing whole request/response cycles instead would fold network
+    latency into a figure no real browser produces.
+    """
+
+    def __init__(self) -> None:
+        self._elapsed = 0.0
+        self._started_at = 0.0
+
+    def __enter__(self) -> Self:
+        self._started_at = time.monotonic()
+        return self
+
+    def __exit__(self, *exc_info: object) -> None:
+        self._elapsed += time.monotonic() - self._started_at
+
+    @property
+    def milliseconds(self) -> int:
+        return int(self._elapsed * 1000)
+
+
 def _extract_next_authenticator(response_json: dict) -> dict[str, str]:
     """Extract authenticator fields from a /next response."""
     next_auth = response_json["nextAuthenticator"]
@@ -66,11 +91,13 @@ class BrowserClient:
         authentication_session_id: str,
         http_client: httpx.AsyncClient,
         on_qr_codes: Callable[[qrcode.QRCode, qrcode.QRCode], None] | None = None,
+        on_otp_code: Callable[[str], None] | None = None,
     ):
         self._client = http_client
         self._client_hash = client_hash
         self._authentication_session_id = authentication_session_id
         self._on_qr_codes = on_qr_codes
+        self._on_otp_code = on_otp_code
 
         # Authenticator state (populated after identify step)
         self._user_id: str | None = None
@@ -172,9 +199,21 @@ class BrowserClient:
         _check_authenticator_errors(data)
         self._set_authenticator_state(_extract_next_authenticator(data))
 
+        combinations = data["combinations"]
+        unsupported = [
+            combo["id"] for combo in combinations if combo["id"] not in _COMBINATION_ID_TO_NAME
+        ]
+        if unsupported:
+            # MitID chip and audio code readers land here; naming them beats a
+            # silent drop when a user asks why their authenticator is missing.
+            _LOGGER.warning(
+                "Ignoring MitID authenticator combinations with no client support: %s",
+                ", ".join(unsupported),
+            )
+
         return {
             _COMBINATION_ID_TO_NAME[combo["id"]]: combo["combinationItems"][0]["name"]
-            for combo in data["combinations"]
+            for combo in combinations
             if combo["id"] in _COMBINATION_ID_TO_NAME
         }
 
@@ -247,11 +286,14 @@ class BrowserClient:
                 continue
 
             if status == "channel_validation_otp":
-                self.otp_code = data["channelBindingValue"]
-                self.status_message = (
-                    f"Please use the following OTP code in the app: {self.otp_code}"
-                )
-                _LOGGER.debug("OTP channel validation requested")
+                otp_code = data["channelBindingValue"]
+                self.status_message = f"Please use the following OTP code in the app: {otp_code}"
+                # The poll repeats every half second; only announce a code once.
+                if otp_code != self.otp_code:
+                    self.otp_code = otp_code
+                    _LOGGER.debug("OTP channel validation requested")
+                    if self._on_otp_code:
+                        self._on_otp_code(otp_code)
                 await asyncio.sleep(0.5)
                 continue
 
@@ -300,13 +342,14 @@ class BrowserClient:
 
     async def _perform_srp_handshake(self, response: str, response_signature: str) -> None:
         """Execute the full SRP handshake (init → prove → verify → next)."""
-        timer_start = time.monotonic()
+        timer = _ComputeTimer()
 
         if self._authenticator_session_flow_key is None or self._authenticator_session_id is None:
             raise MitIDError("SRP handshake requires authenticator session to be established")
 
-        srp = CustomSRP()
-        public_a = srp.srp_stage1()
+        with timer:
+            srp = CustomSRP()
+            public_a = srp.srp_stage1()
 
         r = await self._client.post(
             f"{self._app_auth_url()}/init",
@@ -319,13 +362,14 @@ class BrowserClient:
         srp_salt = init_data["srpSalt"]["value"]
         random_b = init_data["randomB"]["value"]
 
-        password = hashlib.sha256(
-            base64.b64decode(response) + self._authenticator_session_flow_key.encode("utf-8")
-        ).hexdigest()
+        with timer:
+            password = hashlib.sha256(
+                base64.b64decode(response) + self._authenticator_session_flow_key.encode("utf-8")
+            ).hexdigest()
 
-        m1 = srp.srp_stage3(srp_salt, random_b, password, self._authenticator_session_id)
+            m1 = srp.srp_stage3(srp_salt, random_b, password, self._authenticator_session_id)
 
-        flow_value_proof = self._compute_flow_value_proof(srp.session_key_bytes)
+            flow_value_proof = self._compute_flow_value_proof(srp.session_key_bytes)
 
         r = await self._client.post(
             f"{self._app_auth_url()}/prove",
@@ -334,15 +378,16 @@ class BrowserClient:
         if not r.is_success:
             raise MitIDError(f"Failed to submit app response proof: HTTP {r.status_code}")
 
-        m2 = r.json()["m2"]["value"]
-        if not srp.srp_stage5(m2):
-            raise MitIDError("m2 could not be validated during proving of app response")
+        with timer:
+            m2 = r.json()["m2"]["value"]
+            if not srp.srp_stage5(m2):
+                raise MitIDError("m2 could not be validated during proving of app response")
 
-        auth_enc = base64.b64encode(
-            srp.auth_enc(base64.b64decode(_pkcs7_pad(response_signature)))
-        ).decode("ascii")
+            auth_enc = base64.b64encode(
+                srp.auth_enc(base64.b64decode(_pkcs7_pad(response_signature)))
+            ).decode("ascii")
 
-        front_end_time_ms = int((time.monotonic() - timer_start) * 1000)
+        front_end_time_ms = timer.milliseconds
 
         r = await self._client.post(
             f"{self._app_auth_url()}/verify",
@@ -371,11 +416,12 @@ class BrowserClient:
 
     async def _authenticate_token_phase(self, token_digits: str) -> None:
         """Execute the TOTP code token authentication phase."""
-        timer_start = time.monotonic()
+        timer = _ComputeTimer()
         await self._select_authenticator("TOKEN")
 
-        srp = CustomSRP()
-        public_a = srp.srp_stage1()
+        with timer:
+            srp = CustomSRP()
+            public_a = srp.srp_stage1()
 
         r = await self._client.post(
             f"{self._code_token_auth_url()}/codetoken-init",
@@ -391,16 +437,17 @@ class BrowserClient:
         if self._authenticator_session_flow_key is None or self._authenticator_session_id is None:
             raise MitIDError("Token auth requires authenticator session to be established")
 
-        # For TOKEN auth the SRP password is the hex-encoded flow key
-        password = self._authenticator_session_flow_key.encode("utf-8").hex()
+        with timer:
+            # For TOKEN auth the SRP password is the hex-encoded flow key
+            password = self._authenticator_session_flow_key.encode("utf-8").hex()
 
-        m1 = srp.srp_stage3(srp_salt, random_b, password, self._authenticator_session_id)
+            m1 = srp.srp_stage3(srp_salt, random_b, password, self._authenticator_session_id)
 
-        flow_value_proof = self._compute_flow_value_proof(
-            srp.session_key_bytes, proof_key_prefix="OTP" + token_digits
-        )
+            flow_value_proof = self._compute_flow_value_proof(
+                srp.session_key_bytes, proof_key_prefix="OTP" + token_digits
+            )
 
-        front_end_time_ms = int((time.monotonic() - timer_start) * 1000)
+        front_end_time_ms = timer.milliseconds
 
         r = await self._client.post(
             f"{self._code_token_auth_url()}/codetoken-prove",
@@ -436,13 +483,14 @@ class BrowserClient:
 
     async def _authenticate_password_phase(self, password: str) -> None:
         """Execute the MitID password authentication phase."""
-        timer_start = time.monotonic()
+        timer = _ComputeTimer()
 
         if self._authenticator_type != "PASSWORD":
             raise MitIDError("Password phase requires PASSWORD authenticator to be active")
 
-        srp = CustomSRP()
-        public_a = srp.srp_stage1()
+        with timer:
+            srp = CustomSRP()
+            public_a = srp.srp_stage1()
 
         r = await self._client.post(
             f"{self._password_auth_url()}/init",
@@ -456,20 +504,26 @@ class BrowserClient:
         srp_salt = init_data["srpSalt"]["value"]
         random_b = init_data["randomB"]["value"]
 
-        # Derive the SRP password using PBKDF2 (offloaded to avoid blocking the event loop)
-        derived = await asyncio.to_thread(
-            hashlib.pbkdf2_hmac, "sha256", password.encode(), bytes.fromhex(pbkdf2_salt), 20000, 32
-        )
-        srp_password = derived.hex()
-
         if self._authenticator_session_id is None:
             raise MitIDError("Password auth requires authenticator session to be established")
 
-        m1 = srp.srp_stage3(srp_salt, random_b, srp_password, self._authenticator_session_id)
+        with timer:
+            # Derive the SRP password using PBKDF2 (offloaded to avoid blocking the event loop)
+            derived = await asyncio.to_thread(
+                hashlib.pbkdf2_hmac,
+                "sha256",
+                password.encode(),
+                bytes.fromhex(pbkdf2_salt),
+                20000,
+                32,
+            )
+            srp_password = derived.hex()
 
-        flow_value_proof = self._compute_flow_value_proof(srp.session_key_bytes)
+            m1 = srp.srp_stage3(srp_salt, random_b, srp_password, self._authenticator_session_id)
 
-        front_end_time_ms = int((time.monotonic() - timer_start) * 1000)
+            flow_value_proof = self._compute_flow_value_proof(srp.session_key_bytes)
+
+        front_end_time_ms = timer.milliseconds
 
         r = await self._client.post(
             f"{self._password_auth_url()}/password-prove",
