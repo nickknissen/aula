@@ -110,6 +110,30 @@ def test_iso_timestamp_is_preferred_over_the_display_string():
     assert event.start == "2026-08-18T08:00:00"
 
 
+def test_start_and_end_share_a_format_when_only_one_has_an_iso_field():
+    """EndTimeISO is null on rows where StartTimeISO is set."""
+    event = EasyIQCalendarEvent.from_dict(
+        {
+            "StartTimeISO": "2026-08-13T12:55:00.0000000",
+            "EndTimeISO": None,
+            "Start": "2026/08/13 12:55",
+            "End": "2026/08/13 14:25",
+        }
+    )
+    assert event.start == "2026-08-13T12:55:00"
+    assert event.end == "2026-08-13T14:25:00"
+
+
+def test_seconds_in_the_display_format_are_kept():
+    event = EasyIQCalendarEvent.from_dict({"Start": "2026/08/13 12:55:30"})
+    assert event.start == "2026-08-13T12:55:30"
+
+
+def test_an_unparseable_timestamp_is_passed_through():
+    event = EasyIQCalendarEvent.from_dict({"Start": "next tuesday"})
+    assert event.start == "next tuesday"
+
+
 def test_event_id_is_read():
     assert EasyIQCalendarEvent.from_dict({"Id": 17363414}).event_id == "17363414"
 

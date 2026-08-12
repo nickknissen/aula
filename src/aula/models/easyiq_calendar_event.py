@@ -1,3 +1,4 @@
+import datetime
 import html
 from dataclasses import dataclass, field
 from typing import Any
@@ -55,6 +56,33 @@ def _first_text(folded: dict[str, Any], keys: tuple[str, ...]) -> str:
     return ""
 
 
+#: EasyIQ's display timestamps, used when the ``*ISO`` field is absent.
+_TIMESTAMP_FORMATS = ("%Y/%m/%d %H:%M:%S", "%Y/%m/%d %H:%M")
+
+
+def _first_timestamp(folded: dict[str, Any], keys: tuple[str, ...]) -> str:
+    """Return the first timestamp among ``keys``, normalised to ISO 8601.
+
+    A row can carry ``StartTimeISO`` but leave ``EndTimeISO`` null, so the
+    start and end of one event would otherwise come back in two different
+    formats. Anything unrecognised is passed through untouched rather than
+    dropped, since a value we cannot parse is still better than nothing.
+    """
+    text = _first_text(folded, keys)
+    if not text:
+        return ""
+    try:
+        return datetime.datetime.fromisoformat(text).isoformat()
+    except ValueError:
+        pass
+    for fmt in _TIMESTAMP_FORMATS:
+        try:
+            return datetime.datetime.strptime(text, fmt).isoformat()
+        except ValueError:
+            continue
+    return text
+
+
 def _item_type(folded: dict[str, Any]) -> int | None:
     """Return the EasyIQ item type as an int, tolerating string encodings."""
     for key in _ITEM_TYPE_KEYS:
@@ -96,8 +124,8 @@ class EasyIQCalendarEvent(AulaDataClass):
             _raw=data,
             item_type=_item_type(folded),
             event_id=_first_text(folded, _ID_KEYS),
-            start=_first_text(folded, _START_KEYS),
-            end=_first_text(folded, _END_KEYS),
+            start=_first_timestamp(folded, _START_KEYS),
+            end=_first_timestamp(folded, _END_KEYS),
             courses=_first_text(folded, _COURSE_KEYS),
             activities=_first_text(folded, _ACTIVITY_KEYS),
             description=_first_text(folded, _DESCRIPTION_KEYS),
