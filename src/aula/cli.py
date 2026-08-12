@@ -377,6 +377,32 @@ async def _get_widget_context(
     return child_filter, institution_filter, session_uuid
 
 
+def _easyiq_child_user_ids(profile_context: dict) -> list[str]:
+    """Every child's UniLogin, which EasyIQ's portal wants as ``x-childfilter``.
+
+    Read from ``profiles.getProfileContext`` rather than ``prof.children``
+    because the portal matches on the UniLogin, which Aula calls ``userId``.
+    Children appear under the active institution profile's ``relations`` and
+    again under each institution the guardian has a child at, so both are
+    read and de-duplicated: a child at a second institution must not be left
+    out of the filter.
+    """
+    data = profile_context.get("data") or {}
+    relations = (data.get("institutionProfile") or {}).get("relations") or []
+    institution_children = [
+        child
+        for institution in data.get("institutions") or []
+        if isinstance(institution, dict)
+        for child in institution.get("children") or []
+    ]
+    user_ids = (
+        str(entry["userId"])
+        for entry in [*relations, *institution_children]
+        if isinstance(entry, dict) and entry.get("userId")
+    )
+    return list(dict.fromkeys(user_ids))
+
+
 # Define commands
 @cli.command()
 @click.pass_context
@@ -1497,6 +1523,72 @@ async def notification_settings(ctx):
             click.echo(format_row(s.module, f"Enabled: {enabled}{channels}"))
 
 
+@cli.command("debug:easyiq")
+@click.option(
+    "--week",
+    type=str,
+    default=None,
+    help="Week number (e.g. 8) or full format (2026-W8). Defaults to current week.",
+)
+@click.option(
+    "--include-values",
+    is_flag=True,
+    help="Also print raw response bodies. These contain your children's names and "
+    "homework text, so do not paste that output anywhere public.",
+)
+@click.pass_context
+@async_cmd
+async def debug_easyiq(ctx, week, include_values):
+    """Report how the EasyIQ portal responds, for troubleshooting.
+
+    EasyIQ behaves differently per institution and is undocumented, so fixing
+    it depends on reports from people whose schools use it. This asks every
+    open question in one pass and prints only the shape of the answers: status
+    codes, row counts, item types and JSON key names. No names, subjects or
+    IDs are included, so the output is safe to paste into a GitHub issue.
+    """
+    from .utils.easyiq_probe import probe_easyiq, render_report
+    from .utils.week import monday_of_week
+
+    week = _resolve_week(week)
+    async with await _get_client(ctx) as client:
+        try:
+            prof: Profile = await client.get_profile()
+            profile_context = await client.get_profile_context()
+            guardian_login = str(profile_context["data"]["userId"])
+        except Exception as e:
+            print_error(f"fetching profile: {e}")
+            return
+
+        if not prof.children:
+            print_empty("children")
+            return
+
+        institution_filter: list[str] = []
+        for child in prof.children:
+            if child._raw:
+                inst_code = child._raw.get("institutionProfile", {}).get("institutionCode", "")
+                if inst_code and str(inst_code) not in institution_filter:
+                    institution_filter.append(str(inst_code))
+
+        report = await probe_easyiq(
+            client,
+            prof.children,
+            guardian_login,
+            monday_of_week(week),
+            institution_filter,
+            _easyiq_child_user_ids(profile_context),
+            include_values=include_values,
+        )
+
+        if ctx.obj.get("OUTPUT_FORMAT") == "json":
+            click.echo(to_json(report))
+            return
+
+        for line in render_report(report, include_values=include_values):
+            click.echo(line)
+
+
 @cli.command("widgets")
 @click.pass_context
 @async_cmd
@@ -1713,6 +1805,7 @@ async def easyiq_ugeplan(ctx, week):
         except Exception as e:
             print_error(f"fetching profile context: {e}")
             return
+        all_child_user_ids = _easyiq_child_user_ids(profile_context)
 
         from .utils.html import html_to_plain
 
@@ -1724,10 +1817,16 @@ async def easyiq_ugeplan(ctx, week):
                 child_id = str(child._raw["userId"])
                 try:
                     appointments = await client.widgets.get_easyiq_weekplan(
-                        week, session_uuid, institution_filter, child_id
+                        week,
+                        session_uuid,
+                        institution_filter,
+                        child_id,
+                        child_profile_id=str(child.id),
+                        all_child_user_ids=all_child_user_ids,
                     )
                     all_appointments.extend(dict(a) for a in appointments)
-                except Exception:
+                except Exception as e:
+                    print_error(f"fetching EasyIQ weekplan for {child.name}: {e}", err=True)
                     continue
             click.echo(to_json(all_appointments))
             return
@@ -1742,7 +1841,12 @@ async def easyiq_ugeplan(ctx, week):
 
             try:
                 appointments = await client.widgets.get_easyiq_weekplan(
-                    week, session_uuid, institution_filter, child_id
+                    week,
+                    session_uuid,
+                    institution_filter,
+                    child_id,
+                    child_profile_id=str(child.id),
+                    all_child_user_ids=all_child_user_ids,
                 )
             except Exception as e:
                 print_error(f"fetching EasyIQ weekplan for {child.name}: {e}")
@@ -1806,6 +1910,7 @@ async def easyiq_homework(ctx, week):
         except Exception as e:
             print_error(f"fetching profile context: {e}")
             return
+        all_child_user_ids = _easyiq_child_user_ids(profile_context)
 
         from .utils.html import html_to_plain
 
@@ -1817,10 +1922,16 @@ async def easyiq_homework(ctx, week):
                 child_id = str(child._raw["userId"])
                 try:
                     homework = await client.widgets.get_easyiq_homework(
-                        week, session_uuid, institution_filter, child_id
+                        week,
+                        session_uuid,
+                        institution_filter,
+                        child_id,
+                        child_profile_id=str(child.id),
+                        all_child_user_ids=all_child_user_ids,
                     )
                     all_homework.extend(dict(hw) for hw in homework)
-                except Exception:
+                except Exception as e:
+                    print_error(f"fetching EasyIQ homework for {child.name}: {e}", err=True)
                     continue
             click.echo(to_json(all_homework))
             return
@@ -1835,7 +1946,12 @@ async def easyiq_homework(ctx, week):
 
             try:
                 homework = await client.widgets.get_easyiq_homework(
-                    week, session_uuid, institution_filter, child_id
+                    week,
+                    session_uuid,
+                    institution_filter,
+                    child_id,
+                    child_profile_id=str(child.id),
+                    all_child_user_ids=all_child_user_ids,
                 )
             except Exception as e:
                 print_error(f"fetching EasyIQ homework for {child.name}: {e}")
@@ -2565,6 +2681,12 @@ async def weekly_summary(ctx, child, week, providers):
 
         child_filter, institution_filter, session_uuid = widget_ctx
 
+        try:
+            all_child_user_ids = _easyiq_child_user_ids(await client.get_profile_context())
+        except Exception as e:
+            _log.warning("Could not read children for the EasyIQ child filter: %s", e)
+            all_child_user_ids = []
+
         # Filter child_filter to selected children only
         if child:
             selected_user_ids = {
@@ -2693,7 +2815,12 @@ async def weekly_summary(ctx, child, week, providers):
 
                 try:
                     appointments = await client.widgets.get_easyiq_weekplan(
-                        week, session_uuid, c_institutions or institution_filter, c_user_id
+                        week,
+                        session_uuid,
+                        c_institutions or institution_filter,
+                        c_user_id,
+                        child_profile_id=str(c.id),
+                        all_child_user_ids=all_child_user_ids,
                     )
                 except Exception as e:
                     _log.warning("Could not fetch EasyIQ weekplan for %s: %s", c.name, e)
@@ -2740,7 +2867,12 @@ async def weekly_summary(ctx, child, week, providers):
 
                 try:
                     homework = await client.widgets.get_easyiq_homework(
-                        week, session_uuid, c_institutions or institution_filter, c_user_id
+                        week,
+                        session_uuid,
+                        c_institutions or institution_filter,
+                        c_user_id,
+                        child_profile_id=str(c.id),
+                        all_child_user_ids=all_child_user_ids,
                     )
                 except Exception as e:
                     _log.warning("Could not fetch EasyIQ homework for %s: %s", c.name, e)
@@ -3435,6 +3567,11 @@ async def presence(ctx, from_date, to_date, week, states):
             )
         except Exception as e:
             print_error(f"fetching presence registrations: {e}")
+            click.echo(
+                "No institution on this account accepted the request. "
+                "Institutions that do not use presence registrations reject it; "
+                "try 'aula presence --states' instead."
+            )
             return
 
         if output_json(ctx, [dict(r) for r in registrations]):
