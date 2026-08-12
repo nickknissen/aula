@@ -6,11 +6,14 @@ import click
 import pytest
 
 from aula.cli import (
+    _WIDGET_ID_CACHE,
     CONTACTS_PAGE_SIZE,
     MAX_CONTACT_PAGES,
     _fetch_contact_pages,
+    _has_widget,
     _password_provider,
     _print_otp_code,
+    _require_widget,
     _token_digits_provider,
 )
 
@@ -25,6 +28,73 @@ def _pager(total: int):
         return [{"id": i} for i in range(start, min(start + CONTACTS_PAGE_SIZE, total))]
 
     return fetch_page, calls
+
+
+class TestWidgetAvailability:
+    """Aula issues tokens for widgets an account does not have."""
+
+    @pytest.fixture(autouse=True)
+    def _clear_cache(self):
+        _WIDGET_ID_CACHE.clear()
+        yield
+        _WIDGET_ID_CACHE.clear()
+
+    def _client(self, widget_ids, side_effect=None):
+        from unittest.mock import AsyncMock
+
+        client = MagicMock()
+        widgets = [MagicMock(widget_id=wid) for wid in widget_ids]
+        client.get_widgets = AsyncMock(return_value=widgets, side_effect=side_effect)
+        return client
+
+    @pytest.mark.asyncio
+    async def test_present_widget(self):
+        assert await _has_widget(self._client(["0019", "0030"]), "0019") is True
+
+    @pytest.mark.asyncio
+    async def test_absent_widget(self):
+        assert await _has_widget(self._client(["0142", "0128"]), "0019") is False
+
+    @pytest.mark.asyncio
+    async def test_a_failed_lookup_does_not_block_the_command(self):
+        """Incomplete information is no reason to refuse to try."""
+        client = self._client([], side_effect=RuntimeError("boom"))
+
+        assert await _has_widget(client, "0019") is True
+
+    @pytest.mark.asyncio
+    async def test_the_list_is_fetched_once_per_client(self):
+        """weekly-summary asks about five providers in a row."""
+        client = self._client(["0019"])
+
+        for widget_id in ("0019", "0030", "0029", "0004", "0062"):
+            await _has_widget(client, widget_id)
+
+        assert client.get_widgets.await_count == 1
+
+    @pytest.mark.asyncio
+    async def test_a_failed_lookup_is_not_retried_per_provider(self):
+        client = self._client([], side_effect=RuntimeError("boom"))
+
+        for widget_id in ("0019", "0030", "0029"):
+            await _has_widget(client, widget_id)
+
+        assert client.get_widgets.await_count == 1
+
+    @pytest.mark.asyncio
+    async def test_require_widget_names_the_widget_and_points_at_aula_widgets(self, capsys):
+        allowed = await _require_widget(self._client(["0142"]), "0019", "Biblioteket")
+
+        assert allowed is False
+        out = capsys.readouterr().out
+        assert "Biblioteket" in out
+        assert "0019" in out
+        assert "aula widgets" in out
+
+    @pytest.mark.asyncio
+    async def test_require_widget_is_quiet_when_present(self, capsys):
+        assert await _require_widget(self._client(["0019"]), "0019", "Biblioteket") is True
+        assert capsys.readouterr().out == ""
 
 
 class TestFetchContactPages:
