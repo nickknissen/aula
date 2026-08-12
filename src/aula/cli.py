@@ -1462,8 +1462,13 @@ async def vacations(ctx):
             print_error(f"fetching profile: {e}")
             return
 
+        child_ids = [c.id for c in prof.children]
+        if not child_ids:
+            print_error("no children on this profile to look up vacation registrations for")
+            return
+
         try:
-            result = await client.get_vacation_registrations(prof.institution_profile_ids)
+            result = await client.get_vacation_registrations(child_ids)
         except Exception as e:
             print_error(f"fetching vacations: {e}")
             return
@@ -1478,11 +1483,11 @@ async def vacations(ctx):
         print_heading("Vacation Registrations")
         for v in result:
             parts = []
-            if v.vacation_type:
-                parts.append(v.vacation_type)
-            if v.status:
-                parts.append(f"[{v.status}]")
-            click.echo(format_row(v.child_name or f"Profile {v.institution_profile_id}", *parts))
+            if v.title:
+                parts.append(v.title)
+            if v.is_missing_answer:
+                parts.append("[missing answer]")
+            click.echo(format_row(v.child_name or f"Child {v.child_id}", *parts))
             dates = []
             if v.start_date:
                 dates.append(f"From: {v.start_date}")
@@ -1490,6 +1495,10 @@ async def vacations(ctx):
                 dates.append(f"To: {v.end_date}")
             if dates:
                 click.echo(f"  {' | '.join(dates)}")
+            if v.response_deadline:
+                click.echo(f"  Answer by: {v.response_deadline}")
+            if v.note_to_guardian:
+                click.echo(f"  Note: {v.note_to_guardian}")
 
 
 @cli.command("notification-settings")
