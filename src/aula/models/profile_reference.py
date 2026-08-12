@@ -29,7 +29,7 @@ class ProfileReference(AulaDataClass):
             full_name=data.get("fullName", ""),
             short_name=data.get("shortName", ""),
             role=data.get("role", ""),
-            institution_name=data.get("institution", {}).get("institutionName", ""),
+            institution_name=(data.get("institution") or {}).get("institutionName", ""),
             profile_picture=data.get("profilePicture"),
             _raw=data,
         )

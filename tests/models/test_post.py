@@ -112,3 +112,15 @@ def test_post_dict_conversion():
     result = dict(post)
     assert result["title"] == "Test"
     assert "_raw" not in result
+
+
+def test_post_from_dict_null_content():
+    """A post with no body arrives as "content": null, not as a missing key."""
+    data = {
+        "id": 7,
+        "title": "Heading only",
+        "content": None,
+        "ownerProfile": {"id": 1, "profileId": 1},
+    }
+    post = Post.from_dict(data)
+    assert post.content_html == ""

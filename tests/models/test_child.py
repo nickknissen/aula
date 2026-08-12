@@ -47,3 +47,17 @@ def test_child_dict_conversion():
     assert result["id"] == 1
     assert result["profile_id"] == 100
     assert "_raw" not in result
+
+
+def test_child_from_dict_null_nested():
+    """Aula sends null — not a missing key — for a child without a profile picture."""
+    data = {
+        "id": 4,
+        "profileId": 400,
+        "name": "Diana",
+        "institutionProfile": None,
+        "profilePicture": None,
+    }
+    child = Child.from_dict(data)
+    assert child.institution_name == ""
+    assert child.profile_picture == ""
