@@ -2017,13 +2017,20 @@ class AulaApiClient:
                 _LOGGER.warning("Skipping common file due to parsing error: %s", e)
         return result
 
-    async def get_vacation_registrations(
-        self, institution_profile_ids: list[int]
-    ) -> list[VacationRegistration]:
-        """Fetch vacation registrations for the given institution profile IDs."""
+    async def get_vacation_registrations(self, child_ids: list[int]) -> list[VacationRegistration]:
+        """Fetch vacation registrations for the given children.
+
+        Args:
+            child_ids: Institution profile IDs of the children (`Child.id`). Passing
+                a guardian's own institution profile ID, or a child's user profile
+                ID, makes Aula reject the request.
+
+        Aula groups the response by child; the rows are flattened into a single
+        list with the child carried on each registration.
+        """
         params: dict[str, Any] = {
-            "method": "presence.getVacationRegistrations",
-            "institutionProfileIds[]": institution_profile_ids,
+            "method": "presence.getVacationRegistrationsByChildren",
+            "childIds[]": child_ids,
         }
         resp = await self._request_with_version_retry("get", self.api_url, params=params)
         resp.raise_for_status()
@@ -2031,13 +2038,21 @@ class AulaApiClient:
         if not isinstance(data, list):
             return []
         result: list[VacationRegistration] = []
-        for item in data:
-            if not isinstance(item, dict):
+        for group in data:
+            if not isinstance(group, dict):
                 continue
-            try:
-                result.append(VacationRegistration.from_dict(item))
-            except (TypeError, ValueError, KeyError) as e:
-                _LOGGER.warning("Skipping vacation registration due to parsing error: %s", e)
+            child = group.get("child")
+            child = child if isinstance(child, dict) else {}
+            registrations = group.get("vacationRegistrations")
+            if not isinstance(registrations, list):
+                continue
+            for item in registrations:
+                if not isinstance(item, dict):
+                    continue
+                try:
+                    result.append(VacationRegistration.from_dict(item, child))
+                except (TypeError, ValueError, KeyError) as e:
+                    _LOGGER.warning("Skipping vacation registration due to parsing error: %s", e)
         return result
 
     async def get_notification_settings(self) -> list[NotificationSetting]:

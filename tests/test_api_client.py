@@ -1951,6 +1951,114 @@ class TestGetPresenceConfiguration:
         assert result == []
 
 
+class TestGetVacationRegistrations:
+    """Tests for AulaApiClient.get_vacation_registrations method."""
+
+    @pytest.fixture
+    def client(self):
+        http_client = AsyncMock()
+        return AulaApiClient(http_client=http_client, access_token="test_token")
+
+    @pytest.mark.asyncio
+    async def test_happy_path_flattens_groups(self, client):
+        response_data = {
+            "data": [
+                {
+                    "child": {"id": 201, "name": "Anna"},
+                    "vacationRegistrations": [
+                        {
+                            "vacationRegistrationId": 1,
+                            "title": "Sommerferie",
+                            "startDate": "2026-07-01",
+                            "endDate": "2026-07-14",
+                        },
+                        {"vacationRegistrationId": 2, "title": "Efterårsferie"},
+                    ],
+                },
+                {
+                    "child": {"id": 202, "name": "Bo"},
+                    "vacationRegistrations": [{"vacationRegistrationId": 3, "title": "Juleferie"}],
+                },
+            ]
+        }
+        client._request_with_version_retry = AsyncMock(
+            return_value=HttpResponse(status_code=200, data=response_data)
+        )
+
+        result = await client.get_vacation_registrations([201, 202])
+
+        assert [r.id for r in result] == [1, 2, 3]
+        assert [r.child_id for r in result] == [201, 201, 202]
+        assert [r.child_name for r in result] == ["Anna", "Anna", "Bo"]
+        assert result[0].start_date == "2026-07-01"
+
+    @pytest.mark.asyncio
+    async def test_sends_child_ids_to_by_children_method(self, client):
+        client._request_with_version_retry = AsyncMock(
+            return_value=HttpResponse(status_code=200, data={"data": []})
+        )
+
+        await client.get_vacation_registrations([201, 202])
+
+        _, kwargs = client._request_with_version_retry.call_args
+        assert kwargs["params"] == {
+            "method": "presence.getVacationRegistrationsByChildren",
+            "childIds[]": [201, 202],
+        }
+
+    @pytest.mark.asyncio
+    async def test_empty_data(self, client):
+        client._request_with_version_retry = AsyncMock(
+            return_value=HttpResponse(status_code=200, data={"data": []})
+        )
+
+        assert await client.get_vacation_registrations([201]) == []
+
+    @pytest.mark.asyncio
+    async def test_skips_groups_without_registrations(self, client):
+        response_data = {
+            "data": [
+                {"child": {"id": 201, "name": "Anna"}},
+                {"child": {"id": 202, "name": "Bo"}, "vacationRegistrations": None},
+                "not-a-group",
+                {
+                    "child": {"id": 203, "name": "Cille"},
+                    "vacationRegistrations": [{"vacationRegistrationId": 5}, "not-a-row"],
+                },
+            ]
+        }
+        client._request_with_version_retry = AsyncMock(
+            return_value=HttpResponse(status_code=200, data=response_data)
+        )
+
+        result = await client.get_vacation_registrations([201, 202, 203])
+
+        assert [r.id for r in result] == [5]
+        assert result[0].child_name == "Cille"
+
+    @pytest.mark.asyncio
+    async def test_group_without_child_still_parses(self, client):
+        response_data = {
+            "data": [{"vacationRegistrations": [{"vacationRegistrationId": 9, "title": "Ferie"}]}]
+        }
+        client._request_with_version_retry = AsyncMock(
+            return_value=HttpResponse(status_code=200, data=response_data)
+        )
+
+        result = await client.get_vacation_registrations([201])
+
+        assert result[0].id == 9
+        assert result[0].child_id == 0
+
+    @pytest.mark.asyncio
+    async def test_non_list_data(self, client):
+        client._request_with_version_retry = AsyncMock(
+            return_value=HttpResponse(status_code=200, data={"data": None})
+        )
+
+        assert await client.get_vacation_registrations([201]) == []
+
+
 class TestGetActivityOverview:
     """Tests for AulaApiClient.get_activity_overview method."""
 
