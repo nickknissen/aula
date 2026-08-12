@@ -15,7 +15,9 @@ from aula.cli import (
     _print_otp_code,
     _require_widget,
     _token_digits_provider,
+    _with_child,
 )
+from aula.models import Child, EasyIQHomework
 
 
 def _pager(total: int):
@@ -95,6 +97,37 @@ class TestWidgetAvailability:
     async def test_require_widget_is_quiet_when_present(self, capsys):
         assert await _require_widget(self._client(["0019"]), "0019", "Biblioteket") is True
         assert capsys.readouterr().out == ""
+
+
+class TestWithChild:
+    """Providers that answer per child return rows with no child on them."""
+
+    def _child(self):
+        return Child(
+            id=4727534,
+            profile_id=2044021,
+            name="Astrid",
+            institution_name="Skole",
+            profile_picture="",
+        )
+
+    def test_tags_a_row_with_the_child_it_was_fetched_for(self):
+        row = dict(EasyIQHomework(id="hw-1", title="Dansk", subject="Dansk"))
+        tagged = _with_child(row, self._child())
+        assert tagged["child_id"] == 4727534
+        assert tagged["child_name"] == "Astrid"
+
+    def test_keeps_the_row_intact(self):
+        row = dict(EasyIQHomework(id="hw-1", title="Dansk", subject="Dansk", activities="7-9F"))
+        tagged = _with_child(row, self._child())
+        assert tagged["id"] == "hw-1"
+        assert tagged["subject"] == "Dansk"
+        assert tagged["activities"] == "7-9F"
+
+    def test_does_not_mutate_the_row(self):
+        row = dict(EasyIQHomework(id="hw-1", title="Dansk"))
+        _with_child(row, self._child())
+        assert "child_id" not in row
 
 
 class TestFetchContactPages:

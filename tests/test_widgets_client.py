@@ -480,7 +480,12 @@ class TestWidgetsClient:
                 _token_response("token-easy"),
                 _calendar_response(
                     [
-                        {"itemType": 9, "courses": "Matematik", "start": "2026-02-24T08:00:00"},
+                        {
+                            "itemType": 9,
+                            "courses": "Matematik",
+                            "activitiesDisplay": "6A",
+                            "start": "2026-02-24T08:00:00",
+                        },
                         {"itemType": 4, "courses": "Dansk"},
                     ]
                 ),
@@ -498,6 +503,8 @@ class TestWidgetsClient:
         # Homework rows in the same response stay out of the weekly plan.
         assert [a.title for a in appointments] == ["Matematik"]
         assert appointments[0].start == "2026-02-24T08:00:00"
+        # The class survives the mapping to Appointment.
+        assert appointments[0].activities == "6A"
         calls = client._request_with_version_retry.await_args_list
         assert calls[1].args == ("post", f"{EASYIQ_API}/weekplaninfo")
         assert calls[3].args == ("get", EASYIQ_CALENDAR_URL)

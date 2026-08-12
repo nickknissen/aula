@@ -502,6 +502,7 @@ class AulaWidgetsClient:
                 start=event.start,
                 end=event.end,
                 description=event.description,
+                activities=event.activities,
                 item_type=event.item_type,
             )
             for event in events

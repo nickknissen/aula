@@ -58,6 +58,16 @@ def test_easyiq_homework_from_calendar_event():
     assert hw._raw is raw
 
 
+def test_easyiq_homework_keeps_the_class():
+    """ActivitiesDisplay says which class the homework was set for."""
+    event = EasyIQCalendarEvent.from_dict(
+        {"ItemType": 4, "CoursesDisplay": "Dansk", "ActivitiesDisplay": "7-9F"}
+    )
+    hw = EasyIQHomework.from_calendar_event(event)
+    assert hw.activities == "7-9F"
+    assert dict(hw)["activities"] == "7-9F"
+
+
 def test_easyiq_homework_from_calendar_event_without_an_id():
     """Portal rows carry no assignment id, so the start timestamp stands in."""
     event = EasyIQCalendarEvent.from_dict({"itemType": 4, "start": "2026-02-28T00:00:00"})

@@ -12,6 +12,9 @@ class EasyIQHomework(AulaDataClass):
     description: str = ""
     due_date: str = ""
     subject: str = ""
+    #: EasyIQ's ``ActivitiesDisplay``, which on homework rows holds the class
+    #: or team the assignment was set for, e.g. "6A" or "7-9F".
+    activities: str = ""
     is_completed: bool = False
     _raw: dict | None = field(default=None, repr=False)
 
@@ -42,5 +45,6 @@ class EasyIQHomework(AulaDataClass):
             description=event.description,
             due_date=event.start,
             subject=event.courses,
+            activities=event.activities,
             is_completed=False,
         )
