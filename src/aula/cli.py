@@ -15,6 +15,15 @@ import qrcode
 from .api_client import AulaApiClient
 from .auth_flow import authenticate_and_create_client
 from .config import CONFIG_FILE, DEFAULT_TOKEN_FILE, load_config, save_config
+from .const import (
+    WIDGET_BIBLIOTEKET,
+    WIDGET_EASYIQ_HOMEWORK,
+    WIDGET_EASYIQ_WEEKPLAN,
+    WIDGET_HUSKELISTEN,
+    WIDGET_MEEBOOK,
+    WIDGET_MIN_UDDANNELSE_TASKS,
+    WIDGET_MIN_UDDANNELSE_UGEPLAN,
+)
 from .models import DailyOverview, Group, Message, MessageThread, Notification, Profile
 from .token_storage import FileTokenStorage
 from .utils.json import to_json
@@ -341,6 +350,46 @@ def _format_group_row(group: Group) -> str:
     if group.institution_code:
         parts.append(f"Inst {group.institution_code}")
     return format_row(group.name, *parts)
+
+
+#: Widget IDs already looked up, per client, so weekly-summary's five
+#: providers cost one request rather than five. ``None`` records a lookup
+#: that failed, which must not be retried on every provider either.
+_WIDGET_ID_CACHE: dict[int, set[str] | None] = {}
+
+
+async def _has_widget(client: AulaApiClient, widget_id: str) -> bool:
+    """Whether this account has ``widget_id`` on its Aula dashboard.
+
+    Aula issues a widget token whether or not the account has the widget, so
+    a command that skips this check reaches the supplier with a token the
+    supplier will not honour, and the user sees the supplier's error (a bare
+    401 or 400) instead of being told the widget is missing.
+
+    A lookup that fails does not block: better to attempt the call and show
+    whatever comes back than to refuse on incomplete information.
+    """
+    if id(client) not in _WIDGET_ID_CACHE:
+        try:
+            widgets = await client.get_widgets()
+            _WIDGET_ID_CACHE[id(client)] = {w.widget_id for w in widgets}
+        except Exception as e:
+            logging.getLogger(__name__).warning("Could not read the widget list: %s", e)
+            _WIDGET_ID_CACHE[id(client)] = None
+
+    available = _WIDGET_ID_CACHE[id(client)]
+    return True if available is None else widget_id in available
+
+
+async def _require_widget(client: AulaApiClient, widget_id: str, name: str) -> bool:
+    """Report a missing widget in the user's terms, and say to check `aula widgets`."""
+    if await _has_widget(client, widget_id):
+        return True
+    print_error(
+        f"the {name} widget ({widget_id}) is not on this account, "
+        f"so there is nothing to fetch. Run 'aula widgets' to see what is available."
+    )
+    return False
 
 
 async def _get_widget_context(
@@ -1646,6 +1695,9 @@ async def mu_opgaver(ctx, week):
     """Fetch Min Uddannelse tasks (opgaver) for children."""
     week = _resolve_week(week)
     async with await _get_client(ctx) as client:
+        if not await _require_widget(client, WIDGET_MIN_UDDANNELSE_TASKS, "MinUddannelse Opgaver"):
+            return
+
         try:
             prof: Profile = await client.get_profile()
         except Exception as e:
@@ -1660,8 +1712,6 @@ async def mu_opgaver(ctx, week):
         if widget_ctx is None:
             return
         child_filter, institution_filter, session_uuid = widget_ctx
-
-        from .const import WIDGET_MIN_UDDANNELSE_TASKS
 
         try:
             opgaver = await client.widgets.get_mu_tasks(
@@ -1717,6 +1767,11 @@ async def mu_ugeplan(ctx, week):
     """Fetch Min Uddannelse weekly plans (ugebreve) for children."""
     week = _resolve_week(week)
     async with await _get_client(ctx) as client:
+        if not await _require_widget(
+            client, WIDGET_MIN_UDDANNELSE_UGEPLAN, "MinUddannelse Ugenoter"
+        ):
+            return
+
         try:
             prof: Profile = await client.get_profile()
         except Exception as e:
@@ -1732,7 +1787,6 @@ async def mu_ugeplan(ctx, week):
             return
         child_filter, institution_filter, session_uuid = widget_ctx
 
-        from .const import WIDGET_MIN_UDDANNELSE_UGEPLAN
         from .utils.html import html_to_plain
 
         try:
@@ -1791,6 +1845,9 @@ async def easyiq_ugeplan(ctx, week):
     """Fetch EasyIQ weekly plan (ugeplan) for children."""
     week = _resolve_week(week)
     async with await _get_client(ctx) as client:
+        if not await _require_widget(client, WIDGET_EASYIQ_WEEKPLAN, "EasyIQ Ugeplan"):
+            return
+
         try:
             prof: Profile = await client.get_profile()
         except Exception as e:
@@ -1896,6 +1953,9 @@ async def easyiq_homework(ctx, week):
     """Fetch EasyIQ homework assignments for children."""
     week = _resolve_week(week)
     async with await _get_client(ctx) as client:
+        if not await _require_widget(client, WIDGET_EASYIQ_HOMEWORK, "EasyIQ Lektier"):
+            return
+
         try:
             prof: Profile = await client.get_profile()
         except Exception as e:
@@ -2001,6 +2061,9 @@ async def meebook_ugeplan(ctx, week):
     """Fetch Meebook weekly plan (ugeplan) for children."""
     week = _resolve_week(week)
     async with await _get_client(ctx) as client:
+        if not await _require_widget(client, WIDGET_MEEBOOK, "Meebook"):
+            return
+
         try:
             prof: Profile = await client.get_profile()
         except Exception as e:
@@ -2083,6 +2146,9 @@ async def meebook_ugeplan(ctx, week):
 async def momo_course(ctx):
     """Fetch MoMo courses (forløb) for children."""
     async with await _get_client(ctx) as client:
+        if not await _require_widget(client, WIDGET_HUSKELISTEN, "Huskelisten"):
+            return
+
         try:
             prof: Profile = await client.get_profile()
         except Exception as e:
@@ -2155,6 +2221,9 @@ async def momo_course(ctx):
 async def momo_reminders(ctx):
     """Fetch MoMo reminders (huskelisten) for children."""
     async with await _get_client(ctx) as client:
+        if not await _require_widget(client, WIDGET_HUSKELISTEN, "Huskelisten"):
+            return
+
         try:
             prof: Profile = await client.get_profile()
         except Exception as e:
@@ -2392,6 +2461,9 @@ async def download_images(ctx, output, since, source, tags):
 async def library_status(ctx):
     """Fetch library loans and reservations for children."""
     async with await _get_client(ctx) as client:
+        if not await _require_widget(client, WIDGET_BIBLIOTEKET, "Biblioteket"):
+            return
+
         try:
             prof: Profile = await client.get_profile()
         except Exception as e:
@@ -2406,8 +2478,6 @@ async def library_status(ctx):
         if widget_ctx is None:
             return
         children, institutions, session_uuid = widget_ctx
-
-        from .const import WIDGET_BIBLIOTEKET
 
         try:
             status = await client.widgets.get_library_status(
@@ -2704,9 +2774,9 @@ async def weekly_summary(ctx, child, week, providers):
             child_filter = [uid for uid in child_filter if uid in selected_user_ids]
 
         # ── Min Uddannelse – Homework & Tasks ────────────────────────────────
-        if WeeklySummaryProvider.MU_OPGAVER in enabled:
-            from .const import WIDGET_MIN_UDDANNELSE_TASKS
-
+        if WeeklySummaryProvider.MU_OPGAVER in enabled and await _has_widget(
+            client, WIDGET_MIN_UDDANNELSE_TASKS
+        ):
             try:
                 tasks = await client.widgets.get_mu_tasks(
                     WIDGET_MIN_UDDANNELSE_TASKS,
@@ -2745,9 +2815,9 @@ async def weekly_summary(ctx, child, week, providers):
                 click.echo()
 
         # ── Min Uddannelse – Weekly Letter (Ugeplan) ─────────────────────────
-        if WeeklySummaryProvider.MU_UGEPLAN in enabled:
-            from .const import WIDGET_MIN_UDDANNELSE_UGEPLAN
-
+        if WeeklySummaryProvider.MU_UGEPLAN in enabled and await _has_widget(
+            client, WIDGET_MIN_UDDANNELSE_UGEPLAN
+        ):
             try:
                 mu_persons = await client.widgets.get_ugeplan(
                     WIDGET_MIN_UDDANNELSE_UGEPLAN,
@@ -2776,7 +2846,7 @@ async def weekly_summary(ctx, child, week, providers):
                             click.echo()
 
         # ── Meebook – Weekly Plan ────────────────────────────────────────────
-        if WeeklySummaryProvider.MEEBOOK in enabled:
+        if WeeklySummaryProvider.MEEBOOK in enabled and await _has_widget(client, WIDGET_MEEBOOK):
             try:
                 meebook_students = await client.widgets.get_meebook_weekplan(
                     child_filter, institution_filter, week, session_uuid
@@ -2810,7 +2880,9 @@ async def weekly_summary(ctx, child, week, providers):
                     click.echo()
 
         # ── EasyIQ – Weekly Plan ─────────────────────────────────────────────
-        if WeeklySummaryProvider.EASYIQ in enabled:
+        if WeeklySummaryProvider.EASYIQ in enabled and await _has_widget(
+            client, WIDGET_EASYIQ_WEEKPLAN
+        ):
             easyiq_appointments: list[dict] = []
             easyiq_any = False
             for c in children:
@@ -2862,7 +2934,9 @@ async def weekly_summary(ctx, child, week, providers):
                 json_result["easyiq_weekplan"] = easyiq_appointments
 
         # ── EasyIQ – Homework ──────────────────────────────────────────────────
-        if WeeklySummaryProvider.EASYIQ_HOMEWORK in enabled:
+        if WeeklySummaryProvider.EASYIQ_HOMEWORK in enabled and await _has_widget(
+            client, WIDGET_EASYIQ_HOMEWORK
+        ):
             easyiq_hw_items: list[dict] = []
             easyiq_hw_any = False
             for c in children:
@@ -3875,8 +3949,6 @@ async def daily_summary(ctx, child, target_date):
                     str(c._raw["userId"]) for c in children if c._raw and "userId" in c._raw
                 }
                 child_filter = [uid for uid in child_filter if uid in selected_user_ids]
-
-            from .const import WIDGET_MIN_UDDANNELSE_TASKS
 
             try:
                 all_tasks = await client.widgets.get_mu_tasks(
