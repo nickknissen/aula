@@ -11,6 +11,9 @@ class Appointment(AulaDataClass):
     start: str = ""
     end: str = ""
     description: str = ""
+    #: EasyIQ's ``ActivitiesDisplay``: the class or team the lesson belongs
+    #: to, e.g. "6A". Empty for sources that do not carry one.
+    activities: str = ""
     item_type: int | None = None
     _raw: dict | None = field(default=None, repr=False)
 

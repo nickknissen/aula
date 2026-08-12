@@ -24,7 +24,7 @@ from .const import (
     WIDGET_MIN_UDDANNELSE_TASKS,
     WIDGET_MIN_UDDANNELSE_UGEPLAN,
 )
-from .models import DailyOverview, Group, Message, MessageThread, Notification, Profile
+from .models import Child, DailyOverview, Group, Message, MessageThread, Notification, Profile
 from .token_storage import FileTokenStorage
 from .utils.json import to_json
 from .utils.output import (
@@ -424,6 +424,17 @@ async def _get_widget_context(
         return None
 
     return child_filter, institution_filter, session_uuid
+
+
+def _with_child(row: dict, child: Child) -> dict:
+    """Tag a provider row with the child it was fetched for.
+
+    Providers that answer per child return bare rows, so a combined JSON
+    listing would otherwise give no way to tell whose row is whose. The text
+    output already prints the child, so this keeps the two output modes
+    saying the same thing.
+    """
+    return {**row, "child_id": child.id, "child_name": child.name}
 
 
 def _easyiq_child_user_ids(profile_context: dict) -> list[str]:
@@ -1890,7 +1901,7 @@ async def easyiq_ugeplan(ctx, week):
                         child_profile_id=str(child.id),
                         all_child_user_ids=all_child_user_ids,
                     )
-                    all_appointments.extend(dict(a) for a in appointments)
+                    all_appointments.extend(_with_child(dict(a), child) for a in appointments)
                 except Exception as e:
                     print_error(f"fetching EasyIQ weekplan for {child.name}: {e}", err=True)
                     continue
@@ -1924,6 +1935,7 @@ async def easyiq_ugeplan(ctx, week):
                     title=appt.title,
                     properties=[
                         ("Child", child.name),
+                        ("Class", appt.activities),
                         ("Start", appt.start),
                         ("End", appt.end),
                     ],
@@ -1998,7 +2010,7 @@ async def easyiq_homework(ctx, week):
                         child_profile_id=str(child.id),
                         all_child_user_ids=all_child_user_ids,
                     )
-                    all_homework.extend(dict(hw) for hw in homework)
+                    all_homework.extend(_with_child(dict(hw), child) for hw in homework)
                 except Exception as e:
                     print_error(f"fetching EasyIQ homework for {child.name}: {e}", err=True)
                     continue
@@ -2033,6 +2045,7 @@ async def easyiq_homework(ctx, week):
                     title=hw.title,
                     properties=[
                         ("Child", child.name),
+                        ("Class", hw.activities),
                         ("Status", status),
                         ("Subject", hw.subject),
                         ("Due", hw.due_date),
@@ -2910,7 +2923,7 @@ async def weekly_summary(ctx, child, week, providers):
                 if not appointments:
                     continue
 
-                easyiq_appointments.extend(dict(a) for a in appointments)
+                easyiq_appointments.extend(_with_child(dict(a), c) for a in appointments)
 
                 if not is_json:
                     if not easyiq_any:
@@ -2964,7 +2977,7 @@ async def weekly_summary(ctx, child, week, providers):
                 if not homework:
                     continue
 
-                easyiq_hw_items.extend(dict(hw) for hw in homework)
+                easyiq_hw_items.extend(_with_child(dict(hw), c) for hw in homework)
 
                 if not is_json:
                     if not easyiq_hw_any:
