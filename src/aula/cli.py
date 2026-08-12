@@ -377,6 +377,32 @@ async def _get_widget_context(
     return child_filter, institution_filter, session_uuid
 
 
+def _easyiq_child_user_ids(profile_context: dict) -> list[str]:
+    """Every child's UniLogin, which EasyIQ's portal wants as ``x-childfilter``.
+
+    Read from ``profiles.getProfileContext`` rather than ``prof.children``
+    because the portal matches on the UniLogin, which Aula calls ``userId``.
+    Children appear under the active institution profile's ``relations`` and
+    again under each institution the guardian has a child at, so both are
+    read and de-duplicated: a child at a second institution must not be left
+    out of the filter.
+    """
+    data = profile_context.get("data") or {}
+    relations = (data.get("institutionProfile") or {}).get("relations") or []
+    institution_children = [
+        child
+        for institution in data.get("institutions") or []
+        if isinstance(institution, dict)
+        for child in institution.get("children") or []
+    ]
+    user_ids = (
+        str(entry["userId"])
+        for entry in [*relations, *institution_children]
+        if isinstance(entry, dict) and entry.get("userId")
+    )
+    return list(dict.fromkeys(user_ids))
+
+
 # Define commands
 @cli.command()
 @click.pass_context
@@ -1551,6 +1577,7 @@ async def debug_easyiq(ctx, week, include_values):
             guardian_login,
             monday_of_week(week),
             institution_filter,
+            _easyiq_child_user_ids(profile_context),
             include_values=include_values,
         )
 
@@ -1778,6 +1805,7 @@ async def easyiq_ugeplan(ctx, week):
         except Exception as e:
             print_error(f"fetching profile context: {e}")
             return
+        all_child_user_ids = _easyiq_child_user_ids(profile_context)
 
         from .utils.html import html_to_plain
 
@@ -1794,6 +1822,7 @@ async def easyiq_ugeplan(ctx, week):
                         institution_filter,
                         child_id,
                         child_profile_id=str(child.id),
+                        all_child_user_ids=all_child_user_ids,
                     )
                     all_appointments.extend(dict(a) for a in appointments)
                 except Exception as e:
@@ -1817,6 +1846,7 @@ async def easyiq_ugeplan(ctx, week):
                     institution_filter,
                     child_id,
                     child_profile_id=str(child.id),
+                    all_child_user_ids=all_child_user_ids,
                 )
             except Exception as e:
                 print_error(f"fetching EasyIQ weekplan for {child.name}: {e}")
@@ -1880,6 +1910,7 @@ async def easyiq_homework(ctx, week):
         except Exception as e:
             print_error(f"fetching profile context: {e}")
             return
+        all_child_user_ids = _easyiq_child_user_ids(profile_context)
 
         from .utils.html import html_to_plain
 
@@ -1896,6 +1927,7 @@ async def easyiq_homework(ctx, week):
                         institution_filter,
                         child_id,
                         child_profile_id=str(child.id),
+                        all_child_user_ids=all_child_user_ids,
                     )
                     all_homework.extend(dict(hw) for hw in homework)
                 except Exception as e:
@@ -1919,6 +1951,7 @@ async def easyiq_homework(ctx, week):
                     institution_filter,
                     child_id,
                     child_profile_id=str(child.id),
+                    all_child_user_ids=all_child_user_ids,
                 )
             except Exception as e:
                 print_error(f"fetching EasyIQ homework for {child.name}: {e}")
@@ -2648,6 +2681,12 @@ async def weekly_summary(ctx, child, week, providers):
 
         child_filter, institution_filter, session_uuid = widget_ctx
 
+        try:
+            all_child_user_ids = _easyiq_child_user_ids(await client.get_profile_context())
+        except Exception as e:
+            _log.warning("Could not read children for the EasyIQ child filter: %s", e)
+            all_child_user_ids = []
+
         # Filter child_filter to selected children only
         if child:
             selected_user_ids = {
@@ -2781,6 +2820,7 @@ async def weekly_summary(ctx, child, week, providers):
                         c_institutions or institution_filter,
                         c_user_id,
                         child_profile_id=str(c.id),
+                        all_child_user_ids=all_child_user_ids,
                     )
                 except Exception as e:
                     _log.warning("Could not fetch EasyIQ weekplan for %s: %s", c.name, e)
@@ -2832,6 +2872,7 @@ async def weekly_summary(ctx, child, week, providers):
                         c_institutions or institution_filter,
                         c_user_id,
                         child_profile_id=str(c.id),
+                        all_child_user_ids=all_child_user_ids,
                     )
                 except Exception as e:
                     _log.warning("Could not fetch EasyIQ homework for %s: %s", c.name, e)

@@ -8,7 +8,9 @@ from aula.api_client import AulaApiClient
 from aula.const import (
     CICERO_API,
     EASYIQ_API,
+    EASYIQ_AUTHENTICATE_PATH,
     EASYIQ_CALENDAR_PATH,
+    EASYIQ_CHILDREN_PATH,
     EASYIQ_HOMEWORK_PATH,
     EASYIQ_PORTAL,
     MEEBOOK_API,
@@ -42,6 +44,14 @@ def _calendar_response(payload: object) -> Mock:
 class TestWidgetsClient:
     @pytest.fixture
     def client(self):
+        client = AulaApiClient(http_client=AsyncMock(), access_token="token")
+        # The EasyIQ portal session has its own tests below; marking it done
+        # keeps the request-shape tests free of bootstrap plumbing.
+        client.widgets._easyiq_session_ready = True
+        return client
+
+    @pytest.fixture
+    def unbootstrapped_client(self):
         return AulaApiClient(http_client=AsyncMock(), access_token="token")
 
     @pytest.mark.asyncio
@@ -263,6 +273,96 @@ class TestWidgetsClient:
             "x-child": "child-user-1",
             "x-childfilter": "child-user-1",
         }
+
+    @pytest.mark.asyncio
+    async def test_portal_session_is_established_before_any_controller(self, unbootstrapped_client):
+        """Without AuthenticateAulaUser the portal's controllers all 500."""
+        client = unbootstrapped_client
+        client._request_with_version_retry = AsyncMock(
+            side_effect=[
+                _token_response("token-boot"),  # token for the bootstrap
+                _calendar_response(None),  # AuthenticateAulaUser
+                _calendar_response({"Children": [{"Id": "9001", "Login": "ASTR8360"}]}),
+                _token_response("token-easy-hw"),  # token for the fetch
+                _calendar_response([{"ItemType": 4, "CoursesDisplay": "Dansk"}]),
+            ]
+        )
+
+        homework = await client.widgets.get_easyiq_homework(
+            "2026-W09",
+            "guardian-1",
+            ["inst-1"],
+            "astr8360",
+            child_profile_id="4242",
+            all_child_user_ids=["astr8360", "kris37r9"],
+        )
+
+        assert [hw.subject for hw in homework] == ["Dansk"]
+        calls = client._request_with_version_retry.await_args_list
+        assert calls[1].args == ("post", f"{EASYIQ_PORTAL}{EASYIQ_AUTHENTICATE_PATH}")
+        assert calls[2].args == ("get", f"{EASYIQ_PORTAL}{EASYIQ_CHILDREN_PATH}")
+        # EasyIQ's own ID is used as loginId, matched on Login not Name, and
+        # x-childfilter carries every child while x-child carries this one.
+        assert calls[4].kwargs["params"]["loginId"] == "9001"
+        assert calls[4].kwargs["headers"]["x-child"] == "astr8360"
+        assert calls[4].kwargs["headers"]["x-childfilter"] == "astr8360,kris37r9"
+
+    @pytest.mark.asyncio
+    async def test_portal_session_runs_once_across_calls(self, unbootstrapped_client):
+        client = unbootstrapped_client
+        client._request_with_version_retry = AsyncMock(
+            side_effect=[
+                _token_response("token-boot"),
+                _calendar_response(None),
+                _calendar_response({"Children": [{"Id": "9001", "Login": "astr8360"}]}),
+                _token_response("token-easy-hw"),
+                _calendar_response([{"ItemType": 4, "CoursesDisplay": "Dansk"}]),
+                _token_response("token-easy-hw"),
+                _calendar_response([{"ItemType": 4, "CoursesDisplay": "Matematik"}]),
+            ]
+        )
+        kwargs = {
+            "child_profile_id": "4242",
+            "all_child_user_ids": ["astr8360"],
+        }
+
+        await client.widgets.get_easyiq_homework(
+            "2026-W09", "guardian-1", ["inst-1"], "astr8360", **kwargs
+        )
+        homework = await client.widgets.get_easyiq_homework(
+            "2026-W10", "guardian-1", ["inst-1"], "astr8360", **kwargs
+        )
+
+        assert [hw.subject for hw in homework] == ["Matematik"]
+        assert client._request_with_version_retry.await_count == 7
+
+    @pytest.mark.asyncio
+    async def test_a_failed_bootstrap_leaves_the_guessing_fallback(self, unbootstrapped_client):
+        """Institutions this flow does not suit must still get the old path."""
+        client = unbootstrapped_client
+        failing = Mock()
+        failing.raise_for_status = Mock(side_effect=AulaNotFoundError("HTTP 404", 404))
+        client._request_with_version_retry = AsyncMock(
+            side_effect=[
+                _token_response("token-boot"),
+                failing,  # AuthenticateAulaUser
+                _token_response("token-easy-hw"),
+                _calendar_response([{"ItemType": 4, "CoursesDisplay": "Dansk"}]),
+            ]
+        )
+
+        homework = await client.widgets.get_easyiq_homework(
+            "2026-W09",
+            "guardian-1",
+            ["inst-1"],
+            "astr8360",
+            child_profile_id="4242",
+            all_child_user_ids=["astr8360"],
+        )
+
+        assert [hw.subject for hw in homework] == ["Dansk"]
+        calls = client._request_with_version_retry.await_args_list
+        assert calls[3].kwargs["params"]["loginId"] == "4242"
 
     @pytest.mark.asyncio
     async def test_get_easyiq_homework_keeps_rows_of_an_unfamiliar_item_type(self, client):

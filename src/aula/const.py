@@ -12,6 +12,9 @@ EASYIQ_PORTAL = "https://skoleportal.easyiqcloud.dk"
 EASYIQ_CALENDAR_PATH = "/Calendar/CalendarGetWeekplanEvents"
 EASYIQ_HOMEWORK_PATH = "/AulaHuskeliste/GetWeekplanEvents"
 EASYIQ_CHILDREN_PATH = "/Aula/GetChildren"
+# The portal's controllers need the session cookies this sets; the Aula widget
+# token on its own is not enough.
+EASYIQ_AUTHENTICATE_PATH = "/Aula/AuthenticateAulaUser"
 MEEBOOK_API = "https://app.meebook.com/aulaapi"
 CICERO_API = "https://surf.cicero-suite.com/portal-api/rest/aula"
 

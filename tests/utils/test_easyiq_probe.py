@@ -159,6 +159,9 @@ class TestProbeEasyIQ:
         client.widgets._get_bearer_token = AsyncMock(return_value="Bearer t")
         client.widgets.easyiq_headers = Mock(return_value={"Authorization": "Bearer t"})
         client.widgets.easyiq_identifier_variants = Mock(return_value=[("4242", "astr8360")])
+        client.widgets.resolve_easyiq_child_id = Mock(return_value=None)
+        # The real client owns the session; the probe only has to ask for it.
+        client.widgets.ensure_easyiq_session = AsyncMock()
         client._request_with_version_retry = AsyncMock(side_effect=responses)
         return client
 
@@ -187,6 +190,26 @@ class TestProbeEasyIQ:
         assert probe.attempts[EASYIQ_CALENDAR_PATH][0].item_types == {"9": 1}
         assert probe.attempts[EASYIQ_HOMEWORK_PATH][0].item_types == {"4": 1}
         assert probe.attempts[EASYIQ_HOMEWORK_PATH][0].keys == ["ItemType"]
+
+    @pytest.mark.asyncio
+    async def test_establishes_the_session_before_probing(self, child):
+        """A probe without the session would report nothing but 500s."""
+        client = self._client(
+            [self._resp(200, {"Children": []}), self._resp(200, []), self._resp(200, [])]
+        )
+
+        await probe_easyiq(
+            client,
+            [child],
+            "nick536a",
+            "2026-08-10T00:00:00Z",
+            ["inst-1"],
+            ["astr8360", "kris37r9"],
+        )
+
+        client.widgets.ensure_easyiq_session.assert_awaited_once_with(
+            ["inst-1"], "nick536a", ["astr8360", "kris37r9"]
+        )
 
     @pytest.mark.asyncio
     async def test_a_failing_controller_is_recorded_not_raised(self, child):

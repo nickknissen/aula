@@ -131,16 +131,19 @@ async def probe_easyiq(
     guardian_login: str,
     date: str,
     institution_filter: list[str] | None = None,
+    all_child_user_ids: list[str] | None = None,
     include_values: bool = False,
 ) -> ProbeReport:
     """Run the probe and return its report.
 
     ``date`` is an ISO timestamp inside the week to ask about.
-    ``institution_filter`` must be the same list the real commands send:
-    EasyIQ answers differently without it, so a probe that omitted it would
-    report failures the working code never sees.
+    ``institution_filter`` and ``all_child_user_ids`` must be the same values
+    the real commands send: EasyIQ answers differently without them, so a
+    probe that omitted either would report failures the working code never
+    sees.
     """
     institution_filter = institution_filter or []
+    all_child_user_ids = all_child_user_ids or []
     report = ProbeReport()
 
     try:
@@ -166,8 +169,16 @@ async def probe_easyiq(
     if not tokens:
         return report
 
+    # Establish the portal session first: without it every controller 500s,
+    # so a probe that skipped it would report nothing but failures.
+    await client.widgets.ensure_easyiq_session(
+        institution_filter, guardian_login, all_child_user_ids
+    )
+
     any_token = next(iter(tokens.values()))
-    headers = client.widgets.easyiq_headers(any_token, institution_filter, guardian_login)
+    headers = client.widgets.easyiq_headers(
+        any_token, institution_filter, guardian_login, all_child_user_ids
+    )
     entries: list[dict[str, Any]] = []
     try:
         resp = await client._request_with_version_retry(
@@ -194,21 +205,33 @@ async def probe_easyiq(
             token = tokens.get(widget_id)
             if token is None:
                 continue
-            base = client.widgets.easyiq_headers(token, institution_filter, guardian_login)
+            base = client.widgets.easyiq_headers(
+                token,
+                institution_filter,
+                guardian_login,
+                all_child_user_ids,
+                aula_ids["user_id"],
+            )
+            easyiq_id = client.widgets.resolve_easyiq_child_id(aula_ids["user_id"])
+            named = {**aula_ids, "easyiq_id": easyiq_id or ""}
             attempts: list[Attempt] = []
             for login_id, child_header in client.widgets.easyiq_identifier_variants(
-                aula_ids["institution_profile_id"], aula_ids["user_id"], guardian_login
+                aula_ids["institution_profile_id"],
+                aula_ids["user_id"],
+                guardian_login,
+                easyiq_id,
             ):
                 attempt = Attempt(
-                    login_id_source=_name_of(login_id, aula_ids, guardian_login),
-                    child_header_source=_name_of(child_header, aula_ids, guardian_login),
+                    login_id_source=_name_of(login_id, named, guardian_login),
+                    child_header_source=_name_of(child_header, named, guardian_login),
                 )
                 try:
                     resp = await client._request_with_version_retry(
                         "get",
                         f"{EASYIQ_PORTAL}{path}",
                         params={**extra_params, "date": date, "loginId": login_id},
-                        headers={**base, "x-child": child_header, "x-childfilter": child_header},
+                        # x-childfilter stays the full list from base.
+                        headers={**base, "x-child": child_header},
                     )
                     attempt.status = resp.status_code
                     payload = resp.json()

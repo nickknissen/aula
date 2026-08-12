@@ -29,17 +29,15 @@ class EasyIQHomework(AulaDataClass):
 
     @classmethod
     def from_calendar_event(cls, event: EasyIQCalendarEvent) -> EasyIQHomework:
-        """Build homework from an EasyIQ calendar row of item type 4.
+        """Build homework from an EasyIQ homework row.
 
-        The portal's calendar rows carry no assignment id or completion flag,
-        so ``id`` falls back to the start timestamp and ``is_completed`` stays
+        The portal carries no completion flag, so ``is_completed`` stays
         ``False``. The subject doubles as the title, matching how the EasyIQ
         widget itself labels homework.
         """
-        row = {str(k).lower(): v for k, v in (event._raw or {}).items()}
         return cls(
             _raw=event._raw,
-            id=str(row.get("id") or "") or event.start,
+            id=event.event_id or event.start,
             title=event.title,
             description=event.description,
             due_date=event.start,
