@@ -421,7 +421,13 @@ class MitIDAuthClient:
                 "SessionStorageActiveChallenge": challenge,
             }
 
-            response = await self._client.post(f"{MITID_BASE_URL}/login/mitid", data=params)
+            # The shared client runs with follow_redirects=False, but users with more
+            # than one MitID identity are answered with 302 -> /loginoption here.
+            # Without following it, response.url stays on /login/mitid, the check
+            # below never fires, and we parse SAML out of an empty redirect body.
+            response = await self._client.post(
+                f"{MITID_BASE_URL}/login/mitid", data=params, follow_redirects=True
+            )
 
             if str(response.url).endswith("/loginoption"):
                 _LOGGER.info("Multiple identities detected, handling identity selection")
@@ -495,7 +501,8 @@ class MitIDAuthClient:
             form_data["SessionStorageActiveChallenge"] = challenge
 
         login_option_url = str(response.url)
-        result = await self._client.post(login_option_url, data=form_data)
+        # Submitting the choice redirects on to the page carrying the SAML form.
+        result = await self._client.post(login_option_url, data=form_data, follow_redirects=True)
         return BeautifulSoup(result.text, features="html.parser")
 
     async def _step5_saml_broker_flow(self, saml_data: dict[str, str]) -> dict[str, str]:
