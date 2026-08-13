@@ -109,7 +109,7 @@ class ChildPresenceState(AulaDataClass):
                 _LOGGER.warning("Unknown presence status value: %s", status_value)
 
         # Profile ID and name are nested inside uniStudent
-        uni_student = data.get("uniStudent", {}) or {}
+        uni_student = data.get("uniStudent") or {}
         institution_profile_id = uni_student.get("id") or data.get("institutionProfileId")
         name = uni_student.get("name")
 
@@ -136,8 +136,8 @@ class PresenceConfiguration(AulaDataClass):
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> PresenceConfiguration:
         # Real API nests config under "presenceConfiguration"
-        config = data.get("presenceConfiguration", {}) or {}
-        institution = config.get("institution", {}) or {}
+        config = data.get("presenceConfiguration") or {}
+        institution = config.get("institution") or {}
 
         return cls(
             _raw=data,

@@ -1,6 +1,7 @@
 from dataclasses import dataclass, field
 from typing import Any
 
+from ..utils.mapping import get_in
 from .base import AulaDataClass
 
 
@@ -29,7 +30,7 @@ class ProfileReference(AulaDataClass):
             full_name=data.get("fullName", ""),
             short_name=data.get("shortName", ""),
             role=data.get("role", ""),
-            institution_name=(data.get("institution") or {}).get("institutionName", ""),
+            institution_name=get_in(data, "institution.institutionName", default=""),
             profile_picture=data.get("profilePicture"),
             _raw=data,
         )

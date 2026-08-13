@@ -27,6 +27,7 @@ from .const import (
 from .models import Child, DailyOverview, Group, Message, MessageThread, Notification, Profile
 from .token_storage import FileTokenStorage
 from .utils.json import to_json
+from .utils.mapping import get_in
 from .utils.output import (
     build_contact_table,
     clip,
@@ -412,7 +413,7 @@ async def _get_widget_context(
     institution_filter: list[str] = []
     for child in prof.children:
         if child._raw:
-            inst_code = (child._raw.get("institutionProfile") or {}).get("institutionCode", "")
+            inst_code = get_in(child._raw, "institutionProfile.institutionCode", default="")
             if inst_code and str(inst_code) not in institution_filter:
                 institution_filter.append(str(inst_code))
 
@@ -448,7 +449,7 @@ def _easyiq_child_user_ids(profile_context: dict) -> list[str]:
     out of the filter.
     """
     data = profile_context.get("data") or {}
-    relations = (data.get("institutionProfile") or {}).get("relations") or []
+    relations = get_in(data, "institutionProfile.relations") or []
     institution_children = [
         child
         for institution in data.get("institutions") or []
@@ -731,7 +732,7 @@ async def messages(ctx, limit, unread, search, folders):
             institution_codes: list[str] = []
             for child in prof.children:
                 if child._raw:
-                    code = (child._raw.get("institutionProfile") or {}).get("institutionCode", "")
+                    code = get_in(child._raw, "institutionProfile.institutionCode", default="")
                     if code and str(code) not in institution_codes:
                         institution_codes.append(str(code))
 
@@ -757,7 +758,7 @@ async def messages(ctx, limit, unread, search, folders):
 
             for i, msg in enumerate(results):
                 msg_raw = msg._raw or {}
-                sender = (msg_raw.get("sender") or {}).get("fullName", "Unknown")
+                sender = get_in(msg_raw, "sender.fullName", default="Unknown")
                 send_date = msg_raw.get("sendDateTime", "")
                 subject = msg_raw.get("threadSubject", "")
 
@@ -822,7 +823,7 @@ async def messages(ctx, limit, unread, search, folders):
                 else:
                     for msg in messages_list:
                         msg_raw = msg._raw or {}
-                        sender = (msg_raw.get("sender") or {}).get("fullName", "Unknown")
+                        sender = get_in(msg_raw, "sender.fullName", default="Unknown")
                         send_date = msg_raw.get("sendDateTime", "")
                         message_title = msg_raw.get("threadSubject", "")
                         for line in format_message_lines(
@@ -860,9 +861,8 @@ async def notifications(ctx, offset, limit, module):
                 children_ids.append(child.id)
                 if not child._raw:
                     continue
-                institution = child._raw.get("institutionProfile", {})
-                code = institution.get("institutionCode")
-                name = institution.get("institutionName")
+                code = get_in(child._raw, "institutionProfile.institutionCode")
+                name = get_in(child._raw, "institutionProfile.institutionName")
                 if code and name and str(code) not in institution_names:
                     institution_names[str(code)] = str(name)
                 if code and str(code) not in institution_codes:
@@ -1090,7 +1090,7 @@ async def birthdays(ctx, group_id, start_date, end_date):
             institution_codes: list[str] = []
             for child in prof.children:
                 if child._raw:
-                    code = (child._raw.get("institutionProfile") or {}).get("institutionCode", "")
+                    code = get_in(child._raw, "institutionProfile.institutionCode", default="")
                     if code and str(code) not in institution_codes:
                         institution_codes.append(str(code))
 
@@ -1636,7 +1636,7 @@ async def debug_easyiq(ctx, week, include_values):
         institution_filter: list[str] = []
         for child in prof.children:
             if child._raw:
-                inst_code = (child._raw.get("institutionProfile") or {}).get("institutionCode", "")
+                inst_code = get_in(child._raw, "institutionProfile.institutionCode", default="")
                 if inst_code and str(inst_code) not in institution_filter:
                     institution_filter.append(str(inst_code))
 
@@ -1872,7 +1872,7 @@ async def easyiq_ugeplan(ctx, week):
         institution_filter: list[str] = []
         for child in prof.children:
             if child._raw:
-                inst_code = (child._raw.get("institutionProfile") or {}).get("institutionCode", "")
+                inst_code = get_in(child._raw, "institutionProfile.institutionCode", default="")
                 if inst_code and str(inst_code) not in institution_filter:
                     institution_filter.append(str(inst_code))
 
@@ -1981,7 +1981,7 @@ async def easyiq_homework(ctx, week):
         institution_filter: list[str] = []
         for child in prof.children:
             if child._raw:
-                inst_code = (child._raw.get("institutionProfile") or {}).get("institutionCode", "")
+                inst_code = get_in(child._raw, "institutionProfile.institutionCode", default="")
                 if inst_code and str(inst_code) not in institution_filter:
                     institution_filter.append(str(inst_code))
 
@@ -2099,7 +2099,7 @@ async def meebook_ugeplan(ctx, week):
         institution_filter: list[str] = []
         for child in prof.children:
             if child._raw:
-                inst_code = (child._raw.get("institutionProfile") or {}).get("institutionCode", "")
+                inst_code = get_in(child._raw, "institutionProfile.institutionCode", default="")
                 if inst_code and str(inst_code) not in institution_filter:
                     institution_filter.append(str(inst_code))
 
@@ -2184,7 +2184,7 @@ async def momo_course(ctx):
         institutions: list[str] = []
         for child in prof.children:
             if child._raw:
-                inst_code = (child._raw.get("institutionProfile") or {}).get("institutionCode", "")
+                inst_code = get_in(child._raw, "institutionProfile.institutionCode", default="")
                 if inst_code and str(inst_code) not in institutions:
                     institutions.append(str(inst_code))
 
@@ -2259,7 +2259,7 @@ async def momo_reminders(ctx):
         institutions: list[str] = []
         for child in prof.children:
             if child._raw:
-                inst_code = (child._raw.get("institutionProfile") or {}).get("institutionCode", "")
+                inst_code = get_in(child._raw, "institutionProfile.institutionCode", default="")
                 if inst_code and str(inst_code) not in institutions:
                     institutions.append(str(inst_code))
 
@@ -2399,7 +2399,7 @@ async def download_images(ctx, output, since, source, tags):
         institution_codes: list[str] = []
         for child in prof.children:
             if child._raw:
-                code = (child._raw.get("institutionProfile") or {}).get("institutionCode", "")
+                code = get_in(child._raw, "institutionProfile.institutionCode", default="")
                 if code and code not in institution_codes:
                     institution_codes.append(code)
 
@@ -2592,7 +2592,7 @@ async def weekly_summary(ctx, child, week, providers):
             else {WeeklySummaryProvider(p) for p in providers}
         )
     else:
-        cfg = load_config().get("weekly_summary", {})
+        cfg = load_config().get("weekly_summary") or {}
         enabled = set()
         for key, active in cfg.items():
             try:
@@ -2745,7 +2745,7 @@ async def weekly_summary(ctx, child, week, providers):
                     msgs = await client.get_messages_for_thread(thread.thread_id)
                     for msg in msgs:
                         msg_raw = msg._raw or {}
-                        sender = (msg_raw.get("sender") or {}).get("fullName", "Unknown")
+                        sender = get_in(msg_raw, "sender.fullName", default="Unknown")
                         send_date = msg_raw.get("sendDateTime", "")
                         click.echo(f"Author: {sender}")
                         if send_date:
@@ -2903,7 +2903,7 @@ async def weekly_summary(ctx, child, week, providers):
                     continue
                 c_user_id = str(c._raw["userId"])
                 c_institutions: list[str] = []
-                inst_code = (c._raw.get("institutionProfile") or {}).get("institutionCode", "")
+                inst_code = get_in(c._raw, "institutionProfile.institutionCode", default="")
                 if inst_code:
                     c_institutions.append(str(inst_code))
 
@@ -2957,7 +2957,7 @@ async def weekly_summary(ctx, child, week, providers):
                     continue
                 c_user_id = str(c._raw["userId"])
                 c_institutions: list[str] = []
-                inst_code = (c._raw.get("institutionProfile") or {}).get("institutionCode", "")
+                inst_code = get_in(c._raw, "institutionProfile.institutionCode", default="")
                 if inst_code:
                     c_institutions.append(str(inst_code))
 
@@ -4027,7 +4027,7 @@ async def daily_summary(ctx, child, target_date):
                     msgs = await client.get_messages_for_thread(thread.thread_id)
                     for msg in msgs:
                         msg_raw = msg._raw or {}
-                        sender = (msg_raw.get("sender") or {}).get("fullName", "Unknown")
+                        sender = get_in(msg_raw, "sender.fullName", default="Unknown")
                         send_date = msg_raw.get("sendDateTime", "")
                         click.echo(f"Author: {sender}")
                         if send_date:

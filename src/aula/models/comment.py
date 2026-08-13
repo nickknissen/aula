@@ -21,7 +21,7 @@ class Comment(AulaDataClass):
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> Comment:
-        owner = data.get("owner", {}) or {}
+        owner = data.get("owner") or {}
         return cls(
             _raw=data,
             id=data["id"],

@@ -3,6 +3,7 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from ..utils.html import html_to_markdown, html_to_plain
+from ..utils.mapping import get_in
 from .base import AulaDataClass
 from .profile_reference import ProfileReference
 
@@ -57,12 +58,12 @@ class Post(AulaDataClass):
             except ValueError, TypeError:
                 return None
 
-        owner = ProfileReference.from_dict(data.get("ownerProfile", {}))
+        owner = ProfileReference.from_dict(data.get("ownerProfile") or {})
 
         return cls(
             id=data["id"],
             title=data.get("title", ""),
-            content_html=(data.get("content") or {}).get("html", ""),
+            content_html=get_in(data, "content.html", default=""),
             timestamp=parse_datetime(data.get("timestamp")),
             owner=owner,
             allow_comments=data.get("allowComments", False),

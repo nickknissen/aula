@@ -17,7 +17,7 @@ class WidgetConfiguration(AulaDataClass):
 
     @classmethod
     def from_dict(cls, data: dict) -> WidgetConfiguration:
-        widget = data.get("widget", {})
+        widget = data.get("widget") or {}
         return cls(
             widget_id=widget.get("widgetId", ""),
             name=widget.get("name", ""),

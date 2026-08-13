@@ -60,6 +60,7 @@ from .models import (
     VacationRegistration,
     WidgetConfiguration,
 )
+from .utils.mapping import get_in
 from .widgets import AulaWidgetsClient
 
 # Logger
@@ -343,7 +344,7 @@ class AulaApiClient:
             "get", f"{self.api_url}?method=profiles.getProfilesByLogin"
         )
         resp.raise_for_status()
-        raw_data_list = (resp.json().get("data") or {}).get("profiles", [])
+        raw_data_list = get_in(resp.json(), "data.profiles", default=[])
 
         if not raw_data_list:
             raise ValueError("No profile data found in API response")
@@ -412,9 +413,7 @@ class AulaApiClient:
         )
         resp.raise_for_status()
         data = resp.json()
-        widget_configs = ((data.get("data") or {}).get("pageConfiguration") or {}).get(
-            "widgetConfigurations"
-        ) or []
+        widget_configs = get_in(data, "data.pageConfiguration.widgetConfigurations", default=[])
         widgets = []
         for item in widget_configs:
             try:
@@ -837,7 +836,7 @@ class AulaApiClient:
             url += f"&filterOn={filter_on}"
         resp = await self._request_with_version_retry("get", url)
         resp.raise_for_status()
-        threads_data = (resp.json().get("data") or {}).get("threads", [])
+        threads_data = get_in(resp.json(), "data.threads", default=[])
 
         threads = []
         for t_dict in threads_data:
@@ -865,12 +864,14 @@ class AulaApiClient:
         resp.raise_for_status()
         data = resp.json()
         messages = []
-        raw_messages = (data.get("data") or {}).get("messages", [])
+        raw_messages = get_in(data, "data.messages", default=[])
 
         for msg_dict in raw_messages:
             if msg_dict.get("messageType") in ("Message", "MessageEdited"):
                 try:
-                    text = (msg_dict.get("text") or {}).get("html") or msg_dict.get("text", "")
+                    text = get_in(msg_dict, "text.html", default="") or get_in(
+                        msg_dict, "text", default=""
+                    )
                     messages.append(
                         Message(_raw=msg_dict, id=msg_dict.get("id"), content_html=text)
                     )
@@ -911,13 +912,13 @@ class AulaApiClient:
 
         for event in raw_events:
             try:
-                lesson = event.get("lesson", {}) or {}
+                lesson = event.get("lesson") or {}
 
                 teacher = self._find_participant_by_role(lesson, "primaryTeacher")
                 substitute = self._find_participant_by_role(lesson, "substituteTeacher")
 
                 has_substitute = lesson.get("lessonStatus", "").lower() == "substitute"
-                location = (lesson.get("primaryResource") or {}).get("name")
+                location = get_in(lesson, "primaryResource.name")
 
                 events.append(
                     CalendarEvent(
@@ -957,7 +958,7 @@ class AulaApiClient:
         resp = await self._request_with_version_retry("get", self.api_url, params=params)
         resp.raise_for_status()
 
-        data = resp.json().get("data", {})
+        data = resp.json().get("data") or {}
         if not data or not isinstance(data, dict):
             return None
         return data
@@ -1174,7 +1175,7 @@ class AulaApiClient:
         resp = await self._request_with_version_retry("get", self.api_url, params=params)
         resp.raise_for_status()
 
-        data = resp.json().get("data", {})
+        data = resp.json().get("data") or {}
         if not data or not isinstance(data, dict):
             return None
         return Group.from_dict(data)
@@ -1234,7 +1235,7 @@ class AulaApiClient:
 
         resp.raise_for_status()
 
-        posts_data = (resp.json().get("data") or {}).get("posts", [])
+        posts_data = get_in(resp.json(), "data.posts", default=[])
         posts = []
 
         for post_data in posts_data:
@@ -1275,7 +1276,7 @@ class AulaApiClient:
         resp = await self._request_with_version_retry("get", self.api_url, params=params)
         resp.raise_for_status()
 
-        data = resp.json().get("data", {})
+        data = resp.json().get("data") or {}
         if not data:
             return None
 
@@ -1561,7 +1562,7 @@ class AulaApiClient:
                 json=payload,
             )
             resp.raise_for_status()
-            data = resp.json().get("data", {})
+            data = resp.json().get("data") or {}
             results = data.get("results", [])
             if not results:
                 break
@@ -1597,7 +1598,7 @@ class AulaApiClient:
                 f"{self.api_url}?method=messaging.getThreads&sortOn=date&orderDirection=desc&page={page}",
             )
             resp.raise_for_status()
-            threads = (resp.json().get("data") or {}).get("threads", [])
+            threads = get_in(resp.json(), "data.threads", default=[])
             if not threads:
                 break
 
@@ -1631,7 +1632,7 @@ class AulaApiClient:
                 f"{self.api_url}?method=messaging.getMessagesForThread&threadId={thread_id}&page={page}",
             )
             resp.raise_for_status()
-            messages = (resp.json().get("data") or {}).get("messages", [])
+            messages = get_in(resp.json(), "data.messages", default=[])
             if not messages:
                 break
 
@@ -1730,7 +1731,7 @@ class AulaApiClient:
         }
         resp = await self._request_with_version_retry("get", self.api_url, params=params)
         resp.raise_for_status()
-        data = resp.json().get("data", {})
+        data = resp.json().get("data") or {}
         if not data or not isinstance(data, dict):
             return None
         return data
@@ -1755,7 +1756,7 @@ class AulaApiClient:
             params["PortalRoles"] = portal_roles
         resp = await self._request_with_version_retry("get", self.api_url, params=params)
         resp.raise_for_status()
-        data = (resp.json().get("data") or {}).get("results", [])
+        data = get_in(resp.json(), "data.results", default=[])
         if not isinstance(data, list):
             return []
         return data
@@ -1770,7 +1771,7 @@ class AulaApiClient:
         }
         resp = await self._request_with_version_retry("get", self.api_url, params=params)
         resp.raise_for_status()
-        return resp.json().get("data", {})
+        return resp.json().get("data") or {}
 
     async def search(
         self, text: str, doc_type: str | None = None, limit: int = 20, offset: int = 0
@@ -1787,7 +1788,7 @@ class AulaApiClient:
             params["DocType"] = doc_type
         resp = await self._request_with_version_retry("get", self.api_url, params=params)
         resp.raise_for_status()
-        return resp.json().get("data", {})
+        return resp.json().get("data") or {}
 
     async def get_contact_list(
         self,
@@ -1859,7 +1860,7 @@ class AulaApiClient:
         }
         resp = await self._request_with_version_retry("get", self.api_url, params=params)
         resp.raise_for_status()
-        data = resp.json().get("data", {})
+        data = resp.json().get("data") or {}
         if not data or not isinstance(data, dict):
             return None
         return data
@@ -1959,7 +1960,7 @@ class AulaApiClient:
         }
         resp = await self._request_with_version_retry("get", self.api_url, params=params)
         resp.raise_for_status()
-        data = resp.json().get("data", {})
+        data = resp.json().get("data") or {}
         results = data.get("results", []) if isinstance(data, dict) else []
         if not isinstance(results, list):
             return []

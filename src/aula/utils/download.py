@@ -7,6 +7,7 @@ from datetime import date, datetime
 from pathlib import Path
 
 from ..api_client import AulaApiClient
+from .mapping import get_in
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -225,12 +226,11 @@ async def download_message_images(
     threads: dict[str, dict] = {}
     for result in search_results:
         raw = result._raw or {}
-        thread_info = raw.get("thread", {})
-        thread_id = str(thread_info.get("id", ""))
+        thread_id = str(get_in(raw, "thread.id", default=""))
         if thread_id and thread_id not in threads:
-            send_dt = (raw.get("searchMessage") or {}).get("sendDateTime", "")
+            send_dt = get_in(raw, "searchMessage.sendDateTime", default="")
             threads[thread_id] = {
-                "subject": thread_info.get("subject", "No Subject"),
+                "subject": get_in(raw, "thread.subject", default="No Subject"),
                 "date": _parse_date_str(send_dt),
             }
 
