@@ -2,13 +2,25 @@
 
 from aula.models.daily_overview import DailyOverview
 from aula.models.presence import PresenceState
+from aula.models.presence_location import PresenceLocation
+
+# The shape Aula actually sends, matching PresenceLocationDto in the Android app.
+LOCATION_PAYLOAD = {
+    "id": 4321,
+    "name": "Ude",
+    "description": "",
+    "symbol": "icon-Aula_sfo_slide",
+    "startTime": None,
+    "endTime": None,
+    "isDeactivated": False,
+}
 
 
 def test_daily_overview_from_dict_full():
     data = {
         "id": 1,
         "status": 3,
-        "location": "Room A",
+        "location": LOCATION_PAYLOAD,
         "sleepIntervals": [{"start": "10:00", "end": "11:00"}],
         "checkInTime": "08:00",
         "checkOutTime": "16:00",
@@ -26,7 +38,11 @@ def test_daily_overview_from_dict_full():
     overview = DailyOverview.from_dict(data)
     assert overview.id == 1
     assert overview.status == PresenceState.PRESENT
-    assert overview.location == "Room A"
+    assert overview.location is not None
+    assert overview.location.id == 4321
+    assert overview.location.name == "Ude"
+    assert overview.location.symbol == "icon-Aula_sfo_slide"
+    assert overview.location._raw is LOCATION_PAYLOAD
     assert overview.sleep_intervals == [{"start": "10:00", "end": "11:00"}]
     assert overview.check_in_time == "08:00"
     assert overview.check_out_time == "16:00"
@@ -58,8 +74,26 @@ def test_daily_overview_unknown_status():
 
 
 def test_daily_overview_dict_conversion():
-    overview = DailyOverview(id=1, location="Room B")
+    overview = DailyOverview(id=1, location=PresenceLocation(id=7, name="Hal"))
     result = dict(overview)
     assert result["id"] == 1
-    assert result["location"] == "Room B"
+    assert result["location"] == {
+        "id": 7,
+        "name": "Hal",
+        "description": "",
+        "symbol": "",
+    }
     assert "_raw" not in result
+
+
+def test_daily_overview_location_absent():
+    overview = DailyOverview.from_dict({"status": 3})
+    assert overview.location is None
+
+
+def test_daily_overview_location_string_fallback():
+    """No response is known to send a bare string, but it must not break parsing."""
+    overview = DailyOverview.from_dict({"location": "Room A"})
+    assert overview.location is not None
+    assert overview.location.name == "Room A"
+    assert overview.location.id is None

@@ -29,6 +29,7 @@ from .pickup_responsible import PickupPerson as PickupPerson
 from .post import Post as Post
 from .presence import ActivityType as ActivityType
 from .presence import PresenceState as PresenceState
+from .presence_location import PresenceLocation as PresenceLocation
 from .presence_registration import ChildPresenceState as ChildPresenceState
 from .presence_registration import PresenceActivity as PresenceActivity
 from .presence_registration import PresenceConfiguration as PresenceConfiguration

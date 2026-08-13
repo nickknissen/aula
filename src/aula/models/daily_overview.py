@@ -7,6 +7,7 @@ from .base import AulaDataClass
 from .institution_profile import InstitutionProfile
 from .main_group import MainGroup
 from .presence import PresenceState
+from .presence_location import PresenceLocation
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -21,7 +22,7 @@ class DailyOverview(AulaDataClass):
     institution_profile: InstitutionProfile | None = None
     main_group: MainGroup | None = None
     status: PresenceState | None = None
-    location: str | None = None
+    location: PresenceLocation | None = None
     sleep_intervals: list[SleepInterval] = dataclasses.field(default_factory=list)
     check_in_time: str | None = None
     check_out_time: str | None = None
@@ -48,7 +49,7 @@ class DailyOverview(AulaDataClass):
             _raw=raw_data,
             id=raw_data.get("id"),
             status=presence_status,
-            location=raw_data.get("location"),
+            location=PresenceLocation.parse(raw_data.get("location")),
             sleep_intervals=raw_data.get("sleepIntervals", []),
             check_in_time=raw_data.get("checkInTime"),
             check_out_time=raw_data.get("checkOutTime"),
