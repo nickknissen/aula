@@ -106,6 +106,8 @@ class BrowserClient:
         self._authenticator_eafe_hash: str | None = None
         self._authenticator_session_id: str | None = None
         self._finalization_session_id: str | None = None
+        # Authenticator name -> the combination id this account was offered.
+        self._combination_ids: dict[str, str] = {}
 
         # Session context (populated after initialize)
         self._broker_security_context: str | None = None
@@ -210,6 +212,8 @@ class BrowserClient:
                 "Ignoring MitID authenticator combinations with no client support: %s",
                 ", ".join(unsupported),
             )
+
+        self._record_combination_ids(combinations)
 
         return {
             _COMBINATION_ID_TO_NAME[combo["id"]]: combo["combinationItems"][0]["name"]
@@ -597,14 +601,52 @@ class BrowserClient:
 
         return hmac.new(proof_key, payload, hashlib.sha256).hexdigest()
 
+    def _record_combination_ids(self, combinations: list[dict]) -> None:
+        """Remember which combination id this account carries per authenticator.
+
+        MitID serves the same authenticator under different ids depending on the
+        account: the app is S3, S4 (app plus chip) or L2. When more than one id
+        maps to the same name, the one in ``_NAME_TO_COMBINATION_ID`` wins so a
+        plain app account keeps selecting S3 over the chip variant.
+        """
+        offered: dict[str, list[str]] = {}
+        for combo in combinations:
+            name = _COMBINATION_ID_TO_NAME.get(combo["id"])
+            if name:
+                offered.setdefault(name, []).append(combo["id"])
+
+        self._combination_ids = {}
+        for name, ids in offered.items():
+            preferred = _NAME_TO_COMBINATION_ID.get(name)
+            self._combination_ids[name] = preferred if preferred in ids else ids[0]
+
+    def _combination_id_for(self, authenticator_type: str) -> str:
+        """Return the combination id to post when selecting this authenticator.
+
+        The id the server listed during identify wins. The static table is only
+        a fallback for a caller that selects without identifying first.
+        """
+        if authenticator_type not in _NAME_TO_COMBINATION_ID:
+            raise MitIDError(f"No such authenticator name ({authenticator_type})")
+
+        if not self._combination_ids:
+            return _NAME_TO_COMBINATION_ID[authenticator_type]
+
+        combination_id = self._combination_ids.get(authenticator_type)
+        if combination_id is None:
+            offered = ", ".join(sorted(self._combination_ids)) or "none"
+            raise MitIDError(
+                f"{authenticator_type} authentication is not available for this MitID user "
+                f"(available: {offered})"
+            )
+        return combination_id
+
     async def _select_authenticator(self, authenticator_type: str) -> None:
         """Select a specific authenticator type."""
         if self._authenticator_type == authenticator_type:
             return
 
-        combination_id = _NAME_TO_COMBINATION_ID.get(authenticator_type)
-        if not combination_id:
-            raise MitIDError(f"No such authenticator name ({authenticator_type})")
+        combination_id = self._combination_id_for(authenticator_type)
 
         r = await self._client.post(
             self._base_url(version=2) + "/next",
