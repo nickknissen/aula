@@ -29,6 +29,6 @@ class Child(AulaDataClass):
             id=data["id"],
             profile_id=data["profileId"],
             name=data["name"],
-            institution_name=data.get("institutionProfile", {}).get("institutionName", ""),
-            profile_picture=data.get("profilePicture", {}).get("url", ""),
+            institution_name=(data.get("institutionProfile") or {}).get("institutionName", ""),
+            profile_picture=(data.get("profilePicture") or {}).get("url", ""),
         )

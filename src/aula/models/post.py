@@ -62,7 +62,7 @@ class Post(AulaDataClass):
         return cls(
             id=data["id"],
             title=data.get("title", ""),
-            content_html=data.get("content", {}).get("html", ""),
+            content_html=(data.get("content") or {}).get("html", ""),
             timestamp=parse_datetime(data.get("timestamp")),
             owner=owner,
             allow_comments=data.get("allowComments", False),

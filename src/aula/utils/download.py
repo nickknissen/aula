@@ -228,7 +228,7 @@ async def download_message_images(
         thread_info = raw.get("thread", {})
         thread_id = str(thread_info.get("id", ""))
         if thread_id and thread_id not in threads:
-            send_dt = raw.get("searchMessage", {}).get("sendDateTime", "")
+            send_dt = (raw.get("searchMessage") or {}).get("sendDateTime", "")
             threads[thread_id] = {
                 "subject": thread_info.get("subject", "No Subject"),
                 "date": _parse_date_str(send_dt),
