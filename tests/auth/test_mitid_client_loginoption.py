@@ -94,6 +94,28 @@ class TestStep4CompleteMitIDFlow:
         assert "GET /loginoption" in backend.paths
 
     @pytest.mark.asyncio
+    async def test_identity_choice_redirect_is_followed(self):
+        """Submitting the choice can answer 302, with the SAML form on the target."""
+
+        class RedirectAfterChoice(FakeNemLogIn):
+            async def __call__(self, request: httpx.Request) -> httpx.Response:
+                if request.method == "POST" and request.url.path == "/loginoption":
+                    self.paths.append(f"{request.method} {request.url.path}")
+                    return httpx.Response(302, headers={"Location": f"{MITID}/login/saml"})
+                if request.url.path == "/login/saml":
+                    self.paths.append(f"{request.method} {request.url.path}")
+                    return httpx.Response(200, text=SAML_FORM)
+                return await super().__call__(request)
+
+        backend = RedirectAfterChoice(identities=2)
+        client = _client(backend)
+
+        result = await client._step4_complete_mitid_flow("verify-token", "auth-code")
+
+        assert result == {"relay_state": "relay-123", "saml_response": "saml-abc"}
+        assert "GET /login/saml" in backend.paths
+
+    @pytest.mark.asyncio
     async def test_reports_missing_saml_data(self):
         class NoSaml(FakeNemLogIn):
             async def __call__(self, request: httpx.Request) -> httpx.Response:
