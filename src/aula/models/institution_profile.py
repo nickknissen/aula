@@ -30,7 +30,7 @@ class InstitutionProfile(AulaDataClass):
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> InstitutionProfile:
-        pic_data = data.get("profilePicture", {})
+        pic_data = data.get("profilePicture") or {}
         return cls(
             profile_id=data.get("profileId"),
             id=data.get("id"),

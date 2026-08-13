@@ -95,12 +95,12 @@ async def create_client(
         ValueError: If ``token_data`` has no ``access_token`` (compatibility
             requirement for stored credential schema).
     """
-    tokens = token_data.get("tokens", {})
+    tokens = token_data.get("tokens") or {}
     access_token = tokens.get("access_token")
     if not access_token:
         raise ValueError("No access_token found in token_data")
 
-    cookies = token_data.get("cookies", {})
+    cookies = token_data.get("cookies") or {}
     # Csrfp-Token is expected from the restored cookie jar when available.
     csrf_token = cookies.get(CSRF_TOKEN_COOKIE)
 
@@ -195,13 +195,13 @@ async def authenticate(
             _LOGGER.info("Force login requested; skipping cached token reuse")
 
         if token_data is not None:
-            tokens = token_data.get("tokens", {})
+            tokens = token_data.get("tokens") or {}
             expires_at = tokens.get("expires_at")
             if tokens.get("access_token") and (
                 expires_at is None or time.time() + _TOKEN_EXPIRY_BUFFER_SECS < expires_at
             ):
                 auth_client.tokens = tokens
-                cookies = token_data.get("cookies", {})
+                cookies = token_data.get("cookies") or {}
                 result_data = token_data
                 tokens_valid = True
                 _LOGGER.info("Loaded cached authentication tokens")
@@ -209,7 +209,7 @@ async def authenticate(
                 _LOGGER.info("Cached tokens expired, attempting refresh")
                 try:
                     new_tokens = await auth_client.refresh_access_token(tokens["refresh_token"])
-                    cookies = token_data.get("cookies", {})
+                    cookies = token_data.get("cookies") or {}
                     result_data = _build_token_data(mitid_username, new_tokens, cookies)
                     if token_storage:
                         await token_storage.save(result_data)

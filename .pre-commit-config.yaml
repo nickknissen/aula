@@ -24,6 +24,14 @@ repos:
 
   - repo: local
     hooks:
+      # Aula sends an explicit null for objects it leaves empty, so `.get(k, {})`
+      # returns None and the next `.get` raises. See src/aula/utils/mapping.py.
+      - id: no-get-empty-dict-default
+        name: use get_in() instead of .get(key, {})
+        language: pygrep
+        entry: '\.get\([^)]*, ?\{\}\)'
+        files: '^src/.+\.py$'
+
       - id: pytest
         name: pytest
         language: system
