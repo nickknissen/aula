@@ -1,3 +1,4 @@
+import asyncio
 import logging
 from typing import Any, Protocol
 
@@ -117,6 +118,8 @@ class AulaWidgetsClient:
         self._easyiq_identifiers: dict[str, list[tuple[str, str]]] = {}
         # Whether POST /Aula/AuthenticateAulaUser has run for this client.
         self._easyiq_session_ready = False
+        # Serialises the bootstrap so concurrent week reads make it once.
+        self._easyiq_session_lock = asyncio.Lock()
         # child UniLogin (casefolded) -> EasyIQ's own ID, from GetChildren.
         self._easyiq_child_ids: dict[str, str] = {}
 
@@ -235,10 +238,27 @@ class AulaWidgetsClient:
         Best-effort: a failure is logged rather than raised, leaving the
         identifier guessing in :meth:`easyiq_identifier_variants` as a
         fallback for institutions this flow does not suit.
+
+        Safe to await concurrently: callers reading several weeks or children
+        at once share the one bootstrap rather than each making their own.
         """
         if self._easyiq_session_ready or not child_user_ids:
             return
 
+        async with self._easyiq_session_lock:
+            # Another caller may have finished the bootstrap while this one
+            # waited for the lock. Re-check rather than repeat it.
+            if self._easyiq_session_ready:
+                return
+            await self._bootstrap_easyiq_session(institution_filter, guardian_login, child_user_ids)
+
+    async def _bootstrap_easyiq_session(
+        self,
+        institution_filter: list[str],
+        guardian_login: str,
+        child_user_ids: list[str],
+    ) -> None:
+        """Make the portal session and read its child IDs. Holds the lock."""
         token = await self._get_bearer_token(WIDGET_EASYIQ_HOMEWORK)
         headers = self.easyiq_headers(token, institution_filter, guardian_login, child_user_ids)
         try:

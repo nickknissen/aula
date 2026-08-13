@@ -1,5 +1,6 @@
 """Tests for widget token and provider endpoints."""
 
+import asyncio
 from unittest.mock import AsyncMock, Mock, call
 
 import pytest
@@ -335,6 +336,45 @@ class TestWidgetsClient:
 
         assert [hw.subject for hw in homework] == ["Matematik"]
         assert client._request_with_version_retry.await_count == 7
+
+    @pytest.mark.asyncio
+    async def test_portal_session_runs_once_under_concurrency(self, unbootstrapped_client):
+        """Callers reading several children at once share the one bootstrap.
+
+        The ready flag alone does not settle this: every caller sees it unset
+        while the first is still awaiting the POST, so each would sign in
+        again and the portal would be asked to open a session per child.
+        """
+        client = unbootstrapped_client
+        authenticate_calls = 0
+
+        async def _dispatch(method, url, **kwargs):
+            nonlocal authenticate_calls
+            # Yield, so the callers really do interleave inside the bootstrap
+            # rather than each running start to finish.
+            await asyncio.sleep(0)
+            if "getAulaToken" in url:
+                return _token_response("token-boot")
+            if url.endswith(EASYIQ_AUTHENTICATE_PATH):
+                authenticate_calls += 1
+                return _calendar_response(None)
+            if url.endswith(EASYIQ_CHILDREN_PATH):
+                return _calendar_response({"Children": [{"Id": "9001", "Login": "astr8360"}]})
+            raise AssertionError(f"unexpected request: {url}")
+
+        client._request_with_version_retry = _dispatch
+
+        await asyncio.gather(
+            *(
+                client.widgets.ensure_easyiq_session(
+                    ["inst-1"], "guardian-1", ["astr8360", "kris37r9"]
+                )
+                for _ in range(4)
+            )
+        )
+
+        assert authenticate_calls == 1
+        assert client.widgets.resolve_easyiq_child_id("astr8360") == "9001"
 
     @pytest.mark.asyncio
     async def test_a_failed_bootstrap_leaves_the_guessing_fallback(self, unbootstrapped_client):
