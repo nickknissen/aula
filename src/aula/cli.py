@@ -675,8 +675,8 @@ async def overview(ctx, child_id):
                     details.append(("Exit", data.exit_time))
                 if data.exit_with:
                     details.append(("Exit with", data.exit_with))
-                if data.location:
-                    details.append(("Location", data.location))
+                if data.location and data.location.name:
+                    details.append(("Location", data.location.name))
                 if data.comment:
                     details.append(("Comment", data.comment))
 
@@ -3225,7 +3225,7 @@ async def update_presence(
             )
             cur_who = tmpl.exit_with if tmpl else (ov.exit_with if ov else None)
             cur_comment = tmpl.comment if tmpl else (ov.comment if ov else None)
-            location = ov.location if ov and ov.location else None
+            location = ov.location.name if ov and ov.location else None
 
             click.echo(f"  {c.name}")
             click.echo(f"    Status:      {status_str}")
@@ -3868,8 +3868,8 @@ async def daily_summary(ctx, child, target_date):
                     click.echo(f"- Check-in: {ov.check_in_time}")
                 if ov.check_out_time:
                     click.echo(f"- Check-out: {ov.check_out_time}")
-                if ov.location:
-                    click.echo(f"- Location: {ov.location}")
+                if ov.location and ov.location.name:
+                    click.echo(f"- Location: {ov.location.name}")
                 if ov.main_group:
                     click.echo(f"- Group: {ov.main_group.name}")
 
