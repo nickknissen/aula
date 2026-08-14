@@ -7,7 +7,7 @@ import logging
 import httpx
 import pytest
 
-from aula.auth.browser_client import BrowserClient
+from aula.auth.browser_client import _COMBINATION_ID_TO_NAME, BrowserClient
 from aula.auth.exceptions import MitIDError, PasswordInvalidError, TokenInvalidError
 
 SESSION_ID = "auth-session-1"
@@ -49,12 +49,21 @@ class FakeMitID:
         password_invalid: bool = False,
         authenticator_after_token: str = "PASSWORD",
         extra_combinations: list[dict] | None = None,
+        combinations: list[dict] | None = None,
+        default_authenticator: str = "APP",
     ):
         self.latency = latency
         self.totp_invalid = totp_invalid
         self.password_invalid = password_invalid
         self.authenticator_after_token = authenticator_after_token
         self.extra_combinations = extra_combinations or []
+        self.combinations = combinations or [
+            {"id": "S3", "combinationItems": [{"name": "MitID app"}]},
+            {"id": "S1", "combinationItems": [{"name": "MitID kodeviser"}]},
+        ]
+        self.default_authenticator = default_authenticator
+        # Combination ids the client asked for, in order.
+        self.selected: list[str] = []
 
         self.paths: list[str] = []
         self.bodies: dict[str, dict] = {}
@@ -109,11 +118,17 @@ class FakeMitID:
     def _handle_next(self, request: httpx.Request) -> httpx.Response:
         combination_id = _json_body(request)["combinationId"]
 
-        # Selecting the kodeviser explicitly.
-        if combination_id == "S1":
+        # Selecting an authenticator explicitly. MitID answers with whatever the
+        # requested combination maps to, so unoffered ids never get this far.
+        if combination_id:
+            self.selected.append(combination_id)
+            if combination_id not in [combo["id"] for combo in self._all_combinations()]:
+                return httpx.Response(400, json={"errorCode": "control.no_such_combination"})
+            name = _COMBINATION_ID_TO_NAME[combination_id]
+            session_id = TOKEN_SESSION_ID if name == "TOKEN" else "app-session-2"
             return httpx.Response(
                 200,
-                json={"errors": [], "nextAuthenticator": _authenticator("TOKEN", TOKEN_SESSION_ID)},
+                json={"errors": [], "nextAuthenticator": _authenticator(name, session_id)},
             )
 
         # Advancing after the password proof: hand back the finalization session.
@@ -143,19 +158,18 @@ class FakeMitID:
                 },
             )
 
-        # The identify step: MitID defaults to the app authenticator.
+        # The identify step: MitID hands back a default authenticator.
         return httpx.Response(
             200,
             json={
                 "errors": [],
-                "nextAuthenticator": _authenticator("APP", "app-session-1"),
-                "combinations": [
-                    {"id": "S3", "combinationItems": [{"name": "MitID app"}]},
-                    {"id": "S1", "combinationItems": [{"name": "MitID kodeviser"}]},
-                    *self.extra_combinations,
-                ],
+                "nextAuthenticator": _authenticator(self.default_authenticator, "app-session-1"),
+                "combinations": self._all_combinations(),
             },
         )
+
+    def _all_combinations(self) -> list[dict]:
+        return [*self.combinations, *self.extra_combinations]
 
 
 def _json_body(request: httpx.Request) -> dict:
@@ -257,6 +271,101 @@ class TestKodeviserFlow:
 
         assert "S9" not in authenticators
         assert "S9" in caplog.text
+
+
+APP = {"id": "S3", "combinationItems": [{"name": "MitID app"}]}
+APP_CHIP = {"id": "S4", "combinationItems": [{"name": "MitID app + chip"}]}
+APP_LOW = {"id": "L2", "combinationItems": [{"name": "MitID app"}]}
+KODEVISER = {"id": "S1", "combinationItems": [{"name": "MitID kodeviser"}]}
+
+
+class TestAuthenticatorSelection:
+    """MitID serves the same authenticator under different combination ids per account,
+    so the id the server listed during identify is the one to post back."""
+
+    @pytest.mark.asyncio
+    async def test_selects_the_id_the_account_was_offered(self):
+        """This account carries the app as S4; posting a hardcoded S3 would fail."""
+        server = FakeMitID(combinations=[APP_CHIP, KODEVISER], default_authenticator="TOKEN")
+        client, _ = await _identified_client(server)
+
+        await client._select_authenticator("APP")
+
+        assert server.selected == ["S4"]
+        assert client._authenticator_type == "APP"
+
+    @pytest.mark.asyncio
+    async def test_prefers_the_plain_app_over_the_chip_variant(self):
+        """S4 needs a physical chip, so it must not win when a plain app is offered."""
+        server = FakeMitID(
+            combinations=[APP_CHIP, APP, APP_LOW, KODEVISER], default_authenticator="TOKEN"
+        )
+        client, _ = await _identified_client(server)
+
+        await client._select_authenticator("APP")
+
+        assert server.selected == ["S3"]
+
+    @pytest.mark.asyncio
+    async def test_falls_back_to_the_low_assurance_app(self):
+        server = FakeMitID(combinations=[APP_LOW, KODEVISER], default_authenticator="TOKEN")
+        client, _ = await _identified_client(server)
+
+        await client._select_authenticator("APP")
+
+        assert server.selected == ["L2"]
+
+    @pytest.mark.asyncio
+    async def test_unknown_ids_do_not_disturb_selection(self):
+        """An id we have no name for (S2 and friends) is skipped, not treated as the app."""
+        server = FakeMitID(
+            combinations=[{"id": "S2", "combinationItems": [{"name": "?"}]}, APP_CHIP, KODEVISER],
+            default_authenticator="TOKEN",
+        )
+        client, _ = await _identified_client(server)
+
+        await client._select_authenticator("APP")
+
+        assert server.selected == ["S4"]
+
+    @pytest.mark.asyncio
+    async def test_kodeviser_selection_is_unchanged(self):
+        server = FakeMitID()
+        client, _ = await _identified_client(server)
+
+        await client._select_authenticator("TOKEN")
+
+        assert server.selected == ["S1"]
+
+    @pytest.mark.asyncio
+    async def test_refuses_an_authenticator_the_account_does_not_have(self):
+        """Better a named error than an HTTP failure on a combination MitID never listed."""
+        server = FakeMitID(combinations=[KODEVISER], default_authenticator="TOKEN")
+        client, _ = await _identified_client(server)
+
+        with pytest.raises(MitIDError, match="APP authentication is not available"):
+            await client._select_authenticator("APP")
+
+        assert server.selected == []
+
+    @pytest.mark.asyncio
+    async def test_rejects_a_name_no_authenticator_maps_to(self):
+        server = FakeMitID()
+        client, _ = await _identified_client(server)
+
+        with pytest.raises(MitIDError, match="No such authenticator name"):
+            await client._select_authenticator("FACE_ID")
+
+    @pytest.mark.asyncio
+    async def test_falls_back_to_the_static_table_without_identify(self):
+        """Selecting without identifying first has no offered ids to go on."""
+        server = FakeMitID()
+        http_client = httpx.AsyncClient(transport=httpx.MockTransport(server))
+        client = BrowserClient("client-hash", SESSION_ID, http_client)
+
+        await client._select_authenticator("APP")
+
+        assert server.selected == ["S3"]
 
 
 class TestFrontEndProcessingTime:
