@@ -575,6 +575,119 @@ class TestWidgetsClient:
         assert [a.title for a in appointments] == ["Idræt"]
 
     @pytest.mark.asyncio
+    async def test_easyiq_calendar_warns_when_the_body_carries_no_events(self, client, caplog):
+        """A licensing error arrives as 2xx with an error object; silence reads as an empty week."""
+        envelope = {"ErrorCode": "1", "ErrorDescription": "No license for this school"}
+        client._request_with_version_retry = AsyncMock(
+            side_effect=[
+                _token_response("token-easy"),
+                *[_calendar_response(envelope)] * 4,
+            ]
+        )
+
+        homework = await client.widgets.get_easyiq_homework(
+            week="2026-W09",
+            session_uuid="guardian-1",
+            institution_filter=["inst-1"],
+            child_id="child-user-1",
+            child_profile_id="4242",
+        )
+
+        assert homework == []
+        assert "returned no readable data" in caplog.text
+        assert "ErrorDescription" in caplog.text
+        assert "No license for this school" in caplog.text
+        # The context needed to tell which child and week went missing.
+        assert "child=child-user-1" in caplog.text
+        assert "week=2026-W09" in caplog.text
+
+    @pytest.mark.asyncio
+    async def test_easyiq_calendar_stays_quiet_on_a_genuinely_empty_week(self, client, caplog):
+        client._request_with_version_retry = AsyncMock(
+            side_effect=[_token_response("token-easy"), *[_calendar_response([])] * 4]
+        )
+
+        homework = await client.widgets.get_easyiq_homework(
+            week="2026-W09",
+            session_uuid="guardian-1",
+            institution_filter=["inst-1"],
+            child_id="child-user-1",
+            child_profile_id="4242",
+        )
+
+        assert homework == []
+        assert "no readable data" not in caplog.text
+
+    @pytest.mark.asyncio
+    async def test_easyiq_calendar_truncates_a_long_body(self, client, caplog):
+        client._request_with_version_retry = AsyncMock(
+            side_effect=[
+                _token_response("token-easy"),
+                *[_calendar_response({"error": "x" * 5000})] * 4,
+            ]
+        )
+
+        await client.widgets.get_easyiq_homework(
+            week="2026-W09",
+            session_uuid="guardian-1",
+            institution_filter=["inst-1"],
+            child_id="child-user-1",
+            child_profile_id="4242",
+        )
+
+        assert "..." in caplog.text
+        assert len(caplog.text) < 1000
+
+    @pytest.mark.asyncio
+    async def test_weekplaninfo_warns_when_the_envelope_is_missing(self, client, caplog):
+        """weekplaninfo has the same hole: no data key, and the fallback hides why."""
+        envelope = _calendar_response({"ErrorCode": "1", "ErrorDescription": "Not licensed"})
+        client._request_with_version_retry = AsyncMock(
+            side_effect=[
+                _token_response("token-easy"),
+                envelope,
+                _token_response("token-easy"),
+                _calendar_response([{"itemType": 8, "courses": "Idræt"}]),
+            ]
+        )
+
+        appointments = await client.widgets.get_easyiq_weekplan(
+            "2026-W09",
+            "guardian-1",
+            ["inst-1"],
+            "child-user-1",
+            child_profile_id="4242",
+        )
+
+        # The portal fallback still answers; the warning explains the first leg.
+        assert [a.title for a in appointments] == ["Idræt"]
+        assert "EasyIQ weekplaninfo returned no readable data" in caplog.text
+        assert "Not licensed" in caplog.text
+
+    @pytest.mark.asyncio
+    async def test_weekplaninfo_stays_quiet_on_an_explicit_null_envelope(self, client, caplog):
+        """A null under "data" is the API saying it has none, not a shape we cannot read."""
+        client._request_with_version_retry = AsyncMock(
+            side_effect=[
+                _token_response("token-easy"),
+                _calendar_response({"data": None}),
+                _token_response("token-easy"),
+                _calendar_response([{"itemType": 8, "courses": "Idræt"}]),
+            ]
+        )
+
+        appointments = await client.widgets.get_easyiq_weekplan(
+            "2026-W09",
+            "guardian-1",
+            ["inst-1"],
+            "child-user-1",
+            child_profile_id="4242",
+        )
+
+        assert [a.title for a in appointments] == ["Idræt"]
+        assert "no readable data" not in caplog.text
+
+    @pytest.mark.asyncio
     async def test_get_easyiq_weekplan_raises_when_no_profile_id_to_fall_back_with(self, client):
         failing = Mock()
         failing.raise_for_status = Mock(side_effect=AulaNotFoundError("HTTP 404", 404))
