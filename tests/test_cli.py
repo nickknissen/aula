@@ -1,9 +1,11 @@
 """Tests for aula.cli helpers."""
 
-from unittest.mock import MagicMock
+import json
+from unittest.mock import AsyncMock, MagicMock
 
 import click
 import pytest
+from click.testing import CliRunner
 
 from aula.cli import (
     _WIDGET_ID_CACHE,
@@ -16,8 +18,15 @@ from aula.cli import (
     _require_widget,
     _token_digits_provider,
     _with_child,
+    report_sick,
 )
-from aula.models import Child, EasyIQHomework
+from aula.models import (
+    Child,
+    EasyIQHomework,
+    PresenceConfiguration,
+    PresenceState,
+    Profile,
+)
 
 
 def _pager(total: int):
@@ -239,3 +248,177 @@ class TestOtpDisplay:
         _print_otp_code("A1B2")
 
         assert "A1B2" in capsys.readouterr().out
+
+
+class TestReportSick:
+    """The sick report writes to Aula, so who it touches must be exact."""
+
+    @staticmethod
+    def _child(child_id: int, name: str) -> Child:
+        return Child(
+            id=child_id,
+            profile_id=child_id + 1000,
+            name=name,
+            institution_name="Test School",
+            profile_picture="",
+        )
+
+    @staticmethod
+    def _config(child_id: int, permission: str) -> PresenceConfiguration:
+        return PresenceConfiguration.from_dict(
+            {
+                "uniStudentId": child_id,
+                "presenceConfiguration": {
+                    "dashboardModuleSettings": [
+                        {
+                            "presenceDashboardContext": "guardian_dashboard",
+                            "presenceModules": [
+                                {"moduleType": "report_sick", "permission": permission}
+                            ],
+                        }
+                    ]
+                },
+            }
+        )
+
+    @pytest.fixture
+    def fake_client(self):
+        """A client recording presence writes, with two children by default."""
+        client = MagicMock()
+        client.get_profile = AsyncMock(
+            return_value=Profile(
+                profile_id=1,
+                display_name="Guardian",
+                children=[self._child(201, "Alfa"), self._child(202, "Beta")],
+            )
+        )
+        client.get_presence_configuration = AsyncMock(
+            return_value=[self._config(201, "editable"), self._config(202, "editable")]
+        )
+        client.get_daily_overview = AsyncMock(return_value=None)
+        client.update_presence_status = AsyncMock(return_value=True)
+        client.__aenter__ = AsyncMock(return_value=client)
+        client.__aexit__ = AsyncMock(return_value=False)
+        return client
+
+    @pytest.fixture
+    def run(self, fake_client, monkeypatch):
+        """Invoke report-sick against the fake client."""
+        monkeypatch.setattr("aula.cli._get_client", AsyncMock(return_value=fake_client))
+
+        def invoke(*args, output_format="text"):
+            return CliRunner().invoke(report_sick, list(args), obj={"OUTPUT_FORMAT": output_format})
+
+        return invoke
+
+    def test_reports_every_child_sick(self, run, fake_client):
+        result = run("-y")
+
+        assert result.exit_code == 0
+        fake_client.update_presence_status.assert_awaited_once_with([201, 202], PresenceState.SICK)
+
+    def test_child_option_limits_the_write(self, run, fake_client):
+        result = run("--child", "202", "-y")
+
+        assert result.exit_code == 0
+        fake_client.update_presence_status.assert_awaited_once_with([202], PresenceState.SICK)
+
+    def test_undo_sets_not_present(self, run, fake_client):
+        run("--undo", "-y")
+
+        fake_client.update_presence_status.assert_awaited_once_with(
+            [201, 202], PresenceState.NOT_PRESENT
+        )
+
+    def test_undo_present_sets_present(self, run, fake_client):
+        run("--undo", "--present", "-y")
+
+        fake_client.update_presence_status.assert_awaited_once_with(
+            [201, 202], PresenceState.PRESENT
+        )
+
+    def test_present_without_undo_is_rejected(self, run, fake_client):
+        result = run("--present", "-y")
+
+        assert "--present only applies together with --undo" in result.output
+        fake_client.update_presence_status.assert_not_awaited()
+
+    def test_children_without_permission_are_skipped(self, run, fake_client):
+        """An institution that withholds the module would reject the whole call."""
+        fake_client.get_presence_configuration = AsyncMock(
+            return_value=[self._config(201, "editable"), self._config(202, "deactivated")]
+        )
+
+        result = run("-y")
+
+        fake_client.update_presence_status.assert_awaited_once_with([201], PresenceState.SICK)
+        assert "Beta" in result.output
+        assert "not enabled" in result.output
+
+    def test_read_only_permission_names_the_reason(self, run, fake_client):
+        fake_client.get_presence_configuration = AsyncMock(
+            return_value=[self._config(201, "readable"), self._config(202, "readable")]
+        )
+
+        result = run("-y")
+
+        fake_client.update_presence_status.assert_not_awaited()
+        assert "read-only" in result.output
+
+    def test_unreadable_configuration_does_not_block_the_write(self, run, fake_client):
+        """Not being able to check permission is not the same as being denied."""
+        fake_client.get_presence_configuration = AsyncMock(side_effect=RuntimeError("boom"))
+
+        run("-y")
+
+        fake_client.update_presence_status.assert_awaited_once_with([201, 202], PresenceState.SICK)
+
+    def test_confirmation_prompt_can_cancel(self, run, fake_client, monkeypatch):
+        monkeypatch.setattr(click, "confirm", MagicMock(return_value=False))
+
+        result = run()
+
+        assert "Cancelled." in result.output
+        fake_client.update_presence_status.assert_not_awaited()
+
+    def test_json_output_requires_yes(self, run, fake_client):
+        """A scripted write must be explicit, since JSON mode cannot prompt."""
+        result = run(output_format="json")
+
+        assert "requires --yes" in result.output
+        fake_client.update_presence_status.assert_not_awaited()
+
+    def test_json_output_reports_updated_and_skipped(self, run, fake_client):
+        fake_client.get_presence_configuration = AsyncMock(
+            return_value=[self._config(201, "editable"), self._config(202, "deactivated")]
+        )
+
+        result = run("-y", output_format="json")
+
+        payload = json.loads(result.output)
+        assert payload["status"] == "SICK"
+        assert payload["status_value"] == 1
+        assert payload["updated"] == [{"id": 201, "name": "Alfa"}]
+        assert [s["id"] for s in payload["skipped"]] == [202]
+
+    def test_no_children_writes_nothing(self, run, fake_client):
+        fake_client.get_profile = AsyncMock(
+            return_value=Profile(profile_id=1, display_name="Guardian", children=[])
+        )
+
+        run("-y")
+
+        fake_client.update_presence_status.assert_not_awaited()
+
+    def test_unknown_child_id_writes_nothing(self, run, fake_client):
+        result = run("--child", "999", "-y")
+
+        assert "no children found" in result.output
+        fake_client.update_presence_status.assert_not_awaited()
+
+    def test_api_failure_is_reported(self, run, fake_client):
+        fake_client.update_presence_status = AsyncMock(side_effect=RuntimeError("403"))
+
+        result = run("-y")
+
+        assert "updating presence status" in result.output

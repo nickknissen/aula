@@ -10,10 +10,26 @@ _DISPLAY_NAMES: dict[int, tuple[str, str]] = {
     6: ("Spare Time Activity", "Til aktivitet"),
     7: ("Physical Placement", "Fysisk placering"),
     8: ("Checked Out", "Gået"),
+    9: ("Not Arrived", "Ikke mødt"),
 }
 
 
 class PresenceState(Enum):
+    """A child's presence status, as both read and written by Aula.
+
+    Aula uses one enum for both directions: ``presence.getDailyOverview``
+    reports these numbers and ``presence.updateStatusByInstitutionProfileIds``
+    accepts them. Verified against the portal bundle (webpack module 31 of
+    ``/static/js/0.*.js``, the only presence status enum the store imports) and
+    against ``Enums.ComeGo.PresenceStatusEnum`` in the decompiled mobile app
+    (``com.netcompany.aulanativeprivate``).
+
+    ``NOT_ARRIVED`` exists only in the app enum; the portal's numeric enum stops
+    at ``CHECKED_OUT``. It is carried here so an institution that does report it
+    gets a name rather than "Unknown Status". The app's trailing ``All = 10`` is
+    a filter sentinel, not a state, so it is deliberately absent.
+    """
+
     NOT_PRESENT = 0
     SICK = 1
     REPORTED_ABSENT = 2
@@ -23,6 +39,7 @@ class PresenceState(Enum):
     SPARE_TIME_ACTIVITY = 6
     PHYSICAL_PLACEMENT = 7
     CHECKED_OUT = 8
+    NOT_ARRIVED = 9
 
     @property
     def display_name(self) -> str:
@@ -41,6 +58,51 @@ class PresenceState(Enum):
             return cls(value).display_name
         except ValueError:
             return "Unknown Status"
+
+
+class PresenceModule(Enum):
+    """A Komme/gå feature an institution can switch on or off per child.
+
+    Wire values come from the portal bundle (webpack module 38) and match
+    ``Enums.ComeGo.PresenceModuleSettingsModule`` in the mobile app. They appear
+    as ``moduleType`` inside ``presenceConfiguration.dashboardModuleSettings``.
+    """
+
+    PICKUP_TIMES = "pickup_times"
+    DROP_OFF_TIME = "drop_off_time"
+    DAILY_MESSAGE = "daily_message"
+    REPORT_SICK = "report_sick"
+    VACATION = "vacation"
+    FIELD_TRIP = "field_trip"
+    SPARE_TIME_ACTIVITY = "spare_time_activity"
+    LOCATION = "location"
+    SLEEP = "sleep"
+    PICKUP_TYPE = "pickup_type"
+
+
+class PresenceModulePermission(Enum):
+    """What the signed-in role may do with a :class:`PresenceModule`.
+
+    ``READABLE`` shows the module without allowing changes; the portal only
+    enables the write when the permission is ``EDITABLE``.
+    """
+
+    DEACTIVATED = "deactivated"
+    READABLE = "readable"
+    EDITABLE = "editable"
+
+
+class PresenceDashboard(Enum):
+    """Which dashboard a set of module permissions applies to.
+
+    Permissions are per dashboard, so a guardian check must read the
+    ``GUARDIAN`` entry: the employee dashboard may edit modules a guardian
+    cannot.
+    """
+
+    GUARDIAN = "guardian_dashboard"
+    EMPLOYEE = "employee_dashboard"
+    CHECK_IN = "check_in_dashboard"
 
 
 _ACTIVITY_DISPLAY_NAMES: dict[int, tuple[str, str]] = {

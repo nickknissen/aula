@@ -52,6 +52,7 @@ from .models import (
     PresenceConfiguration,
     PresenceRegistration,
     PresenceRegistrationDetail,
+    PresenceState,
     PresenceWeekOverview,
     PresenceWeekTemplate,
     Profile,
@@ -584,6 +585,61 @@ class AulaApiClient:
         )
         resp.raise_for_status()
         return True
+
+    async def update_presence_status(
+        self,
+        institution_profile_ids: list[int],
+        status: PresenceState | int,
+    ) -> bool:
+        """Set today's presence status for children, e.g. report them sick.
+
+        This is the endpoint behind the portal's sick button: reporting a child
+        ill and taking the report back are the same call with a different status.
+        The institution sees the change immediately.
+
+        Aula has no future-dated sick report; this always applies to today. For a
+        planned absence use :meth:`update_presence_template` or a vacation
+        registration instead.
+
+        An institution can withhold this from guardians, in which case Aula
+        rejects the call. :meth:`get_presence_configuration` reports that up
+        front via ``PresenceConfiguration.can_edit(PresenceModule.REPORT_SICK)``.
+
+        Args:
+            institution_profile_ids: Children's institution profile IDs, i.e.
+                ``Child.id``. Several children can be set in one call.
+            status: The status to set. ``PresenceState.SICK`` reports a child
+                sick. To take the report back the portal sends
+                ``PresenceState.NOT_PRESENT`` from the guardian dashboard, and
+                ``PresenceState.PRESENT`` from the presence page, so pick the one
+                that matches the child's real situation. Raw ints are accepted so
+                a status Aula adds later still reaches the backend.
+
+        Returns:
+            True if Aula accepted the change.
+
+        Raises:
+            ValueError: If no institution profile IDs are given.
+        """
+        if not institution_profile_ids:
+            raise ValueError("update_presence_status requires at least one profile ID")
+
+        status_value = status.value if isinstance(status, PresenceState) else status
+        payload: dict[str, Any] = {
+            "institutionProfileIds": institution_profile_ids,
+            "status": status_value,
+        }
+
+        resp = await self._request_with_version_retry(
+            "post",
+            f"{self.api_url}?method=presence.updateStatusByInstitutionProfileIds",
+            json=payload,
+        )
+        resp.raise_for_status()
+        # The endpoint answers with a bare boolean in "data". Older/proxied
+        # responses omit it, so absence is not treated as failure.
+        data = resp.json().get("data")
+        return data if isinstance(data, bool) else True
 
     async def get_pickup_responsibles(
         self,

@@ -3103,3 +3103,85 @@ class TestUpdatePresenceTemplate:
             "entryTime": "08:00",
             "exitTime": "16:00",
         }
+
+
+class TestUpdatePresenceStatus:
+    """Tests for AulaApiClient.update_presence_status method."""
+
+    @pytest.fixture
+    def mock_client(self):
+        """Create a mock API client whose request layer records the call."""
+        client = AulaApiClient(http_client=AsyncMock(), access_token="test_token")
+        mock_response = HttpResponse(status_code=200, data={"status": {"code": 200}, "data": True})
+        mock_response.raise_for_status = MagicMock()  # type: ignore[assignment]
+        client._request_with_version_retry = AsyncMock(return_value=mock_response)
+        return client
+
+    @staticmethod
+    def _call(mock_client):
+        """Return the recorded (args, kwargs) of the request."""
+        return mock_client._request_with_version_retry.await_args
+
+    @pytest.mark.asyncio
+    async def test_posts_sick_status_for_profile_ids(self, mock_client):
+        """The sick report is a POST of profile IDs plus the status number."""
+        from aula.models.presence import PresenceState
+
+        result = await mock_client.update_presence_status([201, 202], PresenceState.SICK)
+
+        method, url = self._call(mock_client).args
+        assert method == "post"
+        assert url.endswith("?method=presence.updateStatusByInstitutionProfileIds")
+        assert self._call(mock_client).kwargs["json"] == {
+            "institutionProfileIds": [201, 202],
+            "status": 1,
+        }
+        assert result is True
+
+    @pytest.mark.asyncio
+    async def test_undo_sends_not_present(self, mock_client):
+        """Taking the report back is the same call with a different status."""
+        from aula.models.presence import PresenceState
+
+        await mock_client.update_presence_status([201], PresenceState.NOT_PRESENT)
+
+        assert self._call(mock_client).kwargs["json"]["status"] == 0
+
+    @pytest.mark.asyncio
+    async def test_accepts_raw_int_for_compatibility(self, mock_client):
+        """A status Aula adds later still reaches the backend."""
+        await mock_client.update_presence_status([201], 42)
+
+        assert self._call(mock_client).kwargs["json"]["status"] == 42
+
+    @pytest.mark.asyncio
+    async def test_returns_the_boolean_aula_answers_with(self, mock_client):
+        """A false body is reported as failure, not swallowed."""
+        from aula.models.presence import PresenceState
+
+        response = HttpResponse(status_code=200, data={"status": {"code": 200}, "data": False})
+        response.raise_for_status = MagicMock()  # type: ignore[assignment]
+        mock_client._request_with_version_retry = AsyncMock(return_value=response)
+
+        assert await mock_client.update_presence_status([201], PresenceState.SICK) is False
+
+    @pytest.mark.asyncio
+    async def test_missing_data_is_treated_as_success(self, mock_client):
+        """Aula answering without a body is not a failure signal."""
+        from aula.models.presence import PresenceState
+
+        response = HttpResponse(status_code=200, data={"status": {"code": 200}})
+        response.raise_for_status = MagicMock()  # type: ignore[assignment]
+        mock_client._request_with_version_retry = AsyncMock(return_value=response)
+
+        assert await mock_client.update_presence_status([201], PresenceState.SICK) is True
+
+    @pytest.mark.asyncio
+    async def test_empty_profile_ids_raises_before_the_request(self, mock_client):
+        """An empty list would write nothing, so it is a caller error."""
+        from aula.models.presence import PresenceState
+
+        with pytest.raises(ValueError, match="at least one profile ID"):
+            await mock_client.update_presence_status([], PresenceState.SICK)
+
+        mock_client._request_with_version_retry.assert_not_awaited()
