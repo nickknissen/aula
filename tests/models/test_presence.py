@@ -2,7 +2,13 @@
 
 import pytest
 
-from aula.models.presence import ActivityType, PresenceState
+from aula.models.presence import (
+    ActivityType,
+    PresenceDashboard,
+    PresenceModule,
+    PresenceModulePermission,
+    PresenceState,
+)
 
 
 def test_presence_state_values():
@@ -15,6 +21,20 @@ def test_presence_state_values():
     assert PresenceState.SPARE_TIME_ACTIVITY.value == 6
     assert PresenceState.PHYSICAL_PLACEMENT.value == 7
     assert PresenceState.CHECKED_OUT.value == 8
+    assert PresenceState.NOT_ARRIVED.value == 9
+
+
+def test_presence_state_covers_the_app_enum_range():
+    """The app enum runs 0-9 as states; 10 ("All") is a filter, not a state."""
+    assert [s.value for s in PresenceState] == list(range(10))
+    with pytest.raises(ValueError, match="10"):
+        PresenceState(10)
+
+
+def test_presence_state_not_arrived_names():
+    assert PresenceState.NOT_ARRIVED.display_name == "Not Arrived"
+    assert PresenceState.NOT_ARRIVED.danish_name == "Ikke mødt"
+    assert PresenceState.get_display_name(9) == "Not Arrived"
 
 
 def test_presence_state_display_name_present():
@@ -59,6 +79,32 @@ def test_presence_state_danish_name_property():
     assert PresenceState.SPARE_TIME_ACTIVITY.danish_name == "Til aktivitet"
     assert PresenceState.PHYSICAL_PLACEMENT.danish_name == "Fysisk placering"
     assert PresenceState.CHECKED_OUT.danish_name == "Gået"
+
+
+def test_presence_module_wire_values():
+    """Values must match the moduleType strings Aula sends."""
+    assert PresenceModule.REPORT_SICK.value == "report_sick"
+    assert PresenceModule.VACATION.value == "vacation"
+    assert PresenceModule.PICKUP_TIMES.value == "pickup_times"
+    assert PresenceModule.DROP_OFF_TIME.value == "drop_off_time"
+    assert PresenceModule.DAILY_MESSAGE.value == "daily_message"
+    assert PresenceModule.FIELD_TRIP.value == "field_trip"
+    assert PresenceModule.SPARE_TIME_ACTIVITY.value == "spare_time_activity"
+    assert PresenceModule.LOCATION.value == "location"
+    assert PresenceModule.SLEEP.value == "sleep"
+    assert PresenceModule.PICKUP_TYPE.value == "pickup_type"
+
+
+def test_presence_module_permission_wire_values():
+    assert PresenceModulePermission.DEACTIVATED.value == "deactivated"
+    assert PresenceModulePermission.READABLE.value == "readable"
+    assert PresenceModulePermission.EDITABLE.value == "editable"
+
+
+def test_presence_dashboard_wire_values():
+    assert PresenceDashboard.GUARDIAN.value == "guardian_dashboard"
+    assert PresenceDashboard.EMPLOYEE.value == "employee_dashboard"
+    assert PresenceDashboard.CHECK_IN.value == "check_in_dashboard"
 
 
 def test_activity_type_values():

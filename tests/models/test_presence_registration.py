@@ -1,6 +1,11 @@
 """Tests for aula.models.presence_registration."""
 
-from aula.models.presence import PresenceState
+from aula.models.presence import (
+    PresenceDashboard,
+    PresenceModule,
+    PresenceModulePermission,
+    PresenceState,
+)
 from aula.models.presence_registration import (
     ChildPresenceState,
     PresenceActivity,
@@ -120,6 +125,110 @@ class TestPresenceConfiguration:
         config = PresenceConfiguration.from_dict({})
         assert config.child_id is None
         assert config.pickup is None
+
+
+class TestPresenceConfigurationModulePermissions:
+    """Module permissions gate the presence writes, per dashboard."""
+
+    @staticmethod
+    def _config(*dashboards: dict) -> PresenceConfiguration:
+        return PresenceConfiguration.from_dict(
+            {
+                "uniStudentId": 201,
+                "presenceConfiguration": {"dashboardModuleSettings": list(dashboards)},
+            }
+        )
+
+    def test_reads_guardian_permissions(self):
+        config = self._config(
+            {
+                "presenceDashboardContext": "guardian_dashboard",
+                "presenceModules": [
+                    {"moduleType": "report_sick", "permission": "editable"},
+                    {"moduleType": "vacation", "permission": "readable"},
+                ],
+            }
+        )
+        assert config.permission(PresenceModule.REPORT_SICK) is PresenceModulePermission.EDITABLE
+        assert config.can_edit(PresenceModule.REPORT_SICK) is True
+        assert config.permission(PresenceModule.VACATION) is PresenceModulePermission.READABLE
+        assert config.can_edit(PresenceModule.VACATION) is False
+
+    def test_readable_and_deactivated_are_not_editable(self):
+        for permission in ("readable", "deactivated"):
+            config = self._config(
+                {
+                    "presenceDashboardContext": "guardian_dashboard",
+                    "presenceModules": [{"moduleType": "report_sick", "permission": permission}],
+                }
+            )
+            assert config.can_edit(PresenceModule.REPORT_SICK) is False
+
+    def test_employee_permission_does_not_grant_guardian_access(self):
+        """Permissions are per dashboard; the guardian check must not read another."""
+        config = self._config(
+            {
+                "presenceDashboardContext": "employee_dashboard",
+                "presenceModules": [{"moduleType": "report_sick", "permission": "editable"}],
+            }
+        )
+        assert config.can_edit(PresenceModule.REPORT_SICK) is False
+        assert config.can_edit(PresenceModule.REPORT_SICK, PresenceDashboard.EMPLOYEE) is True
+
+    def test_missing_module_reports_none_rather_than_denial(self):
+        config = self._config(
+            {
+                "presenceDashboardContext": "guardian_dashboard",
+                "presenceModules": [{"moduleType": "vacation", "permission": "editable"}],
+            }
+        )
+        assert config.permission(PresenceModule.REPORT_SICK) is None
+        assert config.can_edit(PresenceModule.REPORT_SICK) is False
+
+    def test_unknown_permission_string_is_not_editable(self):
+        """A permission Aula adds later must not be read as granted."""
+        config = self._config(
+            {
+                "presenceDashboardContext": "guardian_dashboard",
+                "presenceModules": [{"moduleType": "report_sick", "permission": "future_value"}],
+            }
+        )
+        assert config.permission(PresenceModule.REPORT_SICK) is None
+        assert config.can_edit(PresenceModule.REPORT_SICK) is False
+
+    def test_unknown_module_is_preserved_and_readable_by_name(self):
+        config = self._config(
+            {
+                "presenceDashboardContext": "guardian_dashboard",
+                "presenceModules": [{"moduleType": "future_module", "permission": "editable"}],
+            }
+        )
+        assert config.module_permissions["guardian_dashboard"]["future_module"] == "editable"
+        assert config.can_edit("future_module") is True
+
+    def test_malformed_settings_are_skipped(self):
+        config = PresenceConfiguration.from_dict(
+            {
+                "presenceConfiguration": {
+                    "dashboardModuleSettings": [
+                        "not-a-dict",
+                        {"presenceModules": [{"moduleType": "report_sick"}]},
+                        {"presenceDashboardContext": "guardian_dashboard", "presenceModules": None},
+                        {
+                            "presenceDashboardContext": "guardian_dashboard",
+                            "presenceModules": ["nope", {"permission": "editable"}],
+                        },
+                    ]
+                }
+            }
+        )
+        assert config.module_permissions == {"guardian_dashboard": {}}
+        assert config.can_edit(PresenceModule.REPORT_SICK) is False
+
+    def test_absent_settings_leave_permissions_empty(self):
+        config = PresenceConfiguration.from_dict({"uniStudentId": 201})
+        assert config.module_permissions == {}
+        assert config.permission(PresenceModule.REPORT_SICK) is None
 
 
 class TestPresenceWeekOverview:

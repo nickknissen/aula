@@ -66,7 +66,7 @@ async def main():
 asyncio.run(main())
 ```
 
-Key methods on `AulaApiClient`: `get_profile()`, `get_daily_overview(child_id)`, `get_message_threads()`, `get_messages_for_thread(thread_id)`, `get_calendar_events(...)`, `get_posts(...)`, `get_groups(...)`, `get_message_folders(...)`, `search(...)`, `update_presence_template(...)`, `get_profile_master_data(...)`, `get_secure_documents(...)`, `get_consent_responses(...)`, `get_auto_reply()`, `get_vacation_registrations(...)`, `get_notification_settings()`, `keep_alive()`. See `src/aula/api_client.py` for the full list.
+Key methods on `AulaApiClient`: `get_profile()`, `get_daily_overview(child_id)`, `get_message_threads()`, `get_messages_for_thread(thread_id)`, `get_calendar_events(...)`, `get_posts(...)`, `get_groups(...)`, `get_message_folders(...)`, `search(...)`, `update_presence_template(...)`, `update_presence_status(...)`, `get_profile_master_data(...)`, `get_secure_documents(...)`, `get_consent_responses(...)`, `get_auto_reply()`, `get_vacation_registrations(...)`, `get_notification_settings()`, `keep_alive()`. See `src/aula/api_client.py` for the full list.
 
 ### Widget API (Namespace)
 
@@ -183,6 +183,7 @@ The username can also be set via the `AULA_MITID_USERNAME` environment variable 
 | `aula presence` | Presence registrations and states |
 | `aula presence-templates` | Planned entry/exit times |
 | `aula update-presence` | Update pickup/drop-off times |
+| `aula report-sick` | Report a child sick today, or take it back (`--undo`) |
 
 ### Content
 

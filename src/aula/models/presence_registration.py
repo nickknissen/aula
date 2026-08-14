@@ -3,7 +3,12 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from .base import AulaDataClass
-from .presence import PresenceState
+from .presence import (
+    PresenceDashboard,
+    PresenceModule,
+    PresenceModulePermission,
+    PresenceState,
+)
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -123,7 +128,13 @@ class ChildPresenceState(AulaDataClass):
 
 @dataclass
 class PresenceConfiguration(AulaDataClass):
-    """Presence configuration for a child (pickup rules, etc.)."""
+    """Presence configuration for a child (pickup rules, module permissions).
+
+    ``module_permissions`` maps a dashboard context to that dashboard's module
+    permissions, both as raw wire strings so an unfamiliar module or permission
+    is preserved rather than dropped. Read it through :meth:`permission` or
+    :meth:`can_edit` instead of indexing it directly.
+    """
 
     child_id: int | None = None
     institution_code: str | None = None
@@ -131,6 +142,7 @@ class PresenceConfiguration(AulaDataClass):
     pickup: bool | None = None
     go_home_with: bool | None = None
     self_decider: bool | None = None
+    module_permissions: dict[str, dict[str, str]] = field(default_factory=dict)
     _raw: dict | None = field(default=None, repr=False)
 
     @classmethod
@@ -147,7 +159,66 @@ class PresenceConfiguration(AulaDataClass):
             pickup=config.get("pickup"),
             go_home_with=config.get("goHomeWith"),
             self_decider=config.get("selfDecider"),
+            module_permissions=cls._parse_module_permissions(config),
         )
+
+    @staticmethod
+    def _parse_module_permissions(config: dict[str, Any]) -> dict[str, dict[str, str]]:
+        """Flatten ``dashboardModuleSettings`` into ``{dashboard: {module: permission}}``."""
+        permissions: dict[str, dict[str, str]] = {}
+        settings = config.get("dashboardModuleSettings")
+        if not isinstance(settings, list):
+            return permissions
+
+        for setting in settings:
+            if not isinstance(setting, dict):
+                continue
+            dashboard = setting.get("presenceDashboardContext")
+            modules = setting.get("presenceModules")
+            if not dashboard or not isinstance(modules, list):
+                continue
+            by_module = permissions.setdefault(str(dashboard), {})
+            for module in modules:
+                if not isinstance(module, dict):
+                    continue
+                module_type = module.get("moduleType")
+                if module_type:
+                    by_module[str(module_type)] = str(module.get("permission") or "")
+        return permissions
+
+    def permission(
+        self,
+        module: PresenceModule | str,
+        dashboard: PresenceDashboard | str = PresenceDashboard.GUARDIAN,
+    ) -> PresenceModulePermission | None:
+        """Return the permission for ``module``, or None if Aula did not report one.
+
+        None also covers a permission string this client does not know, so treat
+        it as "cannot tell" rather than as permission granted.
+        """
+        module_key = module.value if isinstance(module, PresenceModule) else module
+        dashboard_key = dashboard.value if isinstance(dashboard, PresenceDashboard) else dashboard
+        by_module = self.module_permissions.get(dashboard_key)
+        raw = by_module.get(module_key) if by_module else None
+        if raw is None:
+            return None
+        try:
+            return PresenceModulePermission(raw)
+        except ValueError:
+            _LOGGER.warning("Unknown presence module permission %r for module %r", raw, module_key)
+            return None
+
+    def can_edit(
+        self,
+        module: PresenceModule | str,
+        dashboard: PresenceDashboard | str = PresenceDashboard.GUARDIAN,
+    ) -> bool:
+        """Return True only when Aula reports ``module`` as editable.
+
+        The portal gates its write buttons on exactly this, so a False here means
+        the institution has withheld the feature and the write would be rejected.
+        """
+        return self.permission(module, dashboard) is PresenceModulePermission.EDITABLE
 
 
 @dataclass
