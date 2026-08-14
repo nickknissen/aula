@@ -24,8 +24,15 @@ WIDGET_EASYIQ_HOMEWORK = "0142"
 WIDGET_BIBLIOTEKET = "0019"
 WIDGET_MIN_UDDANNELSE_UGEPLAN = "0029"
 WIDGET_MIN_UDDANNELSE_TASKS = "0030"
+WIDGET_MIN_UDDANNELSE_SSO = "0023"
 WIDGET_MEEBOOK = "0004"
 WIDGET_HUSKELISTEN = "0062"
+
+# Widget IDs that can mint a token for MinUddannelse's opgaveliste endpoint, in
+# preference order. Not every school lists 0030, and a school that only has the
+# SSO widget still has opgaver: a 0023 token is accepted by the same endpoint
+# with the same parameters (scaarup/aula#364, verified live 2026-08-11).
+MIN_UDDANNELSE_TASK_WIDGETS = (WIDGET_MIN_UDDANNELSE_TASKS, WIDGET_MIN_UDDANNELSE_SSO)
 
 USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/135.0.0.0 Safari/537.36"  # noqa: E501
 

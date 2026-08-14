@@ -1,6 +1,12 @@
 """Tests for aula.models.mu_task."""
 
-from aula.models.mu_task import MUTask, MUTaskClass, MUTaskCourse, _parse_dotnet_date
+from aula.models.mu_task import (
+    MUTask,
+    MUTaskClass,
+    MUTaskCourse,
+    _parse_dotnet_date,
+    decode_mu_deep_link,
+)
 
 
 def test_parse_dotnet_date_valid():
@@ -123,3 +129,90 @@ def test_mu_task_from_dict_minimal():
     assert task.due_date is None
     assert task.classes == []
     assert task.course is None
+
+
+class TestDecodeMuDeepLink:
+    """An opgave's raw ``url`` is an SSO wrapper; the usable link is inside it."""
+
+    def test_decodes_the_last_path_segment(self):
+        url = (
+            "https://api.minuddannelse.net/aula/redirect/123456/"
+            "aHR0cHMlM2ElMmYlMmZ3d3cubWludWRkYW5uZWxzZS5uZXQlMmZOb2RlJTJmbWludWdlJTJmMTIzNDU2"
+            "NyUzZnVnZSUzZDIwMjYtVzMz"
+        )
+        assert (
+            decode_mu_deep_link(url)
+            == "https://www.minuddannelse.net/Node/minuge/1234567?uge=2026-W33"
+        )
+
+    def test_pads_a_segment_whose_length_is_not_a_multiple_of_four(self):
+        import base64
+
+        target = "https://www.minuddannelse.net/Node/minuge/1"
+        segment = base64.b64encode(target.encode()).decode().rstrip("=")
+        assert len(segment) % 4 != 0, "fixture should need padding to be decodable"
+
+        assert decode_mu_deep_link(f"https://api.minuddannelse.net/aula/redirect/1/{segment}")
+
+    def test_malformed_base64_gives_none(self):
+        assert decode_mu_deep_link("not-a-valid-deeplink") is None
+
+    def test_ordinary_url_path_segment_is_not_decoded(self):
+        """A plain URL must not be mangled into something that looks like a link."""
+        assert decode_mu_deep_link("https://www.minuddannelse.net/Node/minuge/1234567") is None
+
+    def test_decoded_value_that_is_not_a_url_gives_none(self):
+        import base64
+
+        segment = base64.b64encode(b"just some text").decode()
+        assert (
+            decode_mu_deep_link(f"https://api.minuddannelse.net/aula/redirect/1/{segment}") is None
+        )
+
+    def test_non_utf8_payload_gives_none(self):
+        import base64
+
+        segment = base64.b64encode(b"\xff\xfe\xfd\xfc").decode()
+        assert (
+            decode_mu_deep_link(f"https://api.minuddannelse.net/aula/redirect/1/{segment}") is None
+        )
+
+    def test_empty_and_missing_urls_give_none(self):
+        assert decode_mu_deep_link("") is None
+        assert decode_mu_deep_link(None) is None
+
+    def test_url_ending_in_a_separator_gives_none(self):
+        assert decode_mu_deep_link("https://api.minuddannelse.net/aula/redirect/123456/") is None
+
+    def test_url_with_no_path_separator_gives_none(self):
+        assert decode_mu_deep_link("nopath") is None
+
+
+class TestMuTaskDeepLink:
+    def test_from_dict_exposes_the_decoded_link_and_keeps_url(self):
+        raw_url = (
+            "https://api.minuddannelse.net/aula/redirect/123456/"
+            "aHR0cHMlM2ElMmYlMmZ3d3cubWludWRkYW5uZWxzZS5uZXQlMmZOb2RlJTJmbWludWdlJTJmMTIzNDU2"
+            "NyUzZnVnZSUzZDIwMjYtVzMz"
+        )
+        task = MUTask.from_dict({"id": "1", "url": raw_url})
+
+        assert task.url == raw_url
+        assert task.deep_link == "https://www.minuddannelse.net/Node/minuge/1234567?uge=2026-W33"
+
+    def test_undecodable_url_is_kept_verbatim_with_no_link(self):
+        task = MUTask.from_dict({"id": "1", "url": "not-a-valid-deeplink"})
+
+        assert task.url == "not-a-valid-deeplink"
+        assert task.deep_link is None
+
+    def test_missing_url_leaves_both_empty(self):
+        task = MUTask.from_dict({"id": "1"})
+
+        assert task.url == ""
+        assert task.deep_link is None
+
+    def test_deep_link_is_serialised_for_json_consumers(self):
+        task = MUTask.from_dict({"id": "1", "url": "not-a-valid-deeplink"})
+
+        assert dict(task)["deep_link"] is None
