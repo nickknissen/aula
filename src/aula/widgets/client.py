@@ -36,6 +36,9 @@ from ..utils.week import monday_of_week
 
 _LOGGER = logging.getLogger(__name__)
 
+# Enough of an unreadable body to identify it, not enough to fill a log file.
+_BODY_LOG_LIMIT = 300
+
 
 def _as_list(data: Any, provider: str) -> list[Any]:
     """Return ``data`` if it is a list of dicts, else log and return an empty list.
@@ -75,11 +78,13 @@ def _ordered_unique(pairs: list[tuple[str, str]]) -> list[tuple[str, str]]:
     return unique
 
 
-def _extract_events(payload: Any) -> list[dict[str, Any]]:
+def _find_events(payload: Any) -> list[dict[str, Any]] | None:
     """Pull the event list out of EasyIQ's calendar response.
 
     The portal has answered with both a bare array and an object wrapping one,
-    so both shapes are unwrapped rather than assumed.
+    so both shapes are unwrapped rather than assumed. ``None`` means neither
+    was there, which is how an error answer arrives: 2xx, a body, no events
+    anywhere in it. An empty list is a real answer and stays distinct from it.
     """
     if isinstance(payload, list):
         return [event for event in payload if isinstance(event, dict)]
@@ -89,10 +94,32 @@ def _extract_events(payload: Any) -> list[dict[str, Any]]:
             if isinstance(value, list):
                 return [event for event in value if isinstance(event, dict)]
             if isinstance(value, dict):
-                nested = _extract_events(value)
+                nested = _find_events(value)
                 if nested:
                     return nested
-    return []
+    return None
+
+
+def _log_unreadable_body(source: str, payload: Any, **context: str) -> None:
+    """Warn about a 2xx body carrying nothing we recognise.
+
+    EasyIQ answers this way when a school is not licensed for a widget, and the
+    body is the only place the reason appears. Without a warning it is
+    indistinguishable from a genuinely empty week, which has cost people hours.
+    The envelope is undocumented and differs between EasyIQ's two backends, so
+    the keys and a truncated body are logged rather than named fields.
+    """
+    body = repr(payload)
+    if len(body) > _BODY_LOG_LIMIT:
+        body = body[:_BODY_LOG_LIMIT] + "..."
+
+    _LOGGER.warning(
+        "%s returned no readable data (%s): keys=%s body=%s",
+        source,
+        ", ".join(f"{name}={value}" for name, value in context.items()),
+        sorted(payload) if isinstance(payload, dict) else None,
+        body,
+    )
 
 
 class _WidgetRequestClient(Protocol):
@@ -355,6 +382,7 @@ class AulaWidgetsClient:
 
         first_empty: list[EasyIQCalendarEvent] | None = None
         last_error: Exception | None = None
+        unreadable: list[Any] = []
 
         for login_id, child_header in self.easyiq_identifier_variants(
             child_profile_id,
@@ -377,12 +405,29 @@ class AulaWidgetsClient:
                 _LOGGER.debug("EasyIQ %s rejected loginId=%s: %s", path, login_id, e)
                 continue
 
-            events = [EasyIQCalendarEvent.from_dict(e) for e in _extract_events(resp.json())]
+            payload = resp.json()
+            found = _find_events(payload)
+            if found is None:
+                # Nothing readable in this answer; the next identifier may fare
+                # better, so keep the body for the warning and carry on.
+                unreadable.append(payload)
+                continue
+
+            events = [EasyIQCalendarEvent.from_dict(e) for e in found]
             if events:
                 self._easyiq_identifiers[child_user_id] = [(login_id, child_header)]
                 return events
             if first_empty is None:
                 first_empty = events
+
+        if unreadable:
+            _log_unreadable_body(
+                f"EasyIQ {path}",
+                unreadable[0],
+                widget=widget_id,
+                child=child_user_id,
+                week=week,
+            )
 
         if first_empty is not None:
             return first_empty
@@ -494,6 +539,12 @@ class AulaWidgetsClient:
             envelope = data.get("data") if isinstance(data, dict) else None
             if isinstance(envelope, dict):
                 appointments = _as_list(envelope.get("appointments", []), "EasyIQ weekplan")
+            elif not (isinstance(data, dict) and "data" in data):
+                # An explicit null under "data" is the API saying it has none.
+                # Anything else means we are reading a shape we do not know.
+                _log_unreadable_body(
+                    "EasyIQ weekplaninfo", data, widget=widget_id, child=child_id, week=week
+                )
         except Exception as e:
             if child_profile_id is None:
                 raise
