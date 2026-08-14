@@ -116,6 +116,9 @@ Returns: list of presence template objects with day templates.
 aula --output json mu:opgaver
 aula --output json mu:opgaver --week 10
 ```
+Each task carries `url` (an SSO wrapper that only works in a browser) and
+`deep_link` (the MinUddannelse page it points at, or `null`). Link to
+`deep_link`, never to `url`.
 
 #### `mu:ugeplan` — Min Uddannelse weekly letter
 ```bash

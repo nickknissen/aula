@@ -12,14 +12,17 @@ from aula.cli import (
     CONTACTS_PAGE_SIZE,
     MAX_CONTACT_PAGES,
     _fetch_contact_pages,
+    _first_available_widget,
     _has_widget,
     _password_provider,
     _print_otp_code,
+    _require_any_widget,
     _require_widget,
     _token_digits_provider,
     _with_child,
     report_sick,
 )
+from aula.const import MIN_UDDANNELSE_TASK_WIDGETS
 from aula.models import (
     Child,
     EasyIQHomework,
@@ -106,6 +109,75 @@ class TestWidgetAvailability:
     async def test_require_widget_is_quiet_when_present(self, capsys):
         assert await _require_widget(self._client(["0019"]), "0019", "Biblioteket") is True
         assert capsys.readouterr().out == ""
+
+
+class TestWidgetPreference:
+    """MinUddannelse opgaver are reachable through more than one widget."""
+
+    @pytest.fixture(autouse=True)
+    def _clear_cache(self):
+        _WIDGET_ID_CACHE.clear()
+        yield
+        _WIDGET_ID_CACHE.clear()
+
+    def _client(self, widget_ids, side_effect=None):
+        client = MagicMock()
+        widgets = [MagicMock(widget_id=wid) for wid in widget_ids]
+        client.get_widgets = AsyncMock(return_value=widgets, side_effect=side_effect)
+        return client
+
+    @pytest.mark.asyncio
+    async def test_prefers_the_first_widget_when_present(self):
+        client = self._client(["0023", "0030", "0029"])
+
+        assert await _first_available_widget(client, MIN_UDDANNELSE_TASK_WIDGETS) == "0030"
+
+    @pytest.mark.asyncio
+    async def test_falls_back_when_only_the_sso_widget_is_listed(self):
+        """The reported case: 0029, 0023, 0072 and 0138, but no 0030."""
+        client = self._client(["0029", "0023", "0072", "0138"])
+
+        assert await _first_available_widget(client, MIN_UDDANNELSE_TASK_WIDGETS) == "0023"
+
+    @pytest.mark.asyncio
+    async def test_returns_none_when_no_candidate_is_listed(self):
+        client = self._client(["0128", "0142"])
+
+        assert await _first_available_widget(client, MIN_UDDANNELSE_TASK_WIDGETS) is None
+
+    @pytest.mark.asyncio
+    async def test_an_unreadable_list_falls_back_to_the_preferred_widget(self):
+        """Same rule as _has_widget: try the call rather than refuse."""
+        client = self._client([], side_effect=RuntimeError("boom"))
+
+        assert await _first_available_widget(client, MIN_UDDANNELSE_TASK_WIDGETS) == "0030"
+
+    @pytest.mark.asyncio
+    async def test_the_list_is_fetched_once(self):
+        client = self._client(["0023"])
+
+        await _first_available_widget(client, MIN_UDDANNELSE_TASK_WIDGETS)
+        await _first_available_widget(client, MIN_UDDANNELSE_TASK_WIDGETS)
+
+        assert client.get_widgets.await_count == 1
+
+    @pytest.mark.asyncio
+    async def test_require_any_widget_returns_the_usable_id(self, capsys):
+        client = self._client(["0023"])
+
+        assert await _require_any_widget(client, MIN_UDDANNELSE_TASK_WIDGETS, "Opgaver") == "0023"
+        assert capsys.readouterr().out == ""
+
+    @pytest.mark.asyncio
+    async def test_require_any_widget_lists_every_candidate_when_none_is_present(self, capsys):
+        client = self._client(["0128"])
+
+        assert await _require_any_widget(client, MIN_UDDANNELSE_TASK_WIDGETS, "Opgaver") is None
+        out = capsys.readouterr().out
+        assert "Opgaver" in out
+        assert "0030" in out
+        assert "0023" in out
+        assert "aula widgets" in out
 
 
 class TestWithChild:

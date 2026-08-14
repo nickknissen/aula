@@ -6,7 +6,7 @@ import functools
 import logging
 import os
 import sys
-from collections.abc import Awaitable, Callable
+from collections.abc import Awaitable, Callable, Sequence
 from zoneinfo import ZoneInfo
 
 import click
@@ -16,12 +16,12 @@ from .api_client import AulaApiClient
 from .auth_flow import authenticate_and_create_client
 from .config import CONFIG_FILE, DEFAULT_TOKEN_FILE, load_config, save_config
 from .const import (
+    MIN_UDDANNELSE_TASK_WIDGETS,
     WIDGET_BIBLIOTEKET,
     WIDGET_EASYIQ_HOMEWORK,
     WIDGET_EASYIQ_WEEKPLAN,
     WIDGET_HUSKELISTEN,
     WIDGET_MEEBOOK,
-    WIDGET_MIN_UDDANNELSE_TASKS,
     WIDGET_MIN_UDDANNELSE_UGEPLAN,
 )
 from .models import (
@@ -381,6 +381,12 @@ async def _has_widget(client: AulaApiClient, widget_id: str) -> bool:
     A lookup that fails does not block: better to attempt the call and show
     whatever comes back than to refuse on incomplete information.
     """
+    available = await _available_widget_ids(client)
+    return True if available is None else widget_id in available
+
+
+async def _available_widget_ids(client: AulaApiClient) -> set[str] | None:
+    """Widget IDs on this account, or None when the list could not be read."""
     if id(client) not in _WIDGET_ID_CACHE:
         try:
             widgets = await client.get_widgets()
@@ -389,8 +395,23 @@ async def _has_widget(client: AulaApiClient, widget_id: str) -> bool:
             logging.getLogger(__name__).warning("Could not read the widget list: %s", e)
             _WIDGET_ID_CACHE[id(client)] = None
 
-    available = _WIDGET_ID_CACHE[id(client)]
-    return True if available is None else widget_id in available
+    return _WIDGET_ID_CACHE[id(client)]
+
+
+async def _first_available_widget(client: AulaApiClient, widget_ids: Sequence[str]) -> str | None:
+    """Pick the first widget in ``widget_ids`` this account has.
+
+    ``widget_ids`` is in preference order, so a school with the primary widget
+    keeps using it and only the schools missing it fall back.
+
+    A widget list that could not be read yields the preferred ID rather than
+    None, matching :func:`_has_widget`: attempting the call and showing whatever
+    comes back beats refusing on incomplete information.
+    """
+    available = await _available_widget_ids(client)
+    if available is None:
+        return widget_ids[0] if widget_ids else None
+    return next((widget_id for widget_id in widget_ids if widget_id in available), None)
 
 
 async def _require_widget(client: AulaApiClient, widget_id: str, name: str) -> bool:
@@ -402,6 +423,21 @@ async def _require_widget(client: AulaApiClient, widget_id: str, name: str) -> b
         f"so there is nothing to fetch. Run 'aula widgets' to see what is available."
     )
     return False
+
+
+async def _require_any_widget(
+    client: AulaApiClient, widget_ids: Sequence[str], name: str
+) -> str | None:
+    """Return the usable widget ID for ``name``, or report that none is present."""
+    widget_id = await _first_available_widget(client, widget_ids)
+    if widget_id is not None:
+        return widget_id
+    listed = ", ".join(widget_ids)
+    print_error(
+        f"no {name} widget ({listed}) is on this account, "
+        f"so there is nothing to fetch. Run 'aula widgets' to see what is available."
+    )
+    return None
 
 
 async def _get_widget_context(
@@ -1717,7 +1753,10 @@ async def mu_opgaver(ctx, week):
     """Fetch Min Uddannelse tasks (opgaver) for children."""
     week = _resolve_week(week)
     async with await _get_client(ctx) as client:
-        if not await _require_widget(client, WIDGET_MIN_UDDANNELSE_TASKS, "MinUddannelse Opgaver"):
+        widget_id = await _require_any_widget(
+            client, MIN_UDDANNELSE_TASK_WIDGETS, "MinUddannelse Opgaver"
+        )
+        if widget_id is None:
             return
 
         try:
@@ -1737,7 +1776,7 @@ async def mu_opgaver(ctx, week):
 
         try:
             opgaver = await client.widgets.get_mu_tasks(
-                WIDGET_MIN_UDDANNELSE_TASKS,
+                widget_id,
                 child_filter,
                 institution_filter,
                 week,
@@ -1769,6 +1808,7 @@ async def mu_opgaver(ctx, week):
                         ("Type", task.task_type),
                         ("Classes", classes),
                         ("Course", course),
+                        ("Link", task.deep_link),
                     ],
                 ):
                     click.echo(line)
@@ -2798,12 +2838,15 @@ async def weekly_summary(ctx, child, week, providers):
             child_filter = [uid for uid in child_filter if uid in selected_user_ids]
 
         # ── Min Uddannelse – Homework & Tasks ────────────────────────────────
-        if WeeklySummaryProvider.MU_OPGAVER in enabled and await _has_widget(
-            client, WIDGET_MIN_UDDANNELSE_TASKS
-        ):
+        mu_task_widget = (
+            await _first_available_widget(client, MIN_UDDANNELSE_TASK_WIDGETS)
+            if WeeklySummaryProvider.MU_OPGAVER in enabled
+            else None
+        )
+        if mu_task_widget is not None:
             try:
                 tasks = await client.widgets.get_mu_tasks(
-                    WIDGET_MIN_UDDANNELSE_TASKS,
+                    mu_task_widget,
                     child_filter,
                     institution_filter,
                     week,
@@ -4131,7 +4174,8 @@ async def daily_summary(ctx, child, target_date):
         # ── Homework due today ────────────────────────────────────────────────
         today_tasks: list = []
         widget_ctx = await _get_widget_context(client, prof)
-        if widget_ctx is not None:
+        mu_task_widget = await _first_available_widget(client, MIN_UDDANNELSE_TASK_WIDGETS)
+        if widget_ctx is not None and mu_task_widget is not None:
             child_filter, institution_filter, session_uuid = widget_ctx
 
             if child:
@@ -4142,7 +4186,7 @@ async def daily_summary(ctx, child, target_date):
 
             try:
                 all_tasks = await client.widgets.get_mu_tasks(
-                    WIDGET_MIN_UDDANNELSE_TASKS,
+                    mu_task_widget,
                     child_filter,
                     institution_filter,
                     week,

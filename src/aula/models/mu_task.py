@@ -1,9 +1,55 @@
+import base64
+import binascii
+import logging
 import re
+import urllib.parse
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from typing import Any
 
 from .base import AulaDataClass
+
+_LOGGER = logging.getLogger(__name__)
+
+
+def decode_mu_deep_link(url: str | None) -> str | None:
+    """Return the MinUddannelse page URL wrapped inside an opgave ``url``.
+
+    An opgave's ``url`` is an SSO entry point of the form
+    ``https://api.minuddannelse.net/aula/redirect/<id>/<base64>``. The widget
+    never navigates to it directly; it submits it as a form with the Aula token
+    in a hidden field, so fetching it server side lands on ``/Error/IngenAdgang``
+    and the raw value is useless as a link.
+
+    The last path segment is the base64 of the percent-encoded real page URL, so
+    decoding it yields a link that opens the right week. Returns None whenever
+    that does not hold, which keeps callers on plain text rather than handing out
+    a broken link.
+    """
+    if not url:
+        return None
+
+    segment = url.rsplit("/", 1)[-1]
+    if not segment:
+        return None
+
+    try:
+        # validate=True rejects a segment that is not base64 at all, e.g. the
+        # last path element of an ordinary URL, instead of decoding it to bytes
+        # that only look like a result.
+        raw = base64.b64decode(segment + "=" * (-len(segment) % 4), validate=True)
+        decoded = urllib.parse.unquote(raw.decode("utf-8"))
+    except binascii.Error, UnicodeDecodeError, ValueError:
+        _LOGGER.debug("Could not decode Min Uddannelse deep link: %s", url)
+        return None
+
+    # Anything that is not an absolute http(s) URL is not a link we should show,
+    # however cleanly it decoded.
+    if not decoded.startswith(("http://", "https://")):
+        _LOGGER.debug("Decoded Min Uddannelse deep link is not a URL: %s", url)
+        return None
+
+    return decoded
 
 
 def _parse_dotnet_date(value: str | None) -> datetime | None:
@@ -70,6 +116,7 @@ class MUTask(AulaDataClass):
     student_name: str
     unilogin: str
     url: str
+    deep_link: str | None = None
     classes: list[MUTaskClass] = field(default_factory=list)
     course: MUTaskCourse | None = None
     student_count: int | None = None
@@ -94,6 +141,8 @@ class MUTask(AulaDataClass):
             student_name=data.get("kuvertnavn", ""),
             unilogin=data.get("unilogin", ""),
             url=data.get("url", ""),
+            # ``url`` is kept exactly as Aula sent it; the usable link is derived.
+            deep_link=decode_mu_deep_link(data.get("url")),
             classes=classes,
             course=MUTaskCourse.from_dict(forloeb) if forloeb else None,
             student_count=data.get("antalElever"),
