@@ -56,6 +56,7 @@ from .utils.output import (
     scope_relations_to_children,
 )
 from .utils.table import print_row_table
+from .widgets import EasyIQChildNotInPortal
 
 
 # Decorator to run async functions within Click commands
@@ -472,6 +473,20 @@ async def _get_widget_context(
         return None
 
     return child_filter, institution_filter, session_uuid
+
+
+def _echo_no_easyiq_identity(child_name: str, resource: str, err: bool = False) -> None:
+    """Say that a child has no EasyIQ plan, which is not a failure.
+
+    EasyIQ's portal only knows children at institutions that use it. Daycare
+    does not, so those children have no weekly plan or homework at all. This
+    is printed rather than logged because a silent gap reads as a bug, and
+    because the previous behaviour was to show them a sibling's plan
+    (issue #68).
+    """
+    click.echo(
+        f"No EasyIQ {resource} for {child_name}: EasyIQ has no record of this child.", err=err
+    )
 
 
 def _with_child(row: dict, child: Child) -> dict:
@@ -1943,16 +1958,24 @@ async def easyiq_ugeplan(ctx, week):
                 if not child._raw or "userId" not in child._raw:
                     continue
                 child_id = str(child._raw["userId"])
+                c_institutions: list[str] = []
+                inst_code = get_in(child._raw, "institutionProfile.institutionCode", default="")
+                if inst_code:
+                    c_institutions.append(str(inst_code))
                 try:
                     appointments = await client.widgets.get_easyiq_weekplan(
                         week,
                         session_uuid,
-                        institution_filter,
+                        c_institutions or institution_filter,
                         child_id,
                         child_profile_id=str(child.id),
                         all_child_user_ids=all_child_user_ids,
+                        all_institution_filter=institution_filter,
                     )
                     all_appointments.extend(_with_child(dict(a), child) for a in appointments)
+                except EasyIQChildNotInPortal:
+                    _echo_no_easyiq_identity(child.name, "weekly plan", err=True)
+                    continue
                 except Exception as e:
                     print_error(f"fetching EasyIQ weekplan for {child.name}: {e}", err=True)
                     continue
@@ -1966,16 +1989,24 @@ async def easyiq_ugeplan(ctx, week):
             if not child._raw or "userId" not in child._raw:
                 continue
             child_id = str(child._raw["userId"])
+            c_institutions = []
+            inst_code = get_in(child._raw, "institutionProfile.institutionCode", default="")
+            if inst_code:
+                c_institutions.append(str(inst_code))
 
             try:
                 appointments = await client.widgets.get_easyiq_weekplan(
                     week,
                     session_uuid,
-                    institution_filter,
+                    c_institutions or institution_filter,
                     child_id,
                     child_profile_id=str(child.id),
                     all_child_user_ids=all_child_user_ids,
+                    all_institution_filter=institution_filter,
                 )
+            except EasyIQChildNotInPortal:
+                _echo_no_easyiq_identity(child.name, "weekly plan")
+                continue
             except Exception as e:
                 print_error(f"fetching EasyIQ weekplan for {child.name}: {e}")
                 continue
@@ -2052,16 +2083,24 @@ async def easyiq_homework(ctx, week):
                 if not child._raw or "userId" not in child._raw:
                     continue
                 child_id = str(child._raw["userId"])
+                c_institutions: list[str] = []
+                inst_code = get_in(child._raw, "institutionProfile.institutionCode", default="")
+                if inst_code:
+                    c_institutions.append(str(inst_code))
                 try:
                     homework = await client.widgets.get_easyiq_homework(
                         week,
                         session_uuid,
-                        institution_filter,
+                        c_institutions or institution_filter,
                         child_id,
                         child_profile_id=str(child.id),
                         all_child_user_ids=all_child_user_ids,
+                        all_institution_filter=institution_filter,
                     )
                     all_homework.extend(_with_child(dict(hw), child) for hw in homework)
+                except EasyIQChildNotInPortal:
+                    _echo_no_easyiq_identity(child.name, "homework", err=True)
+                    continue
                 except Exception as e:
                     print_error(f"fetching EasyIQ homework for {child.name}: {e}", err=True)
                     continue
@@ -2075,16 +2114,24 @@ async def easyiq_homework(ctx, week):
             if not child._raw or "userId" not in child._raw:
                 continue
             child_id = str(child._raw["userId"])
+            c_institutions = []
+            inst_code = get_in(child._raw, "institutionProfile.institutionCode", default="")
+            if inst_code:
+                c_institutions.append(str(inst_code))
 
             try:
                 homework = await client.widgets.get_easyiq_homework(
                     week,
                     session_uuid,
-                    institution_filter,
+                    c_institutions or institution_filter,
                     child_id,
                     child_profile_id=str(child.id),
                     all_child_user_ids=all_child_user_ids,
+                    all_institution_filter=institution_filter,
                 )
+            except EasyIQChildNotInPortal:
+                _echo_no_easyiq_identity(child.name, "homework")
+                continue
             except Exception as e:
                 print_error(f"fetching EasyIQ homework for {child.name}: {e}")
                 continue
@@ -2969,7 +3016,14 @@ async def weekly_summary(ctx, child, week, providers):
                         c_user_id,
                         child_profile_id=str(c.id),
                         all_child_user_ids=all_child_user_ids,
+                        all_institution_filter=institution_filter,
                     )
+                except EasyIQChildNotInPortal:
+                    # Expected for children whose institution is not on EasyIQ.
+                    # The summary spans every provider, so an absence that is
+                    # normal does not belong in its output.
+                    _log.info("EasyIQ has no identity for %s; no weekly plan", c.name)
+                    continue
                 except Exception as e:
                     _log.warning("Could not fetch EasyIQ weekplan for %s: %s", c.name, e)
                     continue
@@ -3023,7 +3077,11 @@ async def weekly_summary(ctx, child, week, providers):
                         c_user_id,
                         child_profile_id=str(c.id),
                         all_child_user_ids=all_child_user_ids,
+                        all_institution_filter=institution_filter,
                     )
+                except EasyIQChildNotInPortal:
+                    _log.info("EasyIQ has no identity for %s; no homework", c.name)
+                    continue
                 except Exception as e:
                     _log.warning("Could not fetch EasyIQ homework for %s: %s", c.name, e)
                     continue

@@ -20,9 +20,15 @@ from aula.cli import (
     _require_widget,
     _token_digits_provider,
     _with_child,
+    easyiq_homework,
+    easyiq_ugeplan,
     report_sick,
 )
-from aula.const import MIN_UDDANNELSE_TASK_WIDGETS
+from aula.const import (
+    MIN_UDDANNELSE_TASK_WIDGETS,
+    WIDGET_EASYIQ_HOMEWORK,
+    WIDGET_EASYIQ_WEEKPLAN,
+)
 from aula.models import (
     Child,
     EasyIQHomework,
@@ -30,6 +36,7 @@ from aula.models import (
     PresenceState,
     Profile,
 )
+from aula.widgets import EasyIQChildNotInPortal
 
 
 def _pager(total: int):
@@ -494,3 +501,154 @@ class TestReportSick:
         result = run("-y")
 
         assert "updating presence status" in result.output
+
+
+class TestEasyiqPerChildInstitutionScoping:
+    """A daycare child's institution must not be replaced by a sibling's school.
+
+    Regression coverage for https://github.com/nickknissen/aula/issues/68: the
+    family-wide institution filter was reused unchanged for every child, so
+    EasyIQ answered every child with the oldest child's class.
+    """
+
+    @staticmethod
+    def _child(child_id: int, user_id: str, inst_code: str) -> Child:
+        raw: dict = {"userId": user_id}
+        if inst_code:
+            raw["institutionProfile"] = {"institutionCode": inst_code}
+        return Child(
+            id=child_id,
+            profile_id=child_id + 1000,
+            name=f"Child{child_id}",
+            institution_name="Test School",
+            profile_picture="",
+            _raw=raw,
+        )
+
+    @staticmethod
+    def _profile_context(child_user_ids: list[str]) -> dict:
+        return {
+            "data": {
+                "userId": "guardian-session",
+                "institutionProfile": {"relations": [{"userId": uid} for uid in child_user_ids]},
+                "institutions": [],
+            }
+        }
+
+    @pytest.fixture(autouse=True)
+    def _clear_cache(self):
+        _WIDGET_ID_CACHE.clear()
+        yield
+        _WIDGET_ID_CACHE.clear()
+
+    def _client(self, children: list[Child]) -> MagicMock:
+        client = MagicMock()
+        client.get_profile = AsyncMock(
+            return_value=Profile(profile_id=1, display_name="Guardian", children=children)
+        )
+        client.get_widgets = AsyncMock(
+            return_value=[
+                MagicMock(widget_id=WIDGET_EASYIQ_WEEKPLAN),
+                MagicMock(widget_id=WIDGET_EASYIQ_HOMEWORK),
+            ]
+        )
+        client.get_profile_context = AsyncMock(
+            return_value=self._profile_context([str(c._raw["userId"]) for c in children if c._raw])
+        )
+        client.widgets = MagicMock()
+        client.widgets.get_easyiq_weekplan = AsyncMock(return_value=[])
+        client.widgets.get_easyiq_homework = AsyncMock(return_value=[])
+        client.__aenter__ = AsyncMock(return_value=client)
+        client.__aexit__ = AsyncMock(return_value=False)
+        return client
+
+    def _run(self, command, client, monkeypatch, *args):
+        monkeypatch.setattr("aula.cli._get_client", AsyncMock(return_value=client))
+        return CliRunner().invoke(command, list(args), obj={"OUTPUT_FORMAT": "text"})
+
+    def test_ugeplan_scopes_institution_filter_per_child(self, monkeypatch):
+        school_child = self._child(1, "u-school", "SCH-1")
+        daycare_child = self._child(2, "u-daycare", "DAY-2")
+        client = self._client([school_child, daycare_child])
+
+        result = self._run(easyiq_ugeplan, client, monkeypatch)
+
+        assert result.exit_code == 0
+        calls = client.widgets.get_easyiq_weekplan.await_args_list
+        assert len(calls) == 2
+        assert calls[0].args[2] == ["SCH-1"]
+        assert calls[1].args[2] == ["DAY-2"]
+        assert calls[0].args[2] != calls[1].args[2]
+
+    def test_ugeplan_passes_every_institution_for_the_portal_session(self, monkeypatch):
+        """The session is cached, so it must be made under all institutions.
+
+        Scoped per child it would depend on which child was read first, and
+        children at the guardian's other institutions could then look like
+        children EasyIQ does not know at all.
+        """
+        school_child = self._child(1, "u-school", "SCH-1")
+        daycare_child = self._child(2, "u-daycare", "DAY-2")
+        client = self._client([school_child, daycare_child])
+
+        result = self._run(easyiq_ugeplan, client, monkeypatch)
+
+        assert result.exit_code == 0
+        calls = client.widgets.get_easyiq_weekplan.await_args_list
+        for call_ in calls:
+            assert call_.kwargs["all_institution_filter"] == ["SCH-1", "DAY-2"]
+
+    def test_ugeplan_says_so_when_easyiq_has_no_record_of_a_child(self, monkeypatch):
+        """A gap the user cannot see reads as a bug. Name it instead."""
+        school_child = self._child(1, "u-school", "SCH-1")
+        daycare_child = self._child(2, "u-daycare", "DAY-2")
+        client = self._client([school_child, daycare_child])
+        client.widgets.get_easyiq_weekplan = AsyncMock(
+            side_effect=[[], EasyIQChildNotInPortal("no such child")]
+        )
+
+        result = self._run(easyiq_ugeplan, client, monkeypatch)
+
+        assert result.exit_code == 0
+        assert "No EasyIQ weekly plan for Child2" in result.output
+        # Not phrased as a failure: it is the correct answer for that child.
+        assert "Error:" not in result.output
+
+    def test_ugeplan_falls_back_to_family_wide_filter_without_institution_code(self, monkeypatch):
+        school_child = self._child(1, "u-school", "SCH-1")
+        no_institution_child = self._child(2, "u-none", "")
+        client = self._client([school_child, no_institution_child])
+
+        result = self._run(easyiq_ugeplan, client, monkeypatch)
+
+        assert result.exit_code == 0
+        calls = client.widgets.get_easyiq_weekplan.await_args_list
+        assert calls[0].args[2] == ["SCH-1"]
+        # No institution code of its own: falls back to the family-wide list.
+        assert calls[1].args[2] == ["SCH-1"]
+
+    def test_homework_scopes_institution_filter_per_child(self, monkeypatch):
+        school_child = self._child(1, "u-school", "SCH-1")
+        daycare_child = self._child(2, "u-daycare", "DAY-2")
+        client = self._client([school_child, daycare_child])
+
+        result = self._run(easyiq_homework, client, monkeypatch)
+
+        assert result.exit_code == 0
+        calls = client.widgets.get_easyiq_homework.await_args_list
+        assert len(calls) == 2
+        assert calls[0].args[2] == ["SCH-1"]
+        assert calls[1].args[2] == ["DAY-2"]
+        assert calls[0].args[2] != calls[1].args[2]
+
+    def test_homework_falls_back_to_family_wide_filter_without_institution_code(self, monkeypatch):
+        school_child = self._child(1, "u-school", "SCH-1")
+        no_institution_child = self._child(2, "u-none", "")
+        client = self._client([school_child, no_institution_child])
+
+        result = self._run(easyiq_homework, client, monkeypatch)
+
+        assert result.exit_code == 0
+        calls = client.widgets.get_easyiq_homework.await_args_list
+        assert calls[0].args[2] == ["SCH-1"]
+        assert calls[1].args[2] == ["SCH-1"]

@@ -15,6 +15,11 @@ EASYIQ_CHILDREN_PATH = "/Aula/GetChildren"
 # The portal's controllers need the session cookies this sets; the Aula widget
 # token on its own is not enough.
 EASYIQ_AUTHENTICATE_PATH = "/Aula/AuthenticateAulaUser"
+# The real client's own child selector: a server-side state change (followed
+# by a full page reload in the browser) that makes the portal's session treat
+# this child as the active one. Takes EasyIQ's own ``Id`` for the child, from
+# ``GetChildren``, as ``loginId`` -- not the child's ``Login`` string.
+EASYIQ_SWITCHCHILD_PATH = "/Aula/SwitchChild"
 MEEBOOK_API = "https://app.meebook.com/aulaapi"
 CICERO_API = "https://surf.cicero-suite.com/portal-api/rest/aula"
 
