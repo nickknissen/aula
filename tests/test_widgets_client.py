@@ -14,6 +14,7 @@ from aula.const import (
     EASYIQ_CHILDREN_PATH,
     EASYIQ_HOMEWORK_PATH,
     EASYIQ_PORTAL,
+    EASYIQ_SWITCHCHILD_PATH,
     MEEBOOK_API,
     MIN_UDDANNELSE_API,
     SYSTEMATIC_API,
@@ -23,6 +24,7 @@ from aula.const import (
     WIDGET_MIN_UDDANNELSE_UGEPLAN,
 )
 from aula.http import AulaNotFoundError
+from aula.widgets import EasyIQChildNotInPortal, EasyIQWrongChildSession
 
 EASYIQ_CALENDAR_URL = f"{EASYIQ_PORTAL}{EASYIQ_CALENDAR_PATH}"
 EASYIQ_HOMEWORK_URL = f"{EASYIQ_PORTAL}{EASYIQ_HOMEWORK_PATH}"
@@ -285,6 +287,8 @@ class TestWidgetsClient:
                 _calendar_response(None),  # AuthenticateAulaUser
                 _calendar_response({"Children": [{"Id": "9001", "Login": "ASTR8360"}]}),
                 _token_response("token-easy-hw"),  # token for the fetch
+                _calendar_response(None),  # SwitchChild
+                _calendar_response({"child": "ASTR8360"}),  # confirmation
                 _calendar_response([{"ItemType": 4, "CoursesDisplay": "Dansk"}]),
             ]
         )
@@ -304,9 +308,11 @@ class TestWidgetsClient:
         assert calls[2].args == ("get", f"{EASYIQ_PORTAL}{EASYIQ_CHILDREN_PATH}")
         # EasyIQ's own ID is used as loginId, matched on Login not Name, and
         # x-childfilter carries every child while x-child carries this one.
-        assert calls[4].kwargs["params"]["loginId"] == "9001"
-        assert calls[4].kwargs["headers"]["x-child"] == "astr8360"
-        assert calls[4].kwargs["headers"]["x-childfilter"] == "astr8360,kris37r9"
+        assert calls[4].args == ("post", f"{EASYIQ_PORTAL}{EASYIQ_SWITCHCHILD_PATH}")
+        assert calls[5].args == ("post", f"{EASYIQ_PORTAL}{EASYIQ_AUTHENTICATE_PATH}")
+        assert calls[6].kwargs["params"]["loginId"] == "9001"
+        assert calls[6].kwargs["headers"]["x-child"] == "astr8360"
+        assert calls[6].kwargs["headers"]["x-childfilter"] == "astr8360,kris37r9"
 
     @pytest.mark.asyncio
     async def test_portal_session_runs_once_across_calls(self, unbootstrapped_client):
@@ -317,8 +323,12 @@ class TestWidgetsClient:
                 _calendar_response(None),
                 _calendar_response({"Children": [{"Id": "9001", "Login": "astr8360"}]}),
                 _token_response("token-easy-hw"),
+                _calendar_response(None),  # SwitchChild
+                _calendar_response({"child": "astr8360"}),  # confirmation
                 _calendar_response([{"ItemType": 4, "CoursesDisplay": "Dansk"}]),
                 _token_response("token-easy-hw"),
+                _calendar_response(None),  # SwitchChild
+                _calendar_response({"child": "astr8360"}),  # confirmation
                 _calendar_response([{"ItemType": 4, "CoursesDisplay": "Matematik"}]),
             ]
         )
@@ -335,7 +345,7 @@ class TestWidgetsClient:
         )
 
         assert [hw.subject for hw in homework] == ["Matematik"]
-        assert client._request_with_version_retry.await_count == 7
+        assert client._request_with_version_retry.await_count == 11
 
     @pytest.mark.asyncio
     async def test_portal_session_runs_once_under_concurrency(self, unbootstrapped_client):
@@ -1058,3 +1068,467 @@ class TestWidgetsClientMalformedResponses:
         assert status.reservations == []
         assert status.branch_ids == []
         assert "Library status returned list instead of an object" in caplog.text
+
+
+class TestEasyiqProtocolCorrectIdentifier:
+    """Issue #68: the real client reuses one parent ``loginId`` for every
+    child and pairs it with the child's real ``Login`` string, never a
+    per-child ``loginId``.
+    """
+
+    @pytest.fixture
+    def client(self):
+        return AulaApiClient(http_client=AsyncMock(), access_token="token")
+
+    @pytest.mark.asyncio
+    async def test_authenticate_response_populates_the_parent_login_id(self, client):
+        client._request_with_version_retry = AsyncMock(
+            side_effect=[
+                _token_response("token-boot"),
+                _calendar_response({"loginId": "parent-42", "child": "1", "schoolId": "9"}),
+                _calendar_response({"Children": []}),
+            ]
+        )
+
+        await client.widgets.ensure_easyiq_session(["inst-1"], "guardian-1", ["astr8360"])
+
+        assert client.widgets._easyiq_parent_login_id == "parent-42"
+
+    @pytest.mark.asyncio
+    async def test_authenticate_response_missing_login_id_does_not_raise(self, client):
+        client._request_with_version_retry = AsyncMock(
+            side_effect=[
+                _token_response("token-boot"),
+                _calendar_response({"loginTypeId": "1"}),  # no loginId at all
+                _calendar_response({"Children": []}),
+            ]
+        )
+
+        await client.widgets.ensure_easyiq_session(["inst-1"], "guardian-1", ["astr8360"])
+
+        assert client.widgets._easyiq_parent_login_id is None
+
+    @pytest.mark.asyncio
+    async def test_authenticate_response_unparseable_body_does_not_raise(self, client):
+        unparseable = Mock()
+        unparseable.raise_for_status = Mock()
+        unparseable.json = Mock(side_effect=ValueError("not json"))
+        client._request_with_version_retry = AsyncMock(
+            side_effect=[
+                _token_response("token-boot"),
+                unparseable,
+                _calendar_response({"Children": []}),
+            ]
+        )
+
+        await client.widgets.ensure_easyiq_session(["inst-1"], "guardian-1", ["astr8360"])
+
+        assert client.widgets._easyiq_parent_login_id is None
+        # A bad AuthenticateAulaUser body is not fatal: GetChildren still runs.
+        assert client._request_with_version_retry.await_count == 3
+
+    @pytest.mark.asyncio
+    async def test_get_children_stores_the_real_login_string_and_id(self, client):
+        client._request_with_version_retry = AsyncMock(
+            side_effect=[
+                _token_response("token-boot"),
+                _calendar_response({}),
+                _calendar_response({"Children": [{"Id": "9001", "Login": "ASTR8360"}]}),
+            ]
+        )
+
+        await client.widgets.ensure_easyiq_session(["inst-1"], "guardian-1", ["astr8360"])
+
+        assert client.widgets.resolve_easyiq_child_id("astr8360") == "9001"
+        # The real casing survives, even though the lookup key is casefolded.
+        assert client.widgets.resolve_easyiq_child_login("astr8360") == "ASTR8360"
+
+    def test_identifier_variants_lead_with_the_protocol_correct_pair(self, client):
+        client.widgets._easyiq_parent_login_id = "parent-42"
+        client.widgets._easyiq_child_logins["astr8360"] = "ASTR8360"
+
+        variants = client.widgets.easyiq_identifier_variants(
+            "4242", "astr8360", "guardian-1", "9001"
+        )
+
+        assert variants[0] == ("parent-42", "ASTR8360")
+        # The rest of the fallback order is unchanged.
+        assert variants[1:] == [
+            ("9001", "astr8360"),
+            ("4242", "astr8360"),
+            ("astr8360", "astr8360"),
+            ("4242", "4242"),
+            ("guardian-1", "astr8360"),
+        ]
+
+    def test_identifier_variants_fall_back_unchanged_without_the_protocol_pair(self, client):
+        variants = client.widgets.easyiq_identifier_variants(
+            "4242", "astr8360", "guardian-1", "9001"
+        )
+
+        assert variants == [
+            ("9001", "astr8360"),
+            ("4242", "astr8360"),
+            ("astr8360", "astr8360"),
+            ("4242", "4242"),
+            ("guardian-1", "astr8360"),
+        ]
+
+    def test_identifier_variants_need_both_halves_of_the_protocol_pair(self, client):
+        """A parent loginId with no matching real Login is not enough."""
+        client.widgets._easyiq_parent_login_id = "parent-42"
+
+        variants = client.widgets.easyiq_identifier_variants("4242", "astr8360", "guardian-1")
+
+        assert ("parent-42", "astr8360") not in variants
+
+    @pytest.mark.asyncio
+    async def test_switch_child_posts_the_easyiq_id_as_login_id(self, client):
+        client._request_with_version_retry = AsyncMock(
+            side_effect=[_token_response("token-switch"), _calendar_response(None)]
+        )
+
+        await client.widgets.switch_easyiq_child(
+            "9001", ["inst-1"], "guardian-1", ["astr8360", "kris37r9"], "astr8360"
+        )
+
+        calls = client._request_with_version_retry.await_args_list
+        assert calls[1].args == ("post", f"{EASYIQ_PORTAL}{EASYIQ_SWITCHCHILD_PATH}")
+        # loginId is the Id GetChildren gave for this child -- not its Login,
+        # and not Aula's own userId.
+        assert calls[1].kwargs["params"] == {"loginId": "9001"}
+        assert calls[1].kwargs["headers"]["x-child"] == "astr8360"
+
+    @staticmethod
+    def _bootstrapped(client, children):
+        """Put a client in the state a successful bootstrap leaves it in."""
+        client.widgets._easyiq_session_ready = True
+        client.widgets._easyiq_parent_login_id = "parent-42"
+        for entry in children:
+            key = entry["Login"].casefold()
+            client.widgets._easyiq_child_ids[key] = entry["Id"]
+            client.widgets._easyiq_child_logins[key] = entry["Login"]
+        client.widgets._easyiq_children_known = True
+
+    @pytest.mark.asyncio
+    async def test_the_week_read_is_preceded_by_switch_child(self, client):
+        self._bootstrapped(client, [{"Id": "9001", "Login": "astr8360"}])
+        client._request_with_version_retry = AsyncMock(
+            side_effect=[
+                _token_response("token-easy"),
+                _calendar_response(None),  # SwitchChild
+                _calendar_response({"child": "astr8360"}),  # confirmation
+                _calendar_response([{"ItemType": 9, "Title": "Dansk"}]),
+            ]
+        )
+
+        events = await client.widgets.get_easyiq_calendar_events(
+            week="2026-W09",
+            institution_filter=["inst-1"],
+            child_profile_id="4242",
+            child_user_id="astr8360",
+            all_child_user_ids=["astr8360"],
+            guardian_login="guardian-1",
+        )
+
+        assert len(events) == 1
+        calls = client._request_with_version_retry.await_args_list
+        # The switch has to happen first: identity headers alone do not move
+        # the portal off whichever child the session is already on (#68).
+        assert calls[1].args == ("post", f"{EASYIQ_PORTAL}{EASYIQ_SWITCHCHILD_PATH}")
+        assert calls[1].kwargs["params"] == {"loginId": "9001"}
+        # Then the switch is confirmed, and only then is the week read.
+        assert calls[2].args == ("post", f"{EASYIQ_PORTAL}{EASYIQ_AUTHENTICATE_PATH}")
+        assert calls[3].args == ("get", EASYIQ_CALENDAR_URL)
+        # One token, shared by all three.
+        assert client._request_with_version_retry.await_count == 4
+
+    @pytest.mark.asyncio
+    async def test_child_without_an_easyiq_identity_is_not_read_at_all(self, client):
+        """The daycare case from #68: no identity means no week plan.
+
+        Reading anyway does not fail, it returns whichever child the session
+        was last switched to -- wrong data that looks entirely valid.
+        """
+        self._bootstrapped(client, [{"Id": "9001", "Login": "astr8360"}])
+        client._request_with_version_retry = AsyncMock(
+            side_effect=AssertionError("no request may be made for this child")
+        )
+
+        with pytest.raises(EasyIQChildNotInPortal):
+            await client.widgets.get_easyiq_calendar_events(
+                week="2026-W09",
+                institution_filter=["inst-2"],
+                child_profile_id="4343",
+                child_user_id="kris37r9",  # in daycare, absent from GetChildren
+                all_child_user_ids=["astr8360", "kris37r9"],
+                guardian_login="guardian-1",
+            )
+
+        assert client._request_with_version_retry.await_count == 0
+
+    @pytest.mark.asyncio
+    async def test_the_session_is_made_under_every_institution(self, client):
+        """The bootstrap is cached, so it must not be scoped to one child.
+
+        Callers pass the child's own institution for the read. If that were
+        also what the session was made under, whichever child was read first
+        would decide which children GetChildren ever lists, and the rest
+        would look like children EasyIQ does not know.
+        """
+        client.widgets._easyiq_session_ready = False
+        client._request_with_version_retry = AsyncMock(
+            side_effect=[
+                _token_response("token-boot"),
+                _calendar_response({"loginId": "parent-42"}),
+                _calendar_response({"Children": [{"Id": "9001", "Login": "astr8360"}]}),
+                _token_response("token-easy"),
+                _calendar_response(None),  # SwitchChild
+                _calendar_response({"child": "astr8360"}),  # confirmation
+                _calendar_response([{"ItemType": 9, "Title": "Dansk"}]),
+            ]
+        )
+
+        await client.widgets.get_easyiq_calendar_events(
+            week="2026-W09",
+            institution_filter=["751052"],  # this child's school
+            child_profile_id="4242",
+            child_user_id="astr8360",
+            all_child_user_ids=["astr8360", "kris37r9"],
+            guardian_login="guardian-1",
+            all_institution_filter=["751052", "751056", "G20365"],
+        )
+
+        calls = client._request_with_version_retry.await_args_list
+        every = "751052,751056,G20365"
+        assert calls[1].kwargs["headers"]["x-institutionfilter"] == every
+        assert calls[2].kwargs["headers"]["x-institutionfilter"] == every
+        # The read itself still goes out under the child's own institution.
+        assert calls[6].kwargs["headers"]["x-institutionfilter"] == "751052"
+
+    @pytest.mark.asyncio
+    async def test_the_session_falls_back_to_the_childs_institution(self, client):
+        """Callers that do not know the full list keep the old behaviour."""
+        client.widgets._easyiq_session_ready = False
+        client._request_with_version_retry = AsyncMock(
+            side_effect=[
+                _token_response("token-boot"),
+                _calendar_response({"loginId": "parent-42"}),
+                _calendar_response({"Children": []}),
+                _token_response("token-easy"),
+                _calendar_response([{"ItemType": 9, "Title": "Dansk"}]),
+            ]
+        )
+
+        await client.widgets.get_easyiq_calendar_events(
+            week="2026-W09",
+            institution_filter=["751052"],
+            child_profile_id="4242",
+            child_user_id="astr8360",
+            all_child_user_ids=["astr8360"],
+            guardian_login="guardian-1",
+        )
+
+        calls = client._request_with_version_retry.await_args_list
+        assert calls[1].kwargs["headers"]["x-institutionfilter"] == "751052"
+
+    @pytest.mark.asyncio
+    async def test_a_failed_switch_child_surfaces_rather_than_returning_data(self, client):
+        self._bootstrapped(client, [{"Id": "9001", "Login": "astr8360"}])
+        failing = Mock()
+        failing.raise_for_status = Mock(side_effect=RuntimeError("SwitchChild 500"))
+        client._request_with_version_retry = AsyncMock(
+            side_effect=[_token_response("token-easy"), failing]
+        )
+
+        with pytest.raises(RuntimeError, match="SwitchChild 500"):
+            await client.widgets.get_easyiq_calendar_events(
+                week="2026-W09",
+                institution_filter=["inst-1"],
+                child_profile_id="4242",
+                child_user_id="astr8360",
+                all_child_user_ids=["astr8360"],
+                guardian_login="guardian-1",
+            )
+
+        # The read never happened: a week that could belong to any child is
+        # worse than an error the caller can report.
+        assert client._request_with_version_retry.await_count == 2
+
+    @pytest.mark.asyncio
+    async def test_switch_and_read_are_not_interleaved_between_children(self, client):
+        """Two children read at once must not have their switches interleave.
+
+        SwitchChild moves server-side session state, so a switch landing
+        between another child's switch and read would answer both with the
+        same week.
+        """
+        self._bootstrapped(
+            client,
+            [{"Id": "9001", "Login": "astr8360"}, {"Id": "9002", "Login": "kris37r9"}],
+        )
+        sequence: list[str] = []
+
+        async def _dispatch(method, url, **kwargs):
+            await asyncio.sleep(0)
+            if "getAulaToken" in url:
+                return _token_response("token-easy")
+            if url.endswith(EASYIQ_SWITCHCHILD_PATH):
+                sequence.append(f"switch:{kwargs['params']['loginId']}")
+                return _calendar_response(None)
+            if url.endswith(EASYIQ_AUTHENTICATE_PATH):
+                return _calendar_response({"child": kwargs["headers"]["x-child"]})
+            sequence.append(f"read:{kwargs['headers']['x-child']}")
+            return _calendar_response([{"ItemType": 9, "Title": "Dansk"}])
+
+        client._request_with_version_retry = AsyncMock(side_effect=_dispatch)
+
+        async def _read(child_user_id, child_profile_id):
+            return await client.widgets.get_easyiq_calendar_events(
+                week="2026-W09",
+                institution_filter=["inst-1"],
+                child_profile_id=child_profile_id,
+                child_user_id=child_user_id,
+                all_child_user_ids=["astr8360", "kris37r9"],
+                guardian_login="guardian-1",
+            )
+
+        await asyncio.gather(_read("astr8360", "4242"), _read("kris37r9", "4343"))
+
+        pairs = [tuple(sequence[i : i + 2]) for i in range(0, len(sequence), 2)]
+        assert sorted(pairs) == [
+            ("switch:9001", "read:astr8360"),
+            ("switch:9002", "read:kris37r9"),
+        ]
+
+    @pytest.mark.asyncio
+    async def test_no_switch_when_the_bootstrap_resolved_no_children(self, client):
+        """Institutions the bootstrap does not suit keep the old guessing path."""
+        client.widgets._easyiq_session_ready = True  # bootstrap ran, found nothing
+        client._request_with_version_retry = AsyncMock(
+            side_effect=[
+                _token_response("token-easy"),
+                _calendar_response([{"ItemType": 9, "Title": "Dansk"}]),
+            ]
+        )
+
+        events = await client.widgets.get_easyiq_calendar_events(
+            week="2026-W09",
+            institution_filter=["inst-1"],
+            child_profile_id="4242",
+            child_user_id="astr8360",
+            all_child_user_ids=["astr8360"],
+            guardian_login="guardian-1",
+        )
+
+        assert len(events) == 1
+        calls = client._request_with_version_retry.await_args_list
+        assert calls[1].args == ("get", EASYIQ_CALENDAR_URL)
+        assert client._request_with_version_retry.await_count == 2
+
+    @pytest.mark.asyncio
+    async def test_a_switch_that_did_not_take_effect_is_refused(self, client):
+        """SwitchChild answering 200 is not proof the session moved.
+
+        Two other Aula clients guess identifiers and treat "200 and
+        parseable" as success, which is exactly how another child's week
+        gets shipped as if it were this child's.
+        """
+        self._bootstrapped(client, [{"Id": "9001", "Login": "astr8360"}])
+        client._request_with_version_retry = AsyncMock(
+            side_effect=[
+                _token_response("token-easy"),
+                _calendar_response(None),  # SwitchChild says 200
+                _calendar_response({"child": "kris37r9"}),  # but it is on the sibling
+                _calendar_response([{"ItemType": 9, "Title": "Wrong child"}]),
+            ]
+        )
+
+        with pytest.raises(EasyIQWrongChildSession):
+            await client.widgets.get_easyiq_calendar_events(
+                week="2026-W09",
+                institution_filter=["inst-1"],
+                child_profile_id="4242",
+                child_user_id="astr8360",
+                all_child_user_ids=["astr8360", "kris37r9"],
+                guardian_login="guardian-1",
+            )
+
+        # Refused before the read, so no wrong-child data is ever parsed.
+        assert client._request_with_version_retry.await_count == 3
+
+    @pytest.mark.asyncio
+    async def test_the_confirmation_ignores_casing(self, client):
+        self._bootstrapped(client, [{"Id": "9001", "Login": "ASTR8360"}])
+        client._request_with_version_retry = AsyncMock(
+            side_effect=[
+                _token_response("token-easy"),
+                _calendar_response(None),
+                _calendar_response({"child": "astr8360"}),  # same child, other casing
+                _calendar_response([{"ItemType": 9, "Title": "Dansk"}]),
+            ]
+        )
+
+        events = await client.widgets.get_easyiq_calendar_events(
+            week="2026-W09",
+            institution_filter=["inst-1"],
+            child_profile_id="4242",
+            child_user_id="astr8360",
+            all_child_user_ids=["astr8360"],
+            guardian_login="guardian-1",
+        )
+
+        assert len(events) == 1
+
+    @pytest.mark.asyncio
+    async def test_a_portal_that_names_no_child_does_not_block_the_read(self, client):
+        """Silence is not disagreement.
+
+        Institutions whose answer omits ``child`` leave us where we were
+        before this check existed, which is no reason to refuse them.
+        """
+        self._bootstrapped(client, [{"Id": "9001", "Login": "astr8360"}])
+        client._request_with_version_retry = AsyncMock(
+            side_effect=[
+                _token_response("token-easy"),
+                _calendar_response(None),
+                _calendar_response({"loginId": "parent-42"}),  # no child field
+                _calendar_response([{"ItemType": 9, "Title": "Dansk"}]),
+            ]
+        )
+
+        events = await client.widgets.get_easyiq_calendar_events(
+            week="2026-W09",
+            institution_filter=["inst-1"],
+            child_profile_id="4242",
+            child_user_id="astr8360",
+            all_child_user_ids=["astr8360"],
+            guardian_login="guardian-1",
+        )
+
+        assert len(events) == 1
+
+    @pytest.mark.asyncio
+    async def test_the_refusal_names_no_identifier(self, client):
+        """The message reaches the CLI, and both sides of it are UniLogins."""
+        self._bootstrapped(client, [{"Id": "9001", "Login": "astr8360"}])
+        client._request_with_version_retry = AsyncMock(
+            side_effect=[
+                _token_response("token-easy"),
+                _calendar_response(None),
+                _calendar_response({"child": "kris37r9"}),
+            ]
+        )
+
+        with pytest.raises(EasyIQWrongChildSession) as excinfo:
+            await client.widgets.get_easyiq_calendar_events(
+                week="2026-W09",
+                institution_filter=["inst-1"],
+                child_profile_id="4242",
+                child_user_id="astr8360",
+                all_child_user_ids=["astr8360", "kris37r9"],
+                guardian_login="guardian-1",
+            )
+
+        assert "astr8360" not in str(excinfo.value)
+        assert "kris37r9" not in str(excinfo.value)

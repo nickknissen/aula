@@ -1,3 +1,3 @@
-from .client import AulaWidgetsClient
+from .client import AulaWidgetsClient, EasyIQChildNotInPortal, EasyIQWrongChildSession
 
-__all__ = ["AulaWidgetsClient"]
+__all__ = ["AulaWidgetsClient", "EasyIQChildNotInPortal", "EasyIQWrongChildSession"]
