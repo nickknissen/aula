@@ -1705,6 +1705,108 @@ async def debug_easyiq(ctx, week, include_values):
             click.echo(line)
 
 
+@cli.command("debug:easyiq-child")
+@click.option(
+    "--week",
+    type=str,
+    default=None,
+    help="Week number (e.g. 8) or full format (2026-W8). Defaults to current week.",
+)
+@click.option(
+    "--switch-child/--no-switch-child",
+    default=False,
+    help="POST /Aula/SwitchChild with loginId=child's EasyIQ Id before reading each "
+    "child, the way the real client does before a page reload. This is the "
+    "experiment: on, versus off, shows whether that sequencing is required or "
+    "whether the x-child header alone is enough.",
+)
+@click.option(
+    "--include-values",
+    is_flag=True,
+    help="Also print each item's title and description. These are your children's "
+    "homework text, so do not paste that output anywhere public.",
+)
+@click.pass_context
+@async_cmd
+async def debug_easyiq_child(ctx, week, switch_child, include_values):
+    """Show exactly what each child's EasyIQ request/response looks like.
+
+    For issue #68: prints the resolved request (URL, params, headers, with
+    Authorization redacted) and a response summary per child, then a
+    cross-child overlap matrix of shared item Ids. Zero overlap everywhere is
+    the correct outcome; any shared Id means two children were answered with
+    the same data. The default output has no names, titles, descriptions or
+    bearer token, so it is safe to paste into a GitHub issue.
+    """
+    from .utils.easyiq_child_probe import probe_easyiq_children, render_child_report
+
+    week = _resolve_week(week)
+    async with await _get_client(ctx) as client:
+        try:
+            prof: Profile = await client.get_profile()
+            profile_context = await client.get_profile_context()
+            guardian_login = str(profile_context["data"]["userId"])
+        except Exception as e:
+            print_error(f"fetching profile: {e}")
+            return
+
+        if not prof.children:
+            print_empty("children")
+            return
+
+        institution_filter: list[str] = []
+        for child in prof.children:
+            if child._raw:
+                inst_code = get_in(child._raw, "institutionProfile.institutionCode", default="")
+                if inst_code and str(inst_code) not in institution_filter:
+                    institution_filter.append(str(inst_code))
+
+        report = await probe_easyiq_children(
+            client,
+            prof.children,
+            guardian_login,
+            week,
+            institution_filter,
+            _easyiq_child_user_ids(profile_context),
+            switch_child=switch_child,
+            include_values=include_values,
+        )
+
+        if ctx.obj.get("OUTPUT_FORMAT") == "json":
+            click.echo(
+                to_json(
+                    {
+                        "switch_child": report.switch_child_enabled,
+                        "children": [
+                            {
+                                "label": c.label,
+                                "switch_child": c.switch_child,
+                                "identifier_variant": c.identifier_variant,
+                                "url": c.url,
+                                "params": c.params,
+                                "headers": c.headers,
+                                "status": c.status,
+                                "error": c.error,
+                                "row_count": c.row_count,
+                                "unique_id_count": c.unique_id_count,
+                                "activities_display": c.activities_display,
+                                "item_types": c.item_types,
+                                "values": c.values,
+                            }
+                            for c in report.children
+                        ],
+                        "overlap_matrix": [
+                            [len(a.ids & b.ids) for b in report.children] for a in report.children
+                        ],
+                    }
+                )
+            )
+            return
+
+        for line in render_child_report(report, include_values=include_values):
+            click.echo(line)
+
+
 @cli.command("widgets")
 @click.pass_context
 @async_cmd
@@ -1943,11 +2045,15 @@ async def easyiq_ugeplan(ctx, week):
                 if not child._raw or "userId" not in child._raw:
                     continue
                 child_id = str(child._raw["userId"])
+                c_institutions: list[str] = []
+                inst_code = get_in(child._raw, "institutionProfile.institutionCode", default="")
+                if inst_code:
+                    c_institutions.append(str(inst_code))
                 try:
                     appointments = await client.widgets.get_easyiq_weekplan(
                         week,
                         session_uuid,
-                        institution_filter,
+                        c_institutions or institution_filter,
                         child_id,
                         child_profile_id=str(child.id),
                         all_child_user_ids=all_child_user_ids,
@@ -1966,12 +2072,16 @@ async def easyiq_ugeplan(ctx, week):
             if not child._raw or "userId" not in child._raw:
                 continue
             child_id = str(child._raw["userId"])
+            c_institutions = []
+            inst_code = get_in(child._raw, "institutionProfile.institutionCode", default="")
+            if inst_code:
+                c_institutions.append(str(inst_code))
 
             try:
                 appointments = await client.widgets.get_easyiq_weekplan(
                     week,
                     session_uuid,
-                    institution_filter,
+                    c_institutions or institution_filter,
                     child_id,
                     child_profile_id=str(child.id),
                     all_child_user_ids=all_child_user_ids,
@@ -2052,11 +2162,15 @@ async def easyiq_homework(ctx, week):
                 if not child._raw or "userId" not in child._raw:
                     continue
                 child_id = str(child._raw["userId"])
+                c_institutions: list[str] = []
+                inst_code = get_in(child._raw, "institutionProfile.institutionCode", default="")
+                if inst_code:
+                    c_institutions.append(str(inst_code))
                 try:
                     homework = await client.widgets.get_easyiq_homework(
                         week,
                         session_uuid,
-                        institution_filter,
+                        c_institutions or institution_filter,
                         child_id,
                         child_profile_id=str(child.id),
                         all_child_user_ids=all_child_user_ids,
@@ -2075,12 +2189,16 @@ async def easyiq_homework(ctx, week):
             if not child._raw or "userId" not in child._raw:
                 continue
             child_id = str(child._raw["userId"])
+            c_institutions = []
+            inst_code = get_in(child._raw, "institutionProfile.institutionCode", default="")
+            if inst_code:
+                c_institutions.append(str(inst_code))
 
             try:
                 homework = await client.widgets.get_easyiq_homework(
                     week,
                     session_uuid,
-                    institution_filter,
+                    c_institutions or institution_filter,
                     child_id,
                     child_profile_id=str(child.id),
                     all_child_user_ids=all_child_user_ids,

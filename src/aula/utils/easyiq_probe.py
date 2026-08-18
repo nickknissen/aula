@@ -23,6 +23,7 @@ from ..const import (
     WIDGET_EASYIQ_HOMEWORK,
     WIDGET_EASYIQ_WEEKPLAN,
 )
+from .mapping import get_in
 
 #: The controllers to probe, with the query parameters each one expects.
 PROBE_TARGETS = (
@@ -201,13 +202,18 @@ async def probe_easyiq(
         probe = ChildProbe(label=f"Child {index} of {len(children)}")
         probe.easyiq_entry_found, probe.easyiq_id_matches = _match_easyiq_entry(entries, aula_ids)
 
+        c_institutions: list[str] = []
+        inst_code = get_in(raw, "institutionProfile.institutionCode", default="")
+        if inst_code:
+            c_institutions.append(str(inst_code))
+
         for path, widget_id, extra_params in PROBE_TARGETS:
             token = tokens.get(widget_id)
             if token is None:
                 continue
             base = client.widgets.easyiq_headers(
                 token,
-                institution_filter,
+                c_institutions or institution_filter,
                 guardian_login,
                 all_child_user_ids,
                 aula_ids["user_id"],

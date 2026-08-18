@@ -20,9 +20,16 @@ from aula.cli import (
     _require_widget,
     _token_digits_provider,
     _with_child,
+    debug_easyiq_child,
+    easyiq_homework,
+    easyiq_ugeplan,
     report_sick,
 )
-from aula.const import MIN_UDDANNELSE_TASK_WIDGETS
+from aula.const import (
+    MIN_UDDANNELSE_TASK_WIDGETS,
+    WIDGET_EASYIQ_HOMEWORK,
+    WIDGET_EASYIQ_WEEKPLAN,
+)
 from aula.models import (
     Child,
     EasyIQHomework,
@@ -494,3 +501,265 @@ class TestReportSick:
         result = run("-y")
 
         assert "updating presence status" in result.output
+
+
+class TestEasyiqPerChildInstitutionScoping:
+    """A daycare child's institution must not be replaced by a sibling's school.
+
+    Regression coverage for https://github.com/nickknissen/aula/issues/68: the
+    family-wide institution filter was reused unchanged for every child, so
+    EasyIQ answered every child with the oldest child's class.
+    """
+
+    @staticmethod
+    def _child(child_id: int, user_id: str, inst_code: str) -> Child:
+        raw: dict = {"userId": user_id}
+        if inst_code:
+            raw["institutionProfile"] = {"institutionCode": inst_code}
+        return Child(
+            id=child_id,
+            profile_id=child_id + 1000,
+            name=f"Child{child_id}",
+            institution_name="Test School",
+            profile_picture="",
+            _raw=raw,
+        )
+
+    @staticmethod
+    def _profile_context(child_user_ids: list[str]) -> dict:
+        return {
+            "data": {
+                "userId": "guardian-session",
+                "institutionProfile": {"relations": [{"userId": uid} for uid in child_user_ids]},
+                "institutions": [],
+            }
+        }
+
+    @pytest.fixture(autouse=True)
+    def _clear_cache(self):
+        _WIDGET_ID_CACHE.clear()
+        yield
+        _WIDGET_ID_CACHE.clear()
+
+    def _client(self, children: list[Child]) -> MagicMock:
+        client = MagicMock()
+        client.get_profile = AsyncMock(
+            return_value=Profile(profile_id=1, display_name="Guardian", children=children)
+        )
+        client.get_widgets = AsyncMock(
+            return_value=[
+                MagicMock(widget_id=WIDGET_EASYIQ_WEEKPLAN),
+                MagicMock(widget_id=WIDGET_EASYIQ_HOMEWORK),
+            ]
+        )
+        client.get_profile_context = AsyncMock(
+            return_value=self._profile_context([str(c._raw["userId"]) for c in children if c._raw])
+        )
+        client.widgets = MagicMock()
+        client.widgets.get_easyiq_weekplan = AsyncMock(return_value=[])
+        client.widgets.get_easyiq_homework = AsyncMock(return_value=[])
+        client.__aenter__ = AsyncMock(return_value=client)
+        client.__aexit__ = AsyncMock(return_value=False)
+        return client
+
+    def _run(self, command, client, monkeypatch, *args):
+        monkeypatch.setattr("aula.cli._get_client", AsyncMock(return_value=client))
+        return CliRunner().invoke(command, list(args), obj={"OUTPUT_FORMAT": "text"})
+
+    def test_ugeplan_scopes_institution_filter_per_child(self, monkeypatch):
+        school_child = self._child(1, "u-school", "SCH-1")
+        daycare_child = self._child(2, "u-daycare", "DAY-2")
+        client = self._client([school_child, daycare_child])
+
+        result = self._run(easyiq_ugeplan, client, monkeypatch)
+
+        assert result.exit_code == 0
+        calls = client.widgets.get_easyiq_weekplan.await_args_list
+        assert len(calls) == 2
+        assert calls[0].args[2] == ["SCH-1"]
+        assert calls[1].args[2] == ["DAY-2"]
+        assert calls[0].args[2] != calls[1].args[2]
+
+    def test_ugeplan_falls_back_to_family_wide_filter_without_institution_code(self, monkeypatch):
+        school_child = self._child(1, "u-school", "SCH-1")
+        no_institution_child = self._child(2, "u-none", "")
+        client = self._client([school_child, no_institution_child])
+
+        result = self._run(easyiq_ugeplan, client, monkeypatch)
+
+        assert result.exit_code == 0
+        calls = client.widgets.get_easyiq_weekplan.await_args_list
+        assert calls[0].args[2] == ["SCH-1"]
+        # No institution code of its own: falls back to the family-wide list.
+        assert calls[1].args[2] == ["SCH-1"]
+
+    def test_homework_scopes_institution_filter_per_child(self, monkeypatch):
+        school_child = self._child(1, "u-school", "SCH-1")
+        daycare_child = self._child(2, "u-daycare", "DAY-2")
+        client = self._client([school_child, daycare_child])
+
+        result = self._run(easyiq_homework, client, monkeypatch)
+
+        assert result.exit_code == 0
+        calls = client.widgets.get_easyiq_homework.await_args_list
+        assert len(calls) == 2
+        assert calls[0].args[2] == ["SCH-1"]
+        assert calls[1].args[2] == ["DAY-2"]
+        assert calls[0].args[2] != calls[1].args[2]
+
+    def test_homework_falls_back_to_family_wide_filter_without_institution_code(self, monkeypatch):
+        school_child = self._child(1, "u-school", "SCH-1")
+        no_institution_child = self._child(2, "u-none", "")
+        client = self._client([school_child, no_institution_child])
+
+        result = self._run(easyiq_homework, client, monkeypatch)
+
+        assert result.exit_code == 0
+        calls = client.widgets.get_easyiq_homework.await_args_list
+        assert calls[0].args[2] == ["SCH-1"]
+        assert calls[1].args[2] == ["SCH-1"]
+
+
+class TestDebugEasyiqChild:
+    """``debug:easyiq-child`` must be safe to paste into a public GitHub issue.
+
+    Coverage for the debug command added alongside issue #68: the default
+    output must never carry a child's name or the bearer token, no matter how
+    the requests it inspects turned out.
+    """
+
+    BEARER_TOKEN = "super-secret-bearer-token"
+    CHILD_NAME = "Emilie Testesen"
+
+    @staticmethod
+    def _child(child_id: int, user_id: str, name: str) -> Child:
+        return Child(
+            id=child_id,
+            profile_id=child_id + 1000,
+            name=name,
+            institution_name="Test School",
+            profile_picture="",
+            _raw={"userId": user_id},
+        )
+
+    @staticmethod
+    def _profile_context(child_user_ids: list[str]) -> dict:
+        return {
+            "data": {
+                "userId": "guardian-session",
+                "institutionProfile": {"relations": [{"userId": uid} for uid in child_user_ids]},
+                "institutions": [],
+            }
+        }
+
+    @staticmethod
+    def _calendar_response(payload) -> MagicMock:
+        resp = MagicMock()
+        resp.status_code = 200
+        resp.raise_for_status = MagicMock()
+        resp.json = MagicMock(return_value=payload)
+        return resp
+
+    def _client(self, children: list[Child], *, calendar_rows: list[dict] | None = None):
+        child_user_ids = [str((c._raw or {})["userId"]) for c in children]
+        client = MagicMock()
+        client.get_profile = AsyncMock(
+            return_value=Profile(profile_id=1, display_name="Guardian", children=children)
+        )
+        client.get_profile_context = AsyncMock(return_value=self._profile_context(child_user_ids))
+        client.widgets = MagicMock()
+        client.widgets.ensure_easyiq_session = AsyncMock()
+        client.widgets._get_bearer_token = AsyncMock(return_value=f"Bearer {self.BEARER_TOKEN}")
+        client.widgets._easyiq_parent_login_id = None
+        client.widgets.resolve_easyiq_child_login = MagicMock(return_value=None)
+        client.widgets.resolve_easyiq_child_id = MagicMock(return_value=None)
+        client.widgets.easyiq_identifier_variants = MagicMock(
+            return_value=[("profile-id", "user-id")]
+        )
+        client.widgets.switch_easyiq_child = AsyncMock()
+
+        def _headers(token, institution_filter, guardian_login, child_user_ids, child_user_id=""):
+            return {
+                "Authorization": token,
+                "Accept": "application/json",
+                "x-institutionfilter": ",".join(institution_filter),
+                "x-login": guardian_login,
+                "x-child": child_user_id,
+                "x-childfilter": ",".join(child_user_ids),
+            }
+
+        client.widgets.easyiq_headers = MagicMock(side_effect=_headers)
+        client._request_with_version_retry = AsyncMock(
+            side_effect=[self._calendar_response(calendar_rows or []) for _ in children]
+        )
+        client.__aenter__ = AsyncMock(return_value=client)
+        client.__aexit__ = AsyncMock(return_value=False)
+        return client
+
+    def _run(self, client, monkeypatch, *args):
+        monkeypatch.setattr("aula.cli._get_client", AsyncMock(return_value=client))
+        return CliRunner().invoke(debug_easyiq_child, list(args), obj={"OUTPUT_FORMAT": "text"})
+
+    def test_default_output_has_no_bearer_token_or_child_names(self, monkeypatch):
+        children = [
+            self._child(1, "u-one", self.CHILD_NAME),
+            self._child(2, "u-two", "Anders Testesen"),
+        ]
+        client = self._client(
+            children,
+            calendar_rows=[{"Id": "1", "ItemType": 9, "ActivitiesDisplay": "6A"}],
+        )
+
+        result = self._run(client, monkeypatch)
+
+        assert result.exit_code == 0
+        assert self.BEARER_TOKEN not in result.output
+        assert self.CHILD_NAME not in result.output
+        assert "Anders Testesen" not in result.output
+        assert "No child names, titles, descriptions or bearer token" in result.output
+
+    def test_output_includes_the_overlap_matrix(self, monkeypatch):
+        children = [self._child(1, "u-one", "A"), self._child(2, "u-two", "B")]
+        client = self._client(children, calendar_rows=[{"Id": "1", "ItemType": 9}])
+
+        result = self._run(client, monkeypatch)
+
+        assert "Overlap matrix" in result.output
+
+    def test_switch_child_flag_is_off_by_default(self, monkeypatch):
+        children = [self._child(1, "u-one", "A")]
+        client = self._client(children)
+        client.widgets.resolve_easyiq_child_id = MagicMock(return_value="9001")
+
+        self._run(client, monkeypatch)
+
+        client.widgets.switch_easyiq_child.assert_not_awaited()
+
+    def test_switch_child_flag_posts_switch_child_first(self, monkeypatch):
+        children = [self._child(1, "u-one", "A")]
+        client = self._client(children)
+        client.widgets.resolve_easyiq_child_id = MagicMock(return_value="9001")
+
+        result = self._run(client, monkeypatch, "--switch-child")
+
+        assert result.exit_code == 0
+        client.widgets.switch_easyiq_child.assert_awaited_once()
+
+    def test_include_values_prints_titles_and_warns(self, monkeypatch):
+        children = [self._child(1, "u-one", self.CHILD_NAME)]
+        client = self._client(
+            children,
+            calendar_rows=[{"Id": "1", "ItemType": 9, "Courses": "Dansk"}],
+        )
+
+        result = self._run(client, monkeypatch, "--include-values")
+
+        assert "Dansk" in result.output
+        assert "Do not paste this publicly" in result.output
+
+    def test_no_children_reports_empty(self, monkeypatch):
+        client = self._client([])
+
+        result = self._run(client, monkeypatch)
+
+        assert "no children" in result.output.lower()

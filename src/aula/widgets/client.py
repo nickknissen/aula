@@ -10,6 +10,7 @@ from ..const import (
     EASYIQ_CHILDREN_PATH,
     EASYIQ_HOMEWORK_PATH,
     EASYIQ_PORTAL,
+    EASYIQ_SWITCHCHILD_PATH,
     MEEBOOK_API,
     MIN_UDDANNELSE_API,
     SYSTEMATIC_API,
@@ -149,6 +150,13 @@ class AulaWidgetsClient:
         self._easyiq_session_lock = asyncio.Lock()
         # child UniLogin (casefolded) -> EasyIQ's own ID, from GetChildren.
         self._easyiq_child_ids: dict[str, str] = {}
+        # child UniLogin (casefolded) -> the real ``Login`` string
+        # GetChildren returned for them. Not always equal in casing to the
+        # UniLogin Aula hands us as ``userId``.
+        self._easyiq_child_logins: dict[str, str] = {}
+        # The parent's loginId from AuthenticateAulaUser. The real client
+        # stores this once and reuses it, unchanged, for every child.
+        self._easyiq_parent_login_id: str | None = None
 
     async def _get_bearer_token(self, widget_id: str) -> str:
         resp = await self._api_client._request_with_version_retry(
@@ -298,6 +306,7 @@ class AulaWidgetsClient:
             return
 
         self._easyiq_session_ready = True
+        self._parse_authenticate_response(resp)
 
         try:
             resp = await self._api_client._request_with_version_retry(
@@ -316,14 +325,51 @@ class AulaWidgetsClient:
             folded = {str(k).lower(): v for k, v in entry.items()}
             # Match on Login, the child's UniLogin, which is the same value
             # Aula calls userId. Names are neither unique nor stable.
-            login = str(folded.get("login") or "").casefold()
+            login = str(folded.get("login") or "")
             easyiq_id = str(folded.get("id") or "")
             if login and easyiq_id:
-                self._easyiq_child_ids[login] = easyiq_id
+                key = login.casefold()
+                self._easyiq_child_ids[key] = easyiq_id
+                # Kept in its original casing: it is what the portal expects
+                # back as ``x-child``, unlike the lookup key.
+                self._easyiq_child_logins[key] = login
+
+    def _parse_authenticate_response(self, resp: HttpResponse) -> None:
+        """Capture the parent's ``loginId`` from ``AuthenticateAulaUser``'s body.
+
+        ``AuthenticateAulaUser`` answers ``{loginId, loginTypeId, child,
+        childName, schoolName, schoolId}``. The real client stores ``loginId``
+        once and reuses it, unchanged, for every child; it is the ``loginId``
+        query param the week controllers expect, not a per-child value (see
+        issue #68). Field casing is not guaranteed and some institutions'
+        answers omit fields entirely, so this is best-effort: a body that
+        cannot be read or does not carry ``loginId`` leaves the identifier
+        guessing in :meth:`easyiq_identifier_variants` as the only path.
+        """
+        try:
+            payload = resp.json()
+        except Exception as e:
+            _LOGGER.warning("EasyIQ AuthenticateAulaUser body could not be parsed: %s", e)
+            return
+        if not isinstance(payload, dict):
+            return
+        folded = {str(k).lower(): v for k, v in payload.items()}
+        login_id = folded.get("loginid")
+        if login_id not in (None, ""):
+            self._easyiq_parent_login_id = str(login_id)
 
     def resolve_easyiq_child_id(self, child_user_id: str) -> str | None:
         """Return EasyIQ's own ID for a child, once the session has been made."""
         return self._easyiq_child_ids.get(child_user_id.casefold())
+
+    def resolve_easyiq_child_login(self, child_user_id: str) -> str | None:
+        """Return EasyIQ's own ``Login`` string for a child, once resolved.
+
+        This is the exact value the real client sends back as ``x-child``.
+        It is the same UniLogin Aula calls ``userId``, but not guaranteed to
+        be identical in casing, so it is kept separately rather than assumed.
+        """
+        return self._easyiq_child_logins.get(child_user_id.casefold())
 
     def easyiq_identifier_variants(
         self,
@@ -334,13 +380,28 @@ class AulaWidgetsClient:
     ) -> list[tuple[str, str]]:
         """Return the ``(loginId, child header)`` pairs to try, best guess first.
 
-        A pair already known to work for this child leads, then EasyIQ's own
-        ID for the child when the session bootstrap resolved one, then the
-        Aula-derived guesses that are all that is left without it.
+        The protocol-correct pair leads when both halves of it are known: the
+        parent's ``loginId`` from ``AuthenticateAulaUser``, which the real
+        client reuses unchanged for every child, paired with this child's
+        real ``Login`` string from ``GetChildren``. That is what the real
+        client actually sends (issue #68); everything else here is a guess
+        that happened to work for some institution.
+
+        When either half is missing, the fallback order is exactly what it
+        always was: a pair already known to work for this child, then
+        EasyIQ's own ID for the child when the session bootstrap resolved
+        one, then the Aula-derived guesses that are all that is left
+        without it.
         """
+        protocol_correct: list[tuple[str, str]] = []
+        real_login = self.resolve_easyiq_child_login(child_user_id)
+        if self._easyiq_parent_login_id and real_login:
+            protocol_correct = [(self._easyiq_parent_login_id, real_login)]
+
         resolved = [(easyiq_child_id, child_user_id)] if easyiq_child_id else []
         return _ordered_unique(
-            self._easyiq_identifiers.get(child_user_id, [])
+            protocol_correct
+            + self._easyiq_identifiers.get(child_user_id, [])
             + resolved
             + [
                 (child_profile_id, child_user_id),
@@ -349,6 +410,40 @@ class AulaWidgetsClient:
                 (guardian_login, child_user_id),
             ]
         )
+
+    async def switch_easyiq_child(
+        self,
+        child_easyiq_id: str,
+        institution_filter: list[str],
+        guardian_login: str,
+        child_user_ids: list[str],
+        child_user_id: str = "",
+    ) -> None:
+        """``POST /Aula/SwitchChild``, the portal's own child-selection call.
+
+        The real client always calls this before reading a child's data, and
+        follows it with a full page reload; ``x-child`` there is only ever
+        written at ``SwitchChild`` time, so it always agrees with the
+        server's session state. Nothing else in this codebase calls this: it
+        exists for the ``debug:easyiq-child`` command's ``--switch-child``
+        experiment, which tests whether that sequencing is required or
+        whether ``x-child`` alone is enough.
+
+        ``child_easyiq_id`` must be the child's ``Id`` from ``GetChildren``
+        (:meth:`resolve_easyiq_child_id`) -- not their ``Login`` string, and
+        not Aula's own user ID.
+        """
+        token = await self._get_bearer_token(WIDGET_EASYIQ_HOMEWORK)
+        headers = self.easyiq_headers(
+            token, institution_filter, guardian_login, child_user_ids, child_user_id
+        )
+        resp = await self._api_client._request_with_version_retry(
+            "post",
+            f"{EASYIQ_PORTAL}{EASYIQ_SWITCHCHILD_PATH}",
+            params={"loginId": child_easyiq_id},
+            headers=headers,
+        )
+        resp.raise_for_status()
 
     async def _get_easyiq_events(
         self,

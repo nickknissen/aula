@@ -14,6 +14,7 @@ from aula.const import (
     EASYIQ_CHILDREN_PATH,
     EASYIQ_HOMEWORK_PATH,
     EASYIQ_PORTAL,
+    EASYIQ_SWITCHCHILD_PATH,
     MEEBOOK_API,
     MIN_UDDANNELSE_API,
     SYSTEMATIC_API,
@@ -1058,3 +1059,133 @@ class TestWidgetsClientMalformedResponses:
         assert status.reservations == []
         assert status.branch_ids == []
         assert "Library status returned list instead of an object" in caplog.text
+
+
+class TestEasyiqProtocolCorrectIdentifier:
+    """Issue #68: the real client reuses one parent ``loginId`` for every
+    child and pairs it with the child's real ``Login`` string, never a
+    per-child ``loginId``.
+    """
+
+    @pytest.fixture
+    def client(self):
+        return AulaApiClient(http_client=AsyncMock(), access_token="token")
+
+    @pytest.mark.asyncio
+    async def test_authenticate_response_populates_the_parent_login_id(self, client):
+        client._request_with_version_retry = AsyncMock(
+            side_effect=[
+                _token_response("token-boot"),
+                _calendar_response({"loginId": "parent-42", "child": "1", "schoolId": "9"}),
+                _calendar_response({"Children": []}),
+            ]
+        )
+
+        await client.widgets.ensure_easyiq_session(["inst-1"], "guardian-1", ["astr8360"])
+
+        assert client.widgets._easyiq_parent_login_id == "parent-42"
+
+    @pytest.mark.asyncio
+    async def test_authenticate_response_missing_login_id_does_not_raise(self, client):
+        client._request_with_version_retry = AsyncMock(
+            side_effect=[
+                _token_response("token-boot"),
+                _calendar_response({"loginTypeId": "1"}),  # no loginId at all
+                _calendar_response({"Children": []}),
+            ]
+        )
+
+        await client.widgets.ensure_easyiq_session(["inst-1"], "guardian-1", ["astr8360"])
+
+        assert client.widgets._easyiq_parent_login_id is None
+
+    @pytest.mark.asyncio
+    async def test_authenticate_response_unparseable_body_does_not_raise(self, client):
+        unparseable = Mock()
+        unparseable.raise_for_status = Mock()
+        unparseable.json = Mock(side_effect=ValueError("not json"))
+        client._request_with_version_retry = AsyncMock(
+            side_effect=[
+                _token_response("token-boot"),
+                unparseable,
+                _calendar_response({"Children": []}),
+            ]
+        )
+
+        await client.widgets.ensure_easyiq_session(["inst-1"], "guardian-1", ["astr8360"])
+
+        assert client.widgets._easyiq_parent_login_id is None
+        # A bad AuthenticateAulaUser body is not fatal: GetChildren still runs.
+        assert client._request_with_version_retry.await_count == 3
+
+    @pytest.mark.asyncio
+    async def test_get_children_stores_the_real_login_string_and_id(self, client):
+        client._request_with_version_retry = AsyncMock(
+            side_effect=[
+                _token_response("token-boot"),
+                _calendar_response({}),
+                _calendar_response({"Children": [{"Id": "9001", "Login": "ASTR8360"}]}),
+            ]
+        )
+
+        await client.widgets.ensure_easyiq_session(["inst-1"], "guardian-1", ["astr8360"])
+
+        assert client.widgets.resolve_easyiq_child_id("astr8360") == "9001"
+        # The real casing survives, even though the lookup key is casefolded.
+        assert client.widgets.resolve_easyiq_child_login("astr8360") == "ASTR8360"
+
+    def test_identifier_variants_lead_with_the_protocol_correct_pair(self, client):
+        client.widgets._easyiq_parent_login_id = "parent-42"
+        client.widgets._easyiq_child_logins["astr8360"] = "ASTR8360"
+
+        variants = client.widgets.easyiq_identifier_variants(
+            "4242", "astr8360", "guardian-1", "9001"
+        )
+
+        assert variants[0] == ("parent-42", "ASTR8360")
+        # The rest of the fallback order is unchanged.
+        assert variants[1:] == [
+            ("9001", "astr8360"),
+            ("4242", "astr8360"),
+            ("astr8360", "astr8360"),
+            ("4242", "4242"),
+            ("guardian-1", "astr8360"),
+        ]
+
+    def test_identifier_variants_fall_back_unchanged_without_the_protocol_pair(self, client):
+        variants = client.widgets.easyiq_identifier_variants(
+            "4242", "astr8360", "guardian-1", "9001"
+        )
+
+        assert variants == [
+            ("9001", "astr8360"),
+            ("4242", "astr8360"),
+            ("astr8360", "astr8360"),
+            ("4242", "4242"),
+            ("guardian-1", "astr8360"),
+        ]
+
+    def test_identifier_variants_need_both_halves_of_the_protocol_pair(self, client):
+        """A parent loginId with no matching real Login is not enough."""
+        client.widgets._easyiq_parent_login_id = "parent-42"
+
+        variants = client.widgets.easyiq_identifier_variants("4242", "astr8360", "guardian-1")
+
+        assert ("parent-42", "astr8360") not in variants
+
+    @pytest.mark.asyncio
+    async def test_switch_child_posts_the_easyiq_id_as_login_id(self, client):
+        client._request_with_version_retry = AsyncMock(
+            side_effect=[_token_response("token-switch"), _calendar_response(None)]
+        )
+
+        await client.widgets.switch_easyiq_child(
+            "9001", ["inst-1"], "guardian-1", ["astr8360", "kris37r9"], "astr8360"
+        )
+
+        calls = client._request_with_version_retry.await_args_list
+        assert calls[1].args == ("post", f"{EASYIQ_PORTAL}{EASYIQ_SWITCHCHILD_PATH}")
+        # loginId is the Id GetChildren gave for this child -- not its Login,
+        # and not Aula's own userId.
+        assert calls[1].kwargs["params"] == {"loginId": "9001"}
+        assert calls[1].kwargs["headers"]["x-child"] == "astr8360"
