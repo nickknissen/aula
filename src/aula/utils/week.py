@@ -5,6 +5,8 @@ import logging
 
 _LOGGER = logging.getLogger(__name__)
 
+DANISH_WEEKDAYS = ("Mandag", "Tirsdag", "Onsdag", "Torsdag", "Fredag", "Lørdag", "Søndag")
+
 
 def monday_of_week(week: str) -> str:
     """Return the Monday of ``YYYY-Wnn`` as an ISO timestamp with a ``Z`` suffix.
@@ -21,3 +23,17 @@ def monday_of_week(week: str) -> str:
         _LOGGER.warning("Could not parse week %r, using today's date instead", week)
         monday = datetime.date.today()
     return f"{monday.isoformat()}T00:00:00Z"
+
+
+def weekday_index(name: str | None) -> int:
+    """Return the Monday-first index of a Danish weekday name.
+
+    Unknown or missing names sort last, so a task Aula did not place on a day
+    still shows up instead of breaking the ordering.
+    """
+    if not name:
+        return len(DANISH_WEEKDAYS)
+    try:
+        return DANISH_WEEKDAYS.index(name.strip().capitalize())
+    except ValueError:
+        return len(DANISH_WEEKDAYS)

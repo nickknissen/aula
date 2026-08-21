@@ -14,6 +14,8 @@ from aula.cli import (
     _fetch_contact_pages,
     _first_available_widget,
     _has_widget,
+    _mu_task_classes,
+    _mu_task_rows,
     _password_provider,
     _print_otp_code,
     _require_any_widget,
@@ -22,6 +24,7 @@ from aula.cli import (
     _with_child,
     easyiq_homework,
     easyiq_ugeplan,
+    print_mu_task_tables,
     report_sick,
 )
 from aula.const import (
@@ -36,6 +39,7 @@ from aula.models import (
     PresenceState,
     Profile,
 )
+from aula.models.mu_task import MUTask, MUTaskClass, MUTaskCourse
 from aula.widgets import EasyIQChildNotInPortal
 
 
@@ -652,3 +656,146 @@ class TestEasyiqPerChildInstitutionScoping:
         calls = client.widgets.get_easyiq_homework.await_args_list
         assert calls[0].args[2] == ["SCH-1"]
         assert calls[1].args[2] == ["SCH-1"]
+
+
+def _make_task(
+    *,
+    title: str,
+    weekday: str,
+    student: str = "Barn Et",
+    task_type: str = "SimpelLektie",
+    classes: tuple[tuple[str, str], ...] = (("Dansk 3.1", "Dansk"),),
+    course: str | None = None,
+    deep_link: str | None = None,
+    is_completed: bool = False,
+    due_date=None,
+) -> MUTask:
+    return MUTask(
+        id=title,
+        title=title,
+        task_type=task_type,
+        due_date=due_date,
+        weekday=weekday,
+        week_number=34,
+        is_completed=is_completed,
+        student_name=student,
+        unilogin="barn123",
+        url="https://api.minuddannelse.net/aula/redirect/1/abc",
+        deep_link=deep_link,
+        classes=[
+            MUTaskClass(id=1, name=name, subject_id=2, subject_name=subject)
+            for name, subject in classes
+        ],
+        course=(
+            MUTaskCourse(id="1", name=course, icon="", yearly_plan_id="", color=None, url=None)
+            if course
+            else None
+        ),
+    )
+
+
+class TestMuTaskClasses:
+    def test_adds_the_subject_when_it_is_not_in_the_class_name(self):
+        task = _make_task(title="T", weekday="Mandag", classes=(("Bibliotek", "Andet"),))
+        assert _mu_task_classes(task) == "Bibliotek (Andet)"
+
+    def test_skips_a_subject_the_class_name_already_carries(self):
+        task = _make_task(title="T", weekday="Mandag", classes=(("Historie 3.1", "Historie"),))
+        assert _mu_task_classes(task) == "Historie 3.1"
+
+    def test_joins_several_classes(self):
+        task = _make_task(
+            title="T",
+            weekday="Mandag",
+            classes=(("Dansk 3.1", "Dansk"), ("Matematik 3.1", "Matematik")),
+        )
+        assert _mu_task_classes(task) == "Dansk 3.1, Matematik 3.1"
+
+
+class TestMuTaskRows:
+    def test_repeated_day_is_only_shown_once(self):
+        rows, _ = _mu_task_rows(
+            [
+                _make_task(title="En", weekday="Tirsdag"),
+                _make_task(title="To", weekday="Tirsdag"),
+                _make_task(title="Tre", weekday="Onsdag"),
+            ]
+        )
+
+        assert [row[0] for row in rows] == ["Tirsdag", "", "Onsdag"]
+
+    def test_links_become_numbered_footnotes(self):
+        rows, links = _mu_task_rows(
+            [
+                _make_task(title="En", weekday="Tirsdag", deep_link="https://example.com/1"),
+                _make_task(title="To", weekday="Tirsdag"),
+                _make_task(title="Tre", weekday="Onsdag", deep_link="https://example.com/3"),
+            ]
+        )
+
+        assert [row[1] for row in rows] == ["En [1]", "To", "Tre [2]"]
+        assert links == ["https://example.com/1", "https://example.com/3"]
+
+    def test_course_is_a_second_line_of_the_task_cell(self):
+        rows, _ = _mu_task_rows(
+            [_make_task(title="En", weekday="Tirsdag", course="Kirkens historie")]
+        )
+
+        assert rows[0][1] == "En\n  Course: Kirkens historie"
+
+    def test_task_type_uses_the_portal_label(self):
+        rows, _ = _mu_task_rows(
+            [
+                _make_task(title="En", weekday="Tirsdag"),
+                _make_task(title="To", weekday="Tirsdag", task_type="Opgave"),
+                _make_task(title="Tre", weekday="Tirsdag", task_type="NyType"),
+            ]
+        )
+
+        assert [row[3] for row in rows] == ["Lektie", "Opgave", "NyType"]
+
+    def test_completed_tasks_are_marked(self):
+        rows, _ = _mu_task_rows(
+            [
+                _make_task(title="En", weekday="Tirsdag", is_completed=True),
+                _make_task(title="To", weekday="Tirsdag"),
+            ]
+        )
+
+        assert [row[4] for row in rows] == ["✓", ""]
+
+
+class TestPrintMuTaskTables:
+    def test_one_table_per_student_in_day_order(self, capsys, monkeypatch):
+        monkeypatch.setattr("aula.utils.table._print_rows_with_rich", lambda *a: False)
+
+        print_mu_task_tables(
+            [
+                _make_task(title="Fredagsopgave", weekday="Fredag", student="Barn To"),
+                _make_task(title="Mandagsopgave", weekday="Mandag", student="Barn To"),
+                _make_task(title="Onsdagsopgave", weekday="Onsdag", student="Barn Et"),
+            ]
+        )
+        out = capsys.readouterr().out
+
+        assert out.index("Barn Et") < out.index("Barn To")
+        assert out.index("Mandagsopgave") < out.index("Fredagsopgave")
+
+    def test_empty_columns_are_dropped(self, capsys, monkeypatch):
+        monkeypatch.setattr("aula.utils.table._print_rows_with_rich", lambda *a: False)
+
+        print_mu_task_tables([_make_task(title="En", weekday="Mandag")])
+        out = capsys.readouterr().out
+
+        assert "Day" in out
+        assert "Done" not in out
+
+    def test_links_are_listed_under_the_table(self, capsys, monkeypatch):
+        monkeypatch.setattr("aula.utils.table._print_rows_with_rich", lambda *a: False)
+
+        print_mu_task_tables(
+            [_make_task(title="En", weekday="Mandag", deep_link="https://example.com/1")]
+        )
+        lines = capsys.readouterr().out.splitlines()
+
+        assert lines[-1] == "  [1] https://example.com/1"
