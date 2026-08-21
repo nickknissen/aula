@@ -6,6 +6,7 @@ import functools
 import logging
 import os
 import sys
+from collections import defaultdict
 from collections.abc import Awaitable, Callable, Sequence
 from zoneinfo import ZoneInfo
 
@@ -30,6 +31,7 @@ from .models import (
     Group,
     Message,
     MessageThread,
+    MUTask,
     Notification,
     PresenceModule,
     PresenceModulePermission,
@@ -42,6 +44,7 @@ from .utils.mapping import get_in
 from .utils.output import (
     build_contact_table,
     clip,
+    danish_sort_key,
     format_calendar_context_lines,
     format_message_lines,
     format_notification_lines,
@@ -55,7 +58,13 @@ from .utils.output import (
     print_heading,
     scope_relations_to_children,
 )
-from .utils.table import print_row_table
+from .utils.table import (
+    card_width,
+    print_row_table,
+    print_text_card,
+    print_wrapped_row_table,
+)
+from .utils.week import DANISH_WEEKDAYS, weekday_index
 from .widgets import EasyIQChildNotInPortal
 
 
@@ -1689,6 +1698,78 @@ async def widgets(ctx):
             click.echo()
 
 
+# Min Uddannelse's internal task types; the portal itself labels a
+# ``SimpelLektie`` simply as a homework note.
+_MU_TASK_TYPE_LABELS = {"SimpelLektie": "Lektie"}
+
+
+def _mu_task_classes(task: MUTask) -> str:
+    """Format a task's classes, keeping the subject only when it adds something."""
+    names = []
+    for cls in task.classes:
+        subject = cls.subject_name.strip()
+        if subject and subject.lower() not in cls.name.lower():
+            names.append(f"{cls.name} ({subject})")
+        else:
+            names.append(cls.name)
+    return ", ".join(names)
+
+
+def _mu_task_rows(tasks: Sequence[MUTask]) -> tuple[list[list[str]], list[str]]:
+    """Build the table rows for one student's tasks plus the links they footnote."""
+    links: list[str] = []
+    rows = []
+    previous_day = None
+    for task in tasks:
+        task_cell = task.title
+        if task.deep_link:
+            links.append(task.deep_link)
+            task_cell = f"{task_cell} [{len(links)}]"
+        if task.course:
+            task_cell = f"{task_cell}\n  Course: {task.course.name}"
+        rows.append(
+            [
+                # Repeating the day on every row of the same day is just noise.
+                "" if task.weekday == previous_day else task.weekday,
+                task_cell,
+                _mu_task_classes(task),
+                _MU_TASK_TYPE_LABELS.get(task.task_type, task.task_type),
+                "✓" if task.is_completed else "",
+            ]
+        )
+        previous_day = task.weekday
+    return rows, links
+
+
+def print_mu_task_tables(tasks: Sequence[MUTask]) -> None:
+    """Print one day-ordered table per student, with task links as footnotes."""
+    width = card_width()
+    headers = ["Day", "Task", "Class", "Type", "Done"]
+    by_student: dict[str, list[MUTask]] = defaultdict(list)
+    for task in tasks:
+        by_student[task.student_name].append(task)
+
+    for position, student in enumerate(sorted(by_student, key=danish_sort_key)):
+        student_tasks = sorted(
+            by_student[student],
+            key=lambda t: (weekday_index(t.weekday), t.due_date or datetime.datetime.max, t.title),
+        )
+        if position:
+            click.echo()
+
+        rows, links = _mu_task_rows(student_tasks)
+        # A column every task leaves blank is noise, so drop it.
+        keep = [i for i in range(len(headers)) if any(row[i].strip() for row in rows)]
+        print_wrapped_row_table(
+            [headers[i] for i in keep],
+            [[row[i] for i in keep] for row in rows],
+            title=student or "(unknown student)",
+            width=width,
+        )
+        for number, link in enumerate(links, start=1):
+            click.echo(f"  [{number}] {link}")
+
+
 @cli.command("mu:opgaver")
 @click.option(
     "--week",
@@ -1743,26 +1824,8 @@ async def mu_opgaver(ctx, week):
         if not opgaver:
             print_empty("tasks")
         else:
-            for i, task in enumerate(opgaver):
-                classes = ", ".join(
-                    f"{cls.name} ({cls.subject_name})" if cls.subject_name else cls.name
-                    for cls in task.classes
-                )
-                course = task.course.name if task.course else ""
-                for line in format_record_lines(
-                    title=task.title,
-                    properties=[
-                        ("Student", task.student_name),
-                        ("Day", task.weekday),
-                        ("Type", task.task_type),
-                        ("Classes", classes),
-                        ("Course", course),
-                        ("Link", task.deep_link),
-                    ],
-                ):
-                    click.echo(line)
-                if i < len(opgaver) - 1:
-                    click.echo()
+            click.echo()
+            print_mu_task_tables(opgaver)
 
 
 @cli.command("mu:ugeplan")
@@ -1798,7 +1861,7 @@ async def mu_ugeplan(ctx, week):
             return
         child_filter, institution_filter, session_uuid = widget_ctx
 
-        from .utils.html import html_to_plain
+        from .utils.html import html_to_blocks
 
         try:
             personer = await client.widgets.get_ugeplan(
@@ -1820,23 +1883,23 @@ async def mu_ugeplan(ctx, week):
             return
 
         print_heading(f"Min Uddannelse weekly plans [{week}]")
+        click.echo()
 
+        width = card_width()
         rendered = 0
         for person in personer:
             for inst in person.institutions:
                 for letter in inst.letters:
                     rendered += 1
-                    for line in format_record_lines(
-                        title=f"{person.name} [{letter.group_name}]",
-                        properties=[
-                            ("Institution", inst.name),
-                            ("Week", str(letter.week_number)),
+                    print_text_card(
+                        header_lines=[
+                            f"{person.name} · {letter.group_name} · Week {letter.week_number}",
+                            inst.name,
                         ],
-                        body_lines=html_to_plain(letter.content_html).splitlines(),
-                        body_label="Body",
+                        body_blocks=html_to_blocks(letter.content_html),
+                        width=width,
                         empty_body_text="(no weekly plan body)",
-                    ):
-                        click.echo(line)
+                    )
                     click.echo()
 
         if rendered == 0:
@@ -3917,9 +3980,6 @@ async def presence(ctx, from_date, to_date, week, states):
             click.echo()
 
 
-_DANISH_WEEKDAYS = ["Mandag", "Tirsdag", "Onsdag", "Torsdag", "Fredag", "Lørdag", "Søndag"]
-
-
 @cli.command("daily-summary")
 @click.option(
     "--child",
@@ -3959,7 +4019,7 @@ async def daily_summary(ctx, child, target_date):
 
     iso = today.isocalendar()
     week = f"{iso[0]}-W{iso[1]}"
-    today_weekday_da = _DANISH_WEEKDAYS[today.weekday()]
+    today_weekday_da = DANISH_WEEKDAYS[today.weekday()]
     day_label = today.strftime("%A, %d %B %Y")
 
     async with await _get_client(ctx) as client:
