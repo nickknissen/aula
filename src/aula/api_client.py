@@ -925,12 +925,7 @@ class AulaApiClient:
         for msg_dict in raw_messages:
             if msg_dict.get("messageType") in ("Message", "MessageEdited"):
                 try:
-                    text = get_in(msg_dict, "text.html", default="") or get_in(
-                        msg_dict, "text", default=""
-                    )
-                    messages.append(
-                        Message(_raw=msg_dict, id=msg_dict.get("id"), content_html=text)
-                    )
+                    messages.append(Message.from_dict(msg_dict))
                 except (TypeError, ValueError) as e:
                     _LOGGER.warning(
                         "Skipping message due to parsing error: %s - Data: %s", e, msg_dict

@@ -22,6 +22,7 @@ from .http import (
 from .http_httpx import HttpxHttpClient
 from .models import (
     ActivityType,
+    Attachment,
     CalendarEvent,
     Child,
     DailyOverview,
@@ -58,6 +59,7 @@ __all__ = [
     "CalendarEvent",
     "WidgetConfiguration",
     "ActivityType",
+    "Attachment",
     "PresenceState",
     "__version__",
 ]

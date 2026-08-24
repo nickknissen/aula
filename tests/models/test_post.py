@@ -124,3 +124,41 @@ def test_post_from_dict_null_content():
     }
     post = Post.from_dict(data)
     assert post.content_html == ""
+
+
+def test_post_attachments_are_objects():
+    """A post's attachments arrive as Attachment objects, not raw dicts."""
+    data = {
+        "id": 3,
+        "ownerProfile": {"id": 1, "profileId": 1},
+        "attachments": [
+            {
+                "id": 5001,
+                "status": "AVAILABLE",
+                "media": {
+                    "title": "Class outing",
+                    "mediaType": "image",
+                    "file": {
+                        "name": "outing.jpg",
+                        "url": "https://files.example.test/outing.jpg",
+                    },
+                },
+            }
+        ],
+    }
+    post = Post.from_dict(data)
+    assert len(post.attachments) == 1
+    attachment = post.attachments[0]
+    assert attachment.name == "outing.jpg"
+    assert attachment.url == "https://files.example.test/outing.jpg"
+
+
+def test_post_attachments_null():
+    """Aula sends an explicit null when a post has no attachments."""
+    data = {
+        "id": 4,
+        "ownerProfile": {"id": 1, "profileId": 1},
+        "attachments": None,
+    }
+    post = Post.from_dict(data)
+    assert post.attachments == []
