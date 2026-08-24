@@ -5,6 +5,7 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
+from aula.models.attachment import Attachment
 from aula.models.message import Message
 from aula.utils.download import (
     _parse_date_str,
@@ -179,7 +180,13 @@ class TestDownloadPostImages:
             title="School Trip",
             timestamp_str="2026-03-01T10:00:00+01:00",
             attachments=[
-                {"media": {"file": {"url": "http://example.com/photo.jpg", "name": "photo.jpg"}}},
+                Attachment.from_dict(
+                    {
+                        "media": {
+                            "file": {"url": "http://example.com/photo.jpg", "name": "photo.jpg"}
+                        }
+                    }
+                ),
             ],
         )
         client.get_posts.side_effect = [[post], []]
@@ -188,6 +195,33 @@ class TestDownloadPostImages:
 
         assert downloaded == 1
         assert (tmp_path / "posts" / "20260301 School Trip" / "photo.jpg").exists()
+
+    @pytest.mark.asyncio
+    async def test_skips_non_media_attachments(self, tmp_path):
+        """A post can attach a PDF or a link, neither of which is an image."""
+        client = _make_mock_client()
+        post = self._make_post(
+            id=11,
+            title="Week Plan",
+            timestamp_str="2026-03-01T10:00:00+01:00",
+            attachments=[
+                Attachment.from_dict(
+                    {
+                        "name": "plan.pdf",
+                        "file": {"url": "http://example.com/plan.pdf", "name": "plan.pdf"},
+                    }
+                ),
+                Attachment.from_dict(
+                    {"link": {"name": "Slides", "url": "http://example.com/slides"}}
+                ),
+            ],
+        )
+        client.get_posts.side_effect = [[post], []]
+
+        downloaded, skipped = await download_post_images(client, [100], tmp_path, date(2026, 1, 1))
+
+        assert downloaded == 0
+        client.download_file.assert_not_awaited()
 
     @pytest.mark.asyncio
     async def test_stops_paginating_at_cutoff(self, tmp_path):

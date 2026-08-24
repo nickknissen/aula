@@ -1,4 +1,9 @@
 from .appointment import Appointment as Appointment
+from .attachment import Attachment as Attachment
+from .attachment import AttachmentDocument as AttachmentDocument
+from .attachment import AttachmentFile as AttachmentFile
+from .attachment import AttachmentLink as AttachmentLink
+from .attachment import AttachmentMedia as AttachmentMedia
 from .auto_reply import AutoReply as AutoReply
 from .calendar_event import CalendarEvent as CalendarEvent
 from .child import Child as Child

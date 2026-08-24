@@ -36,3 +36,46 @@ def test_message_raw_preserved():
     msg = Message(id="1", content_html="text", _raw={"original": True})
     assert msg._raw == {"original": True}
     assert "_raw" not in dict(msg)
+
+
+def test_message_from_dict():
+    data = {
+        "id": "m1",
+        "text": {"html": "<p>Hello</p>"},
+        "attachments": [
+            {
+                "id": 5002,
+                "status": "AVAILABLE",
+                "file": {
+                    "name": "weekplan.pdf",
+                    "url": "https://files.example.test/weekplan.pdf",
+                },
+            }
+        ],
+    }
+    msg = Message.from_dict(data)
+    assert msg.id == "m1"
+    assert msg.content_html == "<p>Hello</p>"
+    assert msg.has_attachments is True
+    assert len(msg.attachments) == 1
+    assert msg.attachments[0].name == "weekplan.pdf"
+    assert msg.attachments[0].url == "https://files.example.test/weekplan.pdf"
+    assert msg._raw is data
+
+
+def test_message_from_dict_plain_text_body():
+    """Older messages carry their body as a bare string instead of a wrapper."""
+    msg = Message.from_dict({"id": "m2", "text": "Hello"})
+    assert msg.content_html == "Hello"
+
+
+def test_message_from_dict_body_of_unexpected_shape():
+    """A body that is neither a wrapper nor a string leaves no text to read."""
+    msg = Message.from_dict({"id": "m4", "text": 12345})
+    assert msg.content_html == ""
+
+
+def test_message_from_dict_without_attachments():
+    msg = Message.from_dict({"id": "m3", "text": {"html": ""}})
+    assert msg.attachments == []
+    assert msg.has_attachments is False

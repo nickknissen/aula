@@ -7,6 +7,7 @@ from datetime import date, datetime
 from pathlib import Path
 
 from ..api_client import AulaApiClient
+from ..models.attachment import parse_attachments
 from .mapping import get_in
 
 _LOGGER = logging.getLogger(__name__)
@@ -170,10 +171,11 @@ async def download_post_images(
         post_dir = output / "posts" / folder_name
 
         for attachment in post.attachments:
-            media = attachment.get("media") or {}
-            file_info = media.get("file") or {}
-            url = file_info.get("url")
-            filename = file_info.get("name")
+            # A post can also attach a plain file or a link; only media is an image.
+            if attachment.media is None or attachment.file is None:
+                continue
+            url = attachment.file.url
+            filename = attachment.file.name
             if not url or not filename:
                 continue
 
@@ -263,10 +265,11 @@ async def download_message_images(
             if not msg.get("hasAttachments"):
                 continue
 
-            for attachment in msg.get("attachments") or []:
-                file_info = attachment.get("file") or {}
-                url = file_info.get("url")
-                filename = file_info.get("name")
+            for attachment in parse_attachments(msg.get("attachments")):
+                if attachment.file is None:
+                    continue
+                url = attachment.file.url
+                filename = attachment.file.name
                 if not url or not filename:
                     continue
 

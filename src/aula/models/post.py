@@ -2,8 +2,10 @@ import datetime
 from dataclasses import dataclass, field
 from typing import Any
 
+from ..utils.dates import parse_api_datetime
 from ..utils.html import html_to_markdown, html_to_plain
 from ..utils.mapping import get_in
+from .attachment import Attachment, parse_attachments
 from .base import AulaDataClass
 from .profile_reference import ProfileReference
 
@@ -26,7 +28,7 @@ class Post(AulaDataClass):
     is_important: bool
     important_from: datetime.datetime | None
     important_to: datetime.datetime | None
-    attachments: list[dict]
+    attachments: list[Attachment]
     comment_count: int
     can_current_user_delete: bool
     can_current_user_comment: bool
@@ -46,39 +48,27 @@ class Post(AulaDataClass):
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> Post:
         """Create a Post instance from API response data."""
-
-        def parse_datetime(dt_str: str | None) -> datetime.datetime | None:
-            if not dt_str:
-                return None
-            try:
-                # Handle timezone offset
-                if dt_str.endswith("Z"):
-                    dt_str = dt_str[:-1] + "+00:00"
-                return datetime.datetime.fromisoformat(dt_str)
-            except ValueError, TypeError:
-                return None
-
         owner = ProfileReference.from_dict(data.get("ownerProfile") or {})
 
         return cls(
             id=data["id"],
             title=data.get("title", ""),
             content_html=get_in(data, "content.html", default=""),
-            timestamp=parse_datetime(data.get("timestamp")),
+            timestamp=parse_api_datetime(data.get("timestamp")),
             owner=owner,
             allow_comments=data.get("allowComments", False),
             shared_with_groups=data.get("sharedWithGroups", []),
-            publish_at=parse_datetime(data.get("publishAt")),
+            publish_at=parse_api_datetime(data.get("publishAt")),
             is_published=data.get("isPublished", False),
-            expire_at=parse_datetime(data.get("expireAt")),
+            expire_at=parse_api_datetime(data.get("expireAt")),
             is_expired=data.get("isExpired", False),
             is_important=data.get("isImportant", False),
-            important_from=parse_datetime(data.get("importantFrom")),
-            important_to=parse_datetime(data.get("importantTo")),
-            attachments=data.get("attachments", []),
+            important_from=parse_api_datetime(data.get("importantFrom")),
+            important_to=parse_api_datetime(data.get("importantTo")),
+            attachments=parse_attachments(data.get("attachments")),
             comment_count=data.get("commentCount", 0),
             can_current_user_delete=data.get("canCurrentUserDelete", False),
             can_current_user_comment=data.get("canCurrentUserComment", False),
-            edited_at=parse_datetime(data.get("editedAt")),
+            edited_at=parse_api_datetime(data.get("editedAt")),
             _raw=data,
         )

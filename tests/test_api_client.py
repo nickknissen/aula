@@ -1571,6 +1571,39 @@ class TestSearchMessages:
         assert messages[2].content_html == ""
 
     @pytest.mark.asyncio
+    async def test_attachments_are_parsed(self, client):
+        """A search filtered on attachments returns them on the message."""
+        client._request_with_version_retry = AsyncMock(
+            return_value=HttpResponse(
+                status_code=200,
+                data={
+                    "data": {
+                        "results": [
+                            {
+                                "id": "m1",
+                                "text": {"html": "<p>See the plan</p>"},
+                                "attachments": [
+                                    {
+                                        "id": 5002,
+                                        "name": "weekplan.pdf",
+                                        "file": {
+                                            "name": "weekplan.pdf",
+                                            "url": "https://files.example.test/weekplan.pdf",
+                                        },
+                                    }
+                                ],
+                            }
+                        ],
+                        "totalSize": 1,
+                    }
+                },
+            )
+        )
+        messages = await client.search_messages([1], ["INST1"], has_attachments=True)
+        assert messages[0].has_attachments is True
+        assert messages[0].attachments[0].url == "https://files.example.test/weekplan.pdf"
+
+    @pytest.mark.asyncio
     async def test_empty_results_stops(self, client):
         """Empty results stops pagination immediately."""
         client._request_with_version_retry = AsyncMock(
