@@ -23,6 +23,10 @@ from .http_httpx import HttpxHttpClient
 from .models import (
     ActivityType,
     Attachment,
+    AttachmentDocument,
+    AttachmentFile,
+    AttachmentLink,
+    AttachmentMedia,
     CalendarEvent,
     Child,
     DailyOverview,
@@ -60,6 +64,10 @@ __all__ = [
     "WidgetConfiguration",
     "ActivityType",
     "Attachment",
+    "AttachmentDocument",
+    "AttachmentFile",
+    "AttachmentLink",
+    "AttachmentMedia",
     "PresenceState",
     "__version__",
 ]

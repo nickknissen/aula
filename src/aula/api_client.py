@@ -1619,16 +1619,7 @@ class AulaApiClient:
                 break
 
             for msg_dict in results:
-                raw_text = msg_dict.get("text")
-                if isinstance(raw_text, dict):
-                    content_html = raw_text.get("html", "")
-                elif isinstance(raw_text, str):
-                    content_html = raw_text
-                else:
-                    content_html = ""
-                all_messages.append(
-                    Message(_raw=msg_dict, id=msg_dict.get("id", ""), content_html=content_html)
-                )
+                all_messages.append(Message.from_dict(msg_dict))
 
             total = data.get("totalSize", 0)
             offset += limit

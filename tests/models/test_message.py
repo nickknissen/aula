@@ -69,6 +69,12 @@ def test_message_from_dict_plain_text_body():
     assert msg.content_html == "Hello"
 
 
+def test_message_from_dict_body_of_unexpected_shape():
+    """A body that is neither a wrapper nor a string leaves no text to read."""
+    msg = Message.from_dict({"id": "m4", "text": 12345})
+    assert msg.content_html == ""
+
+
 def test_message_from_dict_without_attachments():
     msg = Message.from_dict({"id": "m3", "text": {"html": ""}})
     assert msg.attachments == []

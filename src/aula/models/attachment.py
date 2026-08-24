@@ -124,6 +124,7 @@ class Attachment(AulaDataClass):
     id: int | None = None
     name: str = ""
     status: str = ""
+    created: datetime.datetime | None = None
     file: AttachmentFile | None = None
     media: AttachmentMedia | None = None
     link: AttachmentLink | None = None
@@ -139,11 +140,6 @@ class Attachment(AulaDataClass):
         if self.link is not None:
             return self.link.url
         return None
-
-    @property
-    def created(self) -> datetime.datetime | None:
-        """When the attached file was created."""
-        return self.file.created if self.file is not None else None
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> Attachment:
@@ -173,10 +169,16 @@ class Attachment(AulaDataClass):
             elif document is not None:
                 name = document.title
 
+        # Only some attachments date the envelope; the rest date their file.
+        created = parse_api_datetime(data.get("created"))
+        if created is None and file is not None:
+            created = file.created
+
         return cls(
             id=data.get("id"),
             name=name,
             status=data.get("status") or "",
+            created=created,
             file=file,
             media=media,
             link=link,
@@ -186,14 +188,14 @@ class Attachment(AulaDataClass):
         )
 
 
-def parse_attachments(items: Any) -> list[Attachment]:
+def parse_attachments(raw_attachments: Any) -> list[Attachment]:
     """Read an API ``attachments`` list, skipping anything unreadable."""
     attachments: list[Attachment] = []
-    for item in items or []:
-        if not isinstance(item, dict):
+    for raw in raw_attachments or []:
+        if not isinstance(raw, dict):
             continue
         try:
-            attachments.append(Attachment.from_dict(item))
+            attachments.append(Attachment.from_dict(raw))
         except (TypeError, ValueError, KeyError) as e:
-            _LOGGER.warning("Skipping attachment due to parsing error: %s - Data: %s", e, item)
+            _LOGGER.warning("Skipping attachment due to parsing error: %s - Data: %s", e, raw)
     return attachments

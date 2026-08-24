@@ -125,6 +125,19 @@ def test_attachment_from_dict_null_nested_objects():
     assert attachment.url is None
 
 
+def test_attachment_created_from_envelope():
+    """An attachment that dates itself keeps its own date, not the file's."""
+    attachment = Attachment.from_dict(
+        {
+            "id": 5009,
+            "created": "2026-03-05T08:00:00Z",
+            "file": {"name": "x.pdf", "created": "2026-03-01T08:00:00Z"},
+        }
+    )
+
+    assert attachment.created == datetime.datetime(2026, 3, 5, 8, 0, tzinfo=datetime.UTC)
+
+
 def test_attachment_from_dict_link():
     attachment = Attachment.from_dict(
         {
@@ -143,6 +156,7 @@ def test_attachment_from_dict_link():
     assert attachment.link is not None
     assert attachment.link.service == "OneDrive"
     assert attachment.file is None
+    assert attachment.created is None
 
 
 def test_attachment_from_dict_document():
@@ -180,6 +194,7 @@ def test_attachment_dict_conversion():
 
     assert result["id"] == 5001
     assert result["name"] == "outing.jpg"
+    assert result["created"] == datetime.datetime(2026, 3, 1, 9, 30, tzinfo=datetime.UTC)
     assert result["file"]["url"] == "https://files.example.test/outing.jpg"
     assert result["media"]["title"] == "Class outing"
     assert result["creator"]["name"] == "Teacher One"
