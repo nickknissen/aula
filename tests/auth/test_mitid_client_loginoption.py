@@ -116,6 +116,27 @@ class TestStep4CompleteMitIDFlow:
         assert "GET /login/saml" in backend.paths
 
     @pytest.mark.asyncio
+    async def test_login_option_redirect_with_query_string_is_recognised(self):
+        """The identity picker redirect can carry a query string, so match on the path."""
+
+        class QueryStringRedirect(FakeNemLogIn):
+            async def __call__(self, request: httpx.Request) -> httpx.Response:
+                if request.url.path == "/login/mitid":
+                    self.paths.append(f"{request.method} {request.url.path}")
+                    return httpx.Response(
+                        302, headers={"Location": f"{MITID}/loginoption?returnUrl=%2Flogin"}
+                    )
+                return await super().__call__(request)
+
+        backend = QueryStringRedirect(identities=2)
+        client = _client(backend)
+
+        result = await client._step4_complete_mitid_flow("verify-token", "auth-code")
+
+        assert result == {"relay_state": "relay-123", "saml_response": "saml-abc"}
+        assert "POST /loginoption" in backend.paths
+
+    @pytest.mark.asyncio
     async def test_reports_missing_saml_data(self):
         class NoSaml(FakeNemLogIn):
             async def __call__(self, request: httpx.Request) -> httpx.Response:
@@ -125,3 +146,27 @@ class TestStep4CompleteMitIDFlow:
 
         with pytest.raises(SAMLError, match="Could not find SAML data"):
             await client._step4_complete_mitid_flow("verify-token", "auth-code")
+
+    @pytest.mark.asyncio
+    async def test_missing_saml_error_names_the_page_it_landed_on(self):
+        """A bare "no SAML data" message is undiagnosable from a user's traceback."""
+
+        class ErrorPage(FakeNemLogIn):
+            async def __call__(self, request: httpx.Request) -> httpx.Response:
+                if request.url.path == "/login/mitid":
+                    return httpx.Response(302, headers={"Location": f"{MITID}/login/error"})
+                return httpx.Response(
+                    200,
+                    text=(
+                        '<html><body><div class="validation-summary-errors">'
+                        "Session timed out</div></body></html>"
+                    ),
+                )
+
+        client = _client(ErrorPage())
+
+        with pytest.raises(SAMLError) as excinfo:
+            await client._step4_complete_mitid_flow("verify-token", "auth-code")
+
+        assert "/login/error" in str(excinfo.value)
+        assert "Session timed out" in str(excinfo.value)
