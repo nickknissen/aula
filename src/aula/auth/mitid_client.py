@@ -39,6 +39,23 @@ from .exceptions import (
 _LOGGER = logging.getLogger(__name__)
 
 
+def _page_message(soup: BeautifulSoup) -> str:
+    """Best-effort user-visible text from a NemLog-in page, for error reporting."""
+    for selector in (
+        ".validation-summary-errors",
+        ".alert",
+        ".error-message",
+        "[role=alert]",
+        "h1",
+    ):
+        element = soup.select_one(selector)
+        if element:
+            text = element.get_text(" ", strip=True)
+            if text:
+                return text
+    return ""
+
+
 def _extract_form_data(soup: BeautifulSoup) -> tuple[str, dict[str, str]]:
     """Extract the action URL and hidden input values from the first form on a page.
 
@@ -429,17 +446,28 @@ class MitIDAuthClient:
                 f"{MITID_BASE_URL}/login/mitid", data=params, follow_redirects=True
             )
 
-            if str(response.url).endswith("/loginoption"):
+            # Match on the path: the redirect can carry a query string.
+            if response.url.path.rstrip("/").endswith("/loginoption"):
                 _LOGGER.info("Multiple identities detected, handling identity selection")
-                soup = await self._handle_login_option_page(response)
-            else:
-                soup = BeautifulSoup(response.text, features="html.parser")
+                response = await self._handle_login_option_page(response)
+
+            _LOGGER.debug(
+                "MitID completion landed on %s (HTTP %s)", response.url, response.status_code
+            )
+            soup = BeautifulSoup(response.text, features="html.parser")
 
             relay_state_input = soup.find("input", {"name": "RelayState"})
             saml_response_input = soup.find("input", {"name": "SAMLResponse"})
 
             if not isinstance(relay_state_input, Tag) or not isinstance(saml_response_input, Tag):
-                raise SAMLError("Could not find SAML data in MitID completion response")
+                _LOGGER.debug("Page without SAML form:\n%s", response.text)
+                message = _page_message(soup)
+                detail = f' Page says: "{message}".' if message else ""
+                raise SAMLError(
+                    "Could not find SAML data in MitID completion response "
+                    f"(landed on {response.url.path}, HTTP {response.status_code})."
+                    f"{detail} Re-run with -vvv to log the page that was returned."
+                )
 
             return {
                 "relay_state": str(relay_state_input.get("value", "")),
@@ -449,7 +477,7 @@ class MitIDAuthClient:
         except httpx.HTTPError as e:
             raise NetworkError(f"Network error during MitID completion: {e}") from e
 
-    async def _handle_login_option_page(self, response: httpx.Response) -> BeautifulSoup:
+    async def _handle_login_option_page(self, response: httpx.Response) -> httpx.Response:
         """Handle the identity selection page when a user has multiple identities."""
         soup = BeautifulSoup(response.text, features="html.parser")
         links = soup.select("a.list-link")
@@ -502,8 +530,7 @@ class MitIDAuthClient:
 
         login_option_url = str(response.url)
         # Submitting the choice redirects on to the page carrying the SAML form.
-        result = await self._client.post(login_option_url, data=form_data, follow_redirects=True)
-        return BeautifulSoup(result.text, features="html.parser")
+        return await self._client.post(login_option_url, data=form_data, follow_redirects=True)
 
     async def _step5_saml_broker_flow(self, saml_data: dict[str, str]) -> dict[str, str]:
         """Step 5: Complete SAML broker authentication."""
