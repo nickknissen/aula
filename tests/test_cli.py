@@ -1,10 +1,12 @@
 """Tests for aula.cli helpers."""
 
+import asyncio
 import json
 from unittest.mock import AsyncMock, MagicMock
 
 import click
 import pytest
+import qrcode
 from click.testing import CliRunner
 
 from aula import cli
@@ -19,8 +21,10 @@ from aula.cli import (
     _mu_task_rows,
     _password_provider,
     _print_otp_code,
+    _render_qr,
     _require_any_widget,
     _require_widget,
+    _terminal_draws_blocks,
     _token_digits_provider,
     _with_child,
     easyiq_homework,
@@ -360,6 +364,101 @@ class TestLogout:
         CliRunner().invoke(logout, [], obj={"OUTPUT_FORMAT": "text"})
 
         assert config_file.exists()
+
+
+def _qr(data: str) -> qrcode.QRCode:
+    qr = qrcode.QRCode(border=1)
+    qr.add_data(data)
+    qr.make()
+    return qr
+
+
+class TestQrFrameSchedule:
+    def test_lingers_on_the_first_half_before_the_swapping_starts(self):
+        """The first code needs time to be scanned before it starts moving."""
+        assert cli._frame_seconds(0) == 2.0
+        assert cli._frame_seconds(1) == 1.0
+        assert cli._frame_seconds(2) == 1.0
+
+
+class TestQrDisplay:
+    """The two codes are halves of one value, so both have to reach the app."""
+
+    @pytest.fixture(autouse=True)
+    def _fast_frames(self, monkeypatch):
+        monkeypatch.setattr(cli, "_QR_FRAME_SECONDS", 0.01)
+        monkeypatch.setattr(cli, "_QR_FIRST_FRAME_SECONDS", 0.02)
+        _terminal_draws_blocks.cache_clear()
+
+    @pytest.mark.asyncio
+    async def test_alternates_both_halves_until_the_codes_are_read(self, monkeypatch, capsys):
+        """MitID sends a pair once, but a half the app never sees blocks the login."""
+        monkeypatch.setattr(cli, "_stdout_is_tty", lambda: True)
+        display = cli._TerminalQRDisplay()
+
+        display.show(_qr("part-one"), _qr("part-two"))
+        await asyncio.sleep(0.05)
+        display.done()
+
+        out = capsys.readouterr().out
+        assert "QR code 1 of 2" in out
+        assert "QR code 2 of 2" in out
+        assert "Approve the login in your MitID app" in out
+
+    @pytest.mark.asyncio
+    async def test_redraws_over_itself_instead_of_scrolling(self, monkeypatch, capsys):
+        """Codes that scroll away leave the user scanning a stale one."""
+        monkeypatch.setattr(cli, "_stdout_is_tty", lambda: True)
+        display = cli._TerminalQRDisplay()
+
+        display.show(_qr("part-one"), _qr("part-two"))
+        await asyncio.sleep(0.03)
+        display.done()
+
+        assert "\x1b[" in capsys.readouterr().out
+
+    @pytest.mark.asyncio
+    async def test_keeps_every_frame_the_same_height(self, monkeypatch, capsys):
+        """A block that changes height as the halves swap leaves art behind on screen."""
+        monkeypatch.setattr(cli, "_stdout_is_tty", lambda: True)
+        display = cli._TerminalQRDisplay()
+
+        display.show(_qr("part-one"), _qr("part-two"))
+        await asyncio.sleep(0.05)
+        display.done()
+
+        blocks = capsys.readouterr().out.split("QR code 1 of 2:")
+        assert len(blocks) > 2
+        assert len({block.count("\n") for block in blocks[1:-1]}) == 1
+
+    def test_prints_each_pair_once_without_a_terminal(self, monkeypatch, capsys):
+        """MitID repeats the codes every poll; a log file should not repeat them too."""
+        monkeypatch.setattr(cli, "_stdout_is_tty", lambda: False)
+        display = cli._TerminalQRDisplay()
+
+        display.show(_qr("part-one"), _qr("part-two"))
+        display.show(_qr("part-one"), _qr("part-two"))
+
+        assert capsys.readouterr().out.count("QR code 1 of 2") == 1
+
+    def test_prints_a_new_pair_when_the_codes_rotate(self, monkeypatch, capsys):
+        """MitID rotates the value, and only the current pair can be scanned."""
+        monkeypatch.setattr(cli, "_stdout_is_tty", lambda: False)
+        display = cli._TerminalQRDisplay()
+
+        display.show(_qr("part-one"), _qr("part-two"))
+        display.show(_qr("part-one-v2"), _qr("part-two-v2"))
+
+        assert capsys.readouterr().out.count("QR code 1 of 2") == 2
+
+    def test_falls_back_to_ascii_when_blocks_cannot_be_encoded(self, monkeypatch):
+        """A console that cannot print blocks would otherwise show a broken code."""
+        monkeypatch.setattr(cli, "_terminal_draws_blocks", lambda: False)
+
+        rendered = _render_qr(_qr("part-one"))
+
+        assert rendered.isascii()
+        assert "#" in rendered
 
 
 class TestOtpDisplay:
