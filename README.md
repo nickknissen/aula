@@ -165,6 +165,7 @@ The username can also be set via the `AULA_MITID_USERNAME` environment variable 
 | Command | Description |
 |---|---|
 | `aula login` | Verify credentials |
+| `aula logout` | Forget the cached session and log in through MitID again |
 | `aula profile` | Show profile and children |
 | `aula profile-details` | Extended profile info (email, phone, address) |
 | `aula overview` | Daily overview for all children |
