@@ -7,6 +7,7 @@ import click
 import pytest
 from click.testing import CliRunner
 
+from aula import cli
 from aula.cli import (
     _WIDGET_ID_CACHE,
     CONTACTS_PAGE_SIZE,
@@ -24,6 +25,7 @@ from aula.cli import (
     _with_child,
     easyiq_homework,
     easyiq_ugeplan,
+    logout,
     print_mu_task_tables,
     report_sick,
 )
@@ -323,6 +325,41 @@ class TestCredentialProviders:
 
         assert await provide() == "typed"
         assert prompt.call_args.kwargs["hide_input"] is True
+
+
+class TestLogout:
+    """Testing a login flow means being able to throw the cached session away."""
+
+    def test_removes_the_stored_session(self, tmp_path, monkeypatch):
+        """A cached session skips MitID entirely, so it has to go."""
+        token_file = tmp_path / "tokens.json"
+        token_file.write_text('{"tokens": {"access_token": "abc123"}}')
+        monkeypatch.setattr(cli, "DEFAULT_TOKEN_FILE", token_file)
+
+        result = CliRunner().invoke(logout, [], obj={"OUTPUT_FORMAT": "text"})
+
+        assert result.exit_code == 0
+        assert not token_file.exists()
+
+    def test_says_so_when_there_was_no_session(self, tmp_path, monkeypatch):
+        """Silence would read as a session removed, and send the user hunting."""
+        monkeypatch.setattr(cli, "DEFAULT_TOKEN_FILE", tmp_path / "tokens.json")
+
+        result = CliRunner().invoke(logout, [], obj={"OUTPUT_FORMAT": "text"})
+
+        assert result.exit_code == 0
+        assert "No stored session" in result.output
+
+    def test_leaves_the_saved_username_alone(self, tmp_path, monkeypatch):
+        """Retyping the MitID username on every test login is the thing being avoided."""
+        config_file = tmp_path / "config.json"
+        config_file.write_text('{"mitid_username": "tester"}')
+        monkeypatch.setattr(cli, "DEFAULT_TOKEN_FILE", tmp_path / "tokens.json")
+        monkeypatch.setattr(cli, "CONFIG_FILE", config_file)
+
+        CliRunner().invoke(logout, [], obj={"OUTPUT_FORMAT": "text"})
+
+        assert config_file.exists()
 
 
 class TestOtpDisplay:

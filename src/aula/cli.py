@@ -539,6 +539,20 @@ def _easyiq_child_user_ids(profile_context: dict) -> list[str]:
 @cli.command()
 @click.pass_context
 @async_cmd
+async def logout(ctx):
+    """Forget the cached session, so the next command logs in through MitID again"""
+    removed = await FileTokenStorage(DEFAULT_TOKEN_FILE).clear()
+    if output_json(ctx, {"status": "ok", "removed": removed, "path": str(DEFAULT_TOKEN_FILE)}):
+        return
+    if removed:
+        click.echo(f"Logged out. Removed {DEFAULT_TOKEN_FILE}")
+    else:
+        click.echo(f"No stored session at {DEFAULT_TOKEN_FILE}")
+
+
+@cli.command()
+@click.pass_context
+@async_cmd
 async def login(ctx):
     """Authenticate and initialize session"""
     async with await _get_client(ctx) as client:

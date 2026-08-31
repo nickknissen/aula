@@ -74,3 +74,16 @@ class FileTokenStorage(TokenStorage):
             os.unlink(tmp_path)
             raise
         _LOGGER.debug("Tokens saved to %s", self._path)
+
+    async def clear(self) -> bool:
+        """Remove the stored tokens.
+
+        Returns:
+            True when a token file was removed, False when there was none.
+        """
+        try:
+            self._path.unlink()
+        except FileNotFoundError:
+            return False
+        _LOGGER.debug("Tokens removed from %s", self._path)
+        return True

@@ -60,3 +60,23 @@ async def test_save_atomic_write(token_file):
     # File should contain valid JSON after save
     data = json.loads(token_file.read_text())
     assert data["tokens"]["key"] == "val"
+
+
+@pytest.mark.asyncio
+async def test_clear_removes_stored_tokens(token_file):
+    """Logging out has to leave nothing behind for the next login to reuse."""
+    storage = FileTokenStorage(token_file)
+    await storage.save({"tokens": {"access_token": "abc123"}})
+
+    removed = await storage.clear()
+
+    assert removed is True
+    assert not token_file.exists()
+
+
+@pytest.mark.asyncio
+async def test_clear_reports_when_there_was_nothing_stored(token_file):
+    """Without this, logging out twice claims to have removed a session that was not there."""
+    removed = await FileTokenStorage(token_file).clear()
+
+    assert removed is False
