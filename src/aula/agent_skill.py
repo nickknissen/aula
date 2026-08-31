@@ -40,6 +40,7 @@ aula --username "<username>" <command>
 | `--username TEXT` | MitID username (or `AULA_MITID_USERNAME` env var). |
 | `--auth-method [app\\|token]` | MitID method: `app` (QR/push) or `token`. |
 | `-v` / `-vv` / `-vvv` | Increase log verbosity. |
+| `--version` | Print the installed version and the Python it runs on. |
 
 ## Commands
 
@@ -174,6 +175,14 @@ Returns: `{downloaded: N, skipped: N}`
 aula --output json login
 ```
 Returns: `{status: "ok", api_url: "..."}`
+
+#### `logout` — Forget the cached session
+```bash
+aula --output json logout
+```
+Returns: `{status: "ok", removed: true, path: "..."}`
+The next command then needs an interactive MitID login, so leave this to
+the user unless they ask for it.
 
 ## Tips
 
