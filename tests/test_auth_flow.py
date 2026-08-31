@@ -473,10 +473,11 @@ class TestAuthenticateAndCreateClient:
         """Callbacks are forwarded to authenticate."""
         token_storage.load.return_value = None
         qr_cb = MagicMock()
+        qr_done_cb = MagicMock()
         login_cb = MagicMock()
 
         with (
-            patch("aula.auth_flow.MitIDAuthClient", return_value=mock_auth_client),
+            patch("aula.auth_flow.MitIDAuthClient", return_value=mock_auth_client) as MockMitID,
             patch("aula.auth_flow.create_client", new_callable=AsyncMock) as mock_create,
         ):
             mock_create.return_value = MagicMock()
@@ -484,10 +485,13 @@ class TestAuthenticateAndCreateClient:
                 "user",
                 token_storage,
                 on_qr_codes=qr_cb,
+                on_qr_done=qr_done_cb,
                 on_login_required=login_cb,
             )
 
         login_cb.assert_called_once()
+        assert MockMitID.call_args.kwargs["on_qr_codes"] is qr_cb
+        assert MockMitID.call_args.kwargs["on_qr_done"] is qr_done_cb
 
     @pytest.mark.asyncio
     async def test_httpx_client_passed_to_mitid_auth(self, token_storage, mock_auth_client):
@@ -504,6 +508,7 @@ class TestAuthenticateAndCreateClient:
         MockMitID.assert_called_once_with(
             mitid_username="user",
             on_qr_codes=None,
+            on_qr_done=None,
             httpx_client=fake_httpx,
             on_identity_selected=None,
             auth_method="app",

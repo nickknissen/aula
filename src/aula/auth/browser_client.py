@@ -19,6 +19,9 @@ from .srp import CustomSRP
 
 _LOGGER = logging.getLogger(__name__)
 
+_POLL_SECONDS = 0.5
+_QR_POLL_SECONDS = 1.0
+
 _BLOCK_SIZE = 16
 
 # Authenticator mapping tables
@@ -91,12 +94,14 @@ class BrowserClient:
         authentication_session_id: str,
         http_client: httpx.AsyncClient,
         on_qr_codes: Callable[[qrcode.QRCode, qrcode.QRCode], None] | None = None,
+        on_qr_done: Callable[[], None] | None = None,
         on_otp_code: Callable[[str], None] | None = None,
     ):
         self._client = http_client
         self._client_hash = client_hash
         self._authentication_session_id = authentication_session_id
         self._on_qr_codes = on_qr_codes
+        self._on_qr_done = on_qr_done
         self._on_otp_code = on_otp_code
 
         # Authenticator state (populated after identify step)
@@ -118,6 +123,7 @@ class BrowserClient:
         # Storage for QR codes (can be accessed externally)
         self.qr1: qrcode.QRCode | None = None
         self.qr2: qrcode.QRCode | None = None
+        self._qr_state: tuple[str, int] | None = None
         self.otp_code: str | None = None
         self.status_message: str | None = None
 
@@ -281,12 +287,13 @@ class BrowserClient:
                 raise MitIDError("Login request was not accepted")
 
             if data["status"] == "OK" and data["confirmation"] is True:
+                self._end_qr_phase()
                 return data["payload"]["response"], data["payload"]["responseSignature"]
 
             status = data["status"]
 
             if status == "timeout":
-                await asyncio.sleep(0.5)
+                await asyncio.sleep(_POLL_SECONDS)
                 continue
 
             if status == "channel_validation_otp":
@@ -298,29 +305,41 @@ class BrowserClient:
                     _LOGGER.debug("OTP channel validation requested")
                     if self._on_otp_code:
                         self._on_otp_code(otp_code)
-                await asyncio.sleep(0.5)
+                await asyncio.sleep(_POLL_SECONDS)
                 continue
 
             if status == "channel_validation_tqr":
                 self._handle_qr_code_poll(data)
-                await asyncio.sleep(1)
+                await asyncio.sleep(_QR_POLL_SECONDS)
                 continue
 
             if status == "channel_verified":
+                self._end_qr_phase()
                 self.status_message = (
                     "The OTP/QR code has been verified, now waiting user to approve login"
                 )
                 _LOGGER.debug("Channel verified, awaiting user approval")
-                await asyncio.sleep(0.5)
+                await asyncio.sleep(_POLL_SECONDS)
                 continue
 
             raise MitIDError(f"Unexpected poll status: {status}")
 
+    def _end_qr_phase(self) -> None:
+        """Retire the codes once the app has read them; they no longer scan."""
+        if self._qr_state is None:
+            return
+        self._qr_state = None
+        self.qr1 = None
+        self.qr2 = None
+        if self._on_qr_done:
+            self._on_qr_done()
+
     def _handle_qr_code_poll(self, data: dict) -> None:
         """Generate and display QR codes from a TQR poll response."""
         channel_binding = data["channelBindingValue"]
-        half = len(channel_binding) // 2
         update_count = data["updateCount"]
+        self._qr_state = (channel_binding, update_count)
+        half = len(channel_binding) // 2
 
         self.qr1 = qrcode.QRCode(border=1)
         self.qr1.add_data(

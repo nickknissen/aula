@@ -7,6 +7,7 @@ import logging
 import httpx
 import pytest
 
+from aula.auth import browser_client as browser_client_module
 from aula.auth.browser_client import _COMBINATION_ID_TO_NAME, BrowserClient
 from aula.auth.exceptions import MitIDError, PasswordInvalidError, TokenInvalidError
 
@@ -392,3 +393,83 @@ class TestFrontEndProcessingTime:
         await client.authenticate_with_token_and_password("123456", "hunter2")
 
         assert server.bodies["password-prove"]["frontEndProcessingTime"] > 0
+
+
+POLL_URL = "https://www.mitid.dk/mitid-code-app-auth/v1/authenticator-sessions/web/poll"
+
+
+def _tqr(binding: str = "0123456789abcdef", update_count: int = 1) -> dict:
+    return {
+        "status": "channel_validation_tqr",
+        "channelBindingValue": binding,
+        "updateCount": update_count,
+    }
+
+
+def _verified() -> dict:
+    return {"status": "channel_verified"}
+
+
+def _otp(code: str = "A1B2") -> dict:
+    return {"status": "channel_validation_otp", "channelBindingValue": code}
+
+
+def _confirmed() -> dict:
+    return {
+        "status": "OK",
+        "confirmation": True,
+        "payload": {"response": "cmVzcG9uc2U=", "responseSignature": "c2lnbmF0dXJl"},
+    }
+
+
+class FakePoll:
+    """MitID's app poll endpoint, answering a scripted sequence of statuses."""
+
+    def __init__(self, responses: list[dict]):
+        self._responses = list(responses)
+
+    async def __call__(self, request: httpx.Request) -> httpx.Response:
+        payload = self._responses.pop(0) if len(self._responses) > 1 else self._responses[0]
+        return httpx.Response(200, json=payload)
+
+
+def _polling_client(responses: list[dict], **callbacks) -> BrowserClient:
+    http_client = httpx.AsyncClient(transport=httpx.MockTransport(FakePoll(responses)))
+    return BrowserClient("client-hash", SESSION_ID, http_client, **callbacks)
+
+
+@pytest.fixture
+def _no_poll_waiting(monkeypatch):
+    monkeypatch.setattr(browser_client_module, "_POLL_SECONDS", 0)
+    monkeypatch.setattr(browser_client_module, "_QR_POLL_SECONDS", 0)
+
+
+class TestAppQrCodes:
+    """The codes come down when the app has read them, not when polling goes quiet."""
+
+    @pytest.mark.asyncio
+    async def test_signals_the_codes_are_spent_once_the_app_has_read_them(self, _no_poll_waiting):
+        """The codes stop working the moment the app has them, so they have to come down."""
+        events = []
+        client = _polling_client(
+            [_tqr(), _verified(), _confirmed()],
+            on_qr_codes=lambda qr1, qr2: events.append("shown"),
+            on_qr_done=lambda: events.append("done"),
+        )
+
+        await client._poll_for_app_confirmation(POLL_URL, "ticket")
+
+        assert events == ["shown", "done"]
+
+    @pytest.mark.asyncio
+    async def test_stays_quiet_when_no_codes_were_shown(self, _no_poll_waiting):
+        """App users who type the code instead of scanning never see a QR code."""
+        events = []
+        client = _polling_client(
+            [_otp(), _verified(), _confirmed()],
+            on_qr_done=lambda: events.append("done"),
+        )
+
+        await client._poll_for_app_confirmation(POLL_URL, "ticket")
+
+        assert events == []
