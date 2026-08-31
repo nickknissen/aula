@@ -2,6 +2,7 @@
 
 import asyncio
 import json
+import platform
 from unittest.mock import AsyncMock, MagicMock
 
 import click
@@ -9,7 +10,7 @@ import pytest
 import qrcode
 from click.testing import CliRunner
 
-from aula import cli
+from aula import __version__, cli
 from aula.cli import (
     _WIDGET_ID_CACHE,
     CONTACTS_PAGE_SIZE,
@@ -459,6 +460,16 @@ class TestQrDisplay:
 
         assert rendered.isascii()
         assert "#" in rendered
+
+
+class TestVersionFlag:
+    def test_reports_the_version_and_the_python_it_runs_on(self):
+        """Bug reports are read from a traceback, and both numbers are needed."""
+        result = CliRunner().invoke(cli.cli, ["--version"])
+
+        assert result.exit_code == 0
+        assert __version__ in result.output
+        assert platform.python_version() in result.output
 
 
 class TestOtpDisplay:

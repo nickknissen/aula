@@ -6,6 +6,7 @@ import functools
 import io
 import logging
 import os
+import platform
 import sys
 from collections import defaultdict
 from collections.abc import Awaitable, Callable, Sequence
@@ -14,6 +15,7 @@ from zoneinfo import ZoneInfo
 import click
 import qrcode
 
+from . import __version__
 from .api_client import AulaApiClient
 from .auth_flow import authenticate_and_create_client
 from .config import CONFIG_FILE, DEFAULT_TOKEN_FILE, load_config, save_config
@@ -118,6 +120,13 @@ def get_mitid_username(ctx: click.Context) -> str:
 
 # Define the main group
 @click.group()
+@click.version_option(
+    __version__,
+    "--version",
+    prog_name="aula",
+    # Bug reports arrive as tracebacks, and both numbers are needed to read one.
+    message=f"%(prog)s %(version)s (Python {platform.python_version()})",
+)
 @click.option(
     "--username",
     help="MitID username (can also be set via AULA_MITID_USERNAME env var or config file)",
