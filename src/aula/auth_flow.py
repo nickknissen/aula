@@ -18,7 +18,7 @@ import httpx
 import qrcode
 
 from .api_client import AulaApiClient
-from .auth.exceptions import MitIDAuthError, OAuthError
+from .auth.exceptions import MitIDAuthError, OAuthError, SecurityCheckError
 from .auth.mitid_client import MitIDAuthClient
 from .const import AUTH_BASE_URL, CSRF_TOKEN_COOKIE, OAUTH_CLIENT_ID, OAUTH_TOKEN_PATH
 from .http import AulaAuthenticationError, HttpClient
@@ -232,6 +232,10 @@ async def authenticate(
                 if token_storage:
                     await token_storage.save(result_data)
                 _LOGGER.info("Authentication successful! Tokens saved.")
+            except SecurityCheckError as e:
+                # Already says what happened and what to do, so no prefix.
+                _LOGGER.error("Authentication failed: %s", e)
+                raise RuntimeError(str(e)) from e
             except MitIDAuthError as e:
                 _LOGGER.error("Authentication failed: %s", e)
                 raise RuntimeError(f"MitID authentication failed: {e}") from e

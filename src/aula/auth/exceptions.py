@@ -41,3 +41,9 @@ class PasswordInvalidError(MitIDError):
     """Exception raised when the MitID password is rejected."""
 
     pass
+
+
+class SecurityCheckError(SAMLError):
+    """Exception raised when STIL's bot-defence gate blocks the login."""
+
+    pass

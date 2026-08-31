@@ -25,6 +25,7 @@ from ..const import (
     OAUTH_CLIENT_ID,
     OAUTH_SCOPE,
     OAUTH_TOKEN_PATH,
+    STIL_SECURITY_CHECK_HOST,
     USER_AGENT,
 )
 from .browser_client import BrowserClient
@@ -34,9 +35,27 @@ from .exceptions import (
     NetworkError,
     OAuthError,
     SAMLError,
+    SecurityCheckError,
 )
 
 _LOGGER = logging.getLogger(__name__)
+
+# The full challenge URL carries a long opaque ``data=`` blob, so keep it out of
+# the message and leave it to the redirect chain debug log.
+_SECURITY_CHECK_MESSAGE = (
+    "Login blocked: you are most likely not connecting from a Danish IP address.\n"
+    "\n"
+    "STIL diverted the redirect to MitID into a security check on\n"
+    "security-check.stil.dk. Every report of this so far comes from outside\n"
+    "Denmark, and logins from a Danish IP address are let through. Getting past\n"
+    "the check needs a browser that runs JavaScript, so this client cannot\n"
+    "complete the login while the check is active.\n"
+    "\n"
+    "If you are outside Denmark, connecting through a Danish IP address is the\n"
+    "only known way around it.\n"
+    "\n"
+    "Details: https://github.com/nickknissen/aula/issues/43"
+)
 
 
 def _page_message(soup: BeautifulSoup) -> str:
@@ -272,6 +291,9 @@ class MitIDAuthClient:
                 )
 
                 if response.is_success:
+                    if STIL_SECURITY_CHECK_HOST in str(response.url):
+                        raise SecurityCheckError(_SECURITY_CHECK_MESSAGE)
+
                     soup = BeautifulSoup(response.text, "html.parser")
 
                     if BROKER_URL in str(response.url):

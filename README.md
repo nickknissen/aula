@@ -117,6 +117,21 @@ aula --auth-method token --token-code 123456 messages
 
 The kodeviser code rotates, so `--token-code` is only useful for a single run. The password is never written to the config file; supply it per-run or via the environment.
 
+### If Login Is Blocked
+
+If you are outside Denmark, the login can be stopped before MitID is reached:
+
+```
+Login blocked: you are most likely not connecting from a Danish IP address.
+
+STIL diverted the redirect to MitID into a security check on
+security-check.stil.dk. ...
+```
+
+STIL puts a bot check in front of the UniLogin broker. Getting past it needs a browser that runs JavaScript, so this client cannot complete a login while the check is active.
+
+The check does not fire for everyone. Every report so far comes from outside Denmark: logins from a Danish IP address are let through, while logins from other countries are challenged. If you are outside Denmark, a connection with a Danish IP address is the only known workaround. See [issue #43](https://github.com/nickknissen/aula/issues/43).
+
 ### Token Security
 
 Tokens provide full access to your Aula account — treat them like passwords and never commit token files to version control.
