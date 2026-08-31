@@ -235,6 +235,7 @@ The username can also be set via the `AULA_MITID_USERNAME` environment variable 
 | `--password` | MitID password for `--auth-method token` (or `AULA_MITID_PASSWORD` env var) |
 | `--token-code` | 6 digits from your MitID kodeviser (or `AULA_MITID_TOKEN_CODE` env var) |
 | `-v` / `-vv` / `-vvv` | Increase verbosity (warning / info / debug) |
+| `--version` | Print the installed version and the Python it runs on |
 
 ### JSON output
 
