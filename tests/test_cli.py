@@ -417,6 +417,20 @@ class TestQrDisplay:
 
         assert "\x1b[" in capsys.readouterr().out
 
+    @pytest.mark.asyncio
+    async def test_keeps_every_frame_the_same_height(self, monkeypatch, capsys):
+        """A block that changes height as the halves swap leaves art behind on screen."""
+        monkeypatch.setattr(cli, "_stdout_is_tty", lambda: True)
+        display = cli._TerminalQRDisplay()
+
+        display.show(_qr("part-one"), _qr("part-two"))
+        await asyncio.sleep(0.05)
+        display.done()
+
+        blocks = capsys.readouterr().out.split("QR code 1 of 2:")
+        assert len(blocks) > 2
+        assert len({block.count("\n") for block in blocks[1:-1]}) == 1
+
     def test_prints_each_pair_once_without_a_terminal(self, monkeypatch, capsys):
         """MitID repeats the codes every poll; a log file should not repeat them too."""
         monkeypatch.setattr(cli, "_stdout_is_tty", lambda: False)

@@ -202,8 +202,11 @@ def cli(
 _QR_FRAME_SECONDS = 1.0
 _QR_FIRST_FRAME_SECONDS = 2.0
 _QR_HEADER = (
-    "Scan with your MitID app. The code comes in two halves that take turns\n"
-    "below, so the app stays quiet until it has read both."
+    "Scan with your MitID app: open it, start the QR scanner, and hold the\n"
+    "camera steady on the code below. The code comes in two halves that take\n"
+    "turns in the same spot, so keep the phone still until the app has read\n"
+    "both. It stays quiet until then, and asks you to approve the login once\n"
+    "it has them."
 )
 
 
@@ -310,7 +313,8 @@ class _TerminalQRDisplay:
             *self._frames[part].splitlines(),
         ]
         # Every frame occupies the same rows, so the codes never shift as they swap.
-        height = max(len(frame.splitlines()) for frame in self._frames) + 4
+        tallest = max(len(frame.splitlines()) for frame in self._frames)
+        height = tallest + len(_QR_HEADER.splitlines()) + 2
         lines += [""] * (height - len(lines))
 
         if self._drawn_lines:
