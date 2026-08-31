@@ -175,6 +175,14 @@ aula --output json login
 ```
 Returns: `{status: "ok", api_url: "..."}`
 
+#### `logout` — Forget the cached session
+```bash
+aula --output json logout
+```
+Returns: `{status: "ok", removed: true, path: "..."}`
+The next command then needs an interactive MitID login, so leave this to
+the user unless they ask for it.
+
 ## Tips
 
 - `--week` accepts a bare number (e.g. `10`) or full ISO format (`2026-W10`).
