@@ -373,12 +373,21 @@ def _qr(data: str) -> qrcode.QRCode:
     return qr
 
 
+class TestQrFrameSchedule:
+    def test_lingers_on_the_first_half_before_the_swapping_starts(self):
+        """The first code needs time to be scanned before it starts moving."""
+        assert cli._frame_seconds(0) == 2.0
+        assert cli._frame_seconds(1) == 1.0
+        assert cli._frame_seconds(2) == 1.0
+
+
 class TestQrDisplay:
     """The two codes are halves of one value, so both have to reach the app."""
 
     @pytest.fixture(autouse=True)
     def _fast_frames(self, monkeypatch):
         monkeypatch.setattr(cli, "_QR_FRAME_SECONDS", 0.01)
+        monkeypatch.setattr(cli, "_QR_FIRST_FRAME_SECONDS", 0.02)
         _terminal_draws_blocks.cache_clear()
 
     @pytest.mark.asyncio

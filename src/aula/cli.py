@@ -199,11 +199,17 @@ def cli(
         ctx.obj["MITID_USERNAME"] = username
 
 
-_QR_FRAME_SECONDS = 2.0
+_QR_FRAME_SECONDS = 1.0
+_QR_FIRST_FRAME_SECONDS = 2.0
 _QR_HEADER = (
     "Scan with your MitID app. The code comes in two halves that take turns\n"
     "below, so the app stays quiet until it has read both."
 )
+
+
+def _frame_seconds(index: int) -> float:
+    """How long one half stays up; the first gets longer, before any movement."""
+    return _QR_FIRST_FRAME_SECONDS if index == 0 else _QR_FRAME_SECONDS
 
 
 @functools.cache
@@ -292,8 +298,8 @@ class _TerminalQRDisplay:
         sys.stdout.write("\x1b[?25l")
         while True:
             self._draw(index)
+            await asyncio.sleep(_frame_seconds(index))
             index += 1
-            await asyncio.sleep(_QR_FRAME_SECONDS)
 
     def _draw(self, index: int) -> None:
         part = index % len(self._frames)
