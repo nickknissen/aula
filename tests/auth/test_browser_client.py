@@ -445,7 +445,33 @@ def _no_poll_waiting(monkeypatch):
 
 
 class TestAppQrCodes:
-    """The codes come down when the app has read them, not when polling goes quiet."""
+    """MitID repeats the codes on every poll, but they only change now and then."""
+
+    @pytest.mark.asyncio
+    async def test_notifies_once_while_the_codes_are_unchanged(self, _no_poll_waiting):
+        """Repeating the same codes makes consumers redraw art the user is already scanning."""
+        shown = []
+        client = _polling_client(
+            [_tqr(), _tqr(), _tqr(), _confirmed()],
+            on_qr_codes=lambda qr1, qr2: shown.append((qr1, qr2)),
+        )
+
+        await client._poll_for_app_confirmation(POLL_URL, "ticket")
+
+        assert len(shown) == 1
+
+    @pytest.mark.asyncio
+    async def test_notifies_again_when_the_codes_rotate(self, _no_poll_waiting):
+        """Only the current codes can be scanned, so a rotation has to reach the user."""
+        shown = []
+        client = _polling_client(
+            [_tqr(update_count=1), _tqr(update_count=1), _tqr(update_count=2), _confirmed()],
+            on_qr_codes=lambda qr1, qr2: shown.append((qr1, qr2)),
+        )
+
+        await client._poll_for_app_confirmation(POLL_URL, "ticket")
+
+        assert len(shown) == 2
 
     @pytest.mark.asyncio
     async def test_signals_the_codes_are_spent_once_the_app_has_read_them(self, _no_poll_waiting):

@@ -338,6 +338,9 @@ class BrowserClient:
         """Generate and display QR codes from a TQR poll response."""
         channel_binding = data["channelBindingValue"]
         update_count = data["updateCount"]
+        # The poll repeats every second; MitID rotates the codes far less often.
+        if (channel_binding, update_count) == self._qr_state:
+            return
         self._qr_state = (channel_binding, update_count)
         half = len(channel_binding) // 2
 
