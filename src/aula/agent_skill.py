@@ -40,6 +40,7 @@ aula --username "<username>" <command>
 | `--username TEXT` | MitID username (or `AULA_MITID_USERNAME` env var). |
 | `--auth-method [app\\|token]` | MitID method: `app` (QR/push) or `token`. |
 | `-v` / `-vv` / `-vvv` | Increase log verbosity. |
+| `--version` | Print the installed version and the Python it runs on. |
 
 ## Commands
 
