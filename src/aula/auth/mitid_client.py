@@ -40,6 +40,23 @@ from .exceptions import (
 
 _LOGGER = logging.getLogger(__name__)
 
+# The full challenge URL carries a long opaque ``data=`` blob, so keep it out of
+# the message and leave it to the redirect chain debug log.
+_SECURITY_CHECK_MESSAGE = (
+    "Login blocked: you are most likely not connecting from a Danish IP address.\n"
+    "\n"
+    "STIL diverted the redirect to MitID into a security check on\n"
+    "security-check.stil.dk. Every report of this so far comes from outside\n"
+    "Denmark, and logins from a Danish IP address are let through. Getting past\n"
+    "the check needs a browser that runs JavaScript, so this client cannot\n"
+    "complete the login while the check is active.\n"
+    "\n"
+    "If you are outside Denmark, connecting through a Danish IP address is the\n"
+    "only known way around it.\n"
+    "\n"
+    "Details: https://github.com/nickknissen/aula/issues/43"
+)
+
 
 def _page_message(soup: BeautifulSoup) -> str:
     """Best-effort user-visible text from a NemLog-in page, for error reporting."""
@@ -275,15 +292,7 @@ class MitIDAuthClient:
 
                 if response.is_success:
                     if STIL_SECURITY_CHECK_HOST in str(response.url):
-                        raise SecurityCheckError(
-                            "STIL's security check blocked the login at "
-                            f"{response.url}. Getting past it needs a browser that runs "
-                            "JavaScript, so this client cannot complete the login while the "
-                            "check is active. It is not triggered for everyone: reports so far "
-                            "point at the connecting IP address, and logins from a Danish IP "
-                            "address are let through. See "
-                            "https://github.com/nickknissen/aula/issues/43."
-                        )
+                        raise SecurityCheckError(_SECURITY_CHECK_MESSAGE)
 
                     soup = BeautifulSoup(response.text, "html.parser")
 

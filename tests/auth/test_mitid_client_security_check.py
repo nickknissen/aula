@@ -63,8 +63,9 @@ class TestStep2SecurityCheck:
             await client._step2_follow_redirect_to_mitid(SAML_STIL)
 
         message = str(excinfo.value)
+        # The likely cause has to be the first thing read, not a closing detail.
+        assert "not connecting from a Danish IP address" in message.splitlines()[0]
         assert "security-check.stil.dk" in message
-        assert "Danish IP" in message
 
     @pytest.mark.asyncio
     async def test_gate_error_is_still_a_saml_error(self):

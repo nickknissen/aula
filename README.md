@@ -119,16 +119,18 @@ The kodeviser code rotates, so `--token-code` is only useful for a single run. T
 
 ### If Login Is Blocked
 
-Some logins are stopped before MitID is reached, with an error naming `security-check.stil.dk`:
+If you are outside Denmark, the login can be stopped before MitID is reached:
 
 ```
-MitID authentication failed: STIL's security check blocked the login at
-https://security-check.stil.dk/NDBD/validate?config=UNILOGIN&data=...
+Login blocked: you are most likely not connecting from a Danish IP address.
+
+STIL diverted the redirect to MitID into a security check on
+security-check.stil.dk. ...
 ```
 
-This is a bot check STIL put in front of the UniLogin broker. Getting past it needs a browser that runs JavaScript, so this client cannot complete a login while the check is active.
+STIL puts a bot check in front of the UniLogin broker. Getting past it needs a browser that runs JavaScript, so this client cannot complete a login while the check is active.
 
-The check does not fire for everyone. Reports so far point at the connecting IP address: logins from a Danish IP address are let through, while logins from other countries are challenged. If you are outside Denmark, a connection with a Danish IP address is the only known workaround. See [issue #43](https://github.com/nickknissen/aula/issues/43).
+The check does not fire for everyone. Every report so far comes from outside Denmark: logins from a Danish IP address are let through, while logins from other countries are challenged. If you are outside Denmark, a connection with a Danish IP address is the only known workaround. See [issue #43](https://github.com/nickknissen/aula/issues/43).
 
 ### Token Security
 
