@@ -143,6 +143,7 @@ async def authenticate(
     on_token_digits: Callable[[], Awaitable[str]] | None = None,
     on_password: Callable[[], Awaitable[str]] | None = None,
     on_otp_code: Callable[[str], None] | None = None,
+    on_qr_done: Callable[[], None] | None = None,
 ) -> dict[str, Any]:
     """Authenticate via MitID (or cached tokens) and return credential data.
 
@@ -158,6 +159,8 @@ async def authenticate(
             provided, cached tokens are loaded/saved automatically.  When
             *None*, a fresh MitID login is always performed.
         on_qr_codes: Callback for displaying QR codes during MitID flow.
+        on_qr_done: Callback invoked once the app has read the QR codes, so
+            consumers can take them off the screen.
         on_otp_code: Callback for displaying the OTP code the user types into
             the MitID app instead of scanning the QR codes.
         on_login_required: Callback invoked when fresh login is needed.
@@ -176,6 +179,7 @@ async def authenticate(
     async with MitIDAuthClient(
         mitid_username=mitid_username,
         on_qr_codes=on_qr_codes,
+        on_qr_done=on_qr_done,
         httpx_client=httpx_client,
         on_identity_selected=on_identity_selected,
         auth_method=auth_method,
@@ -254,6 +258,7 @@ async def authenticate_and_create_client(
     on_token_digits: Callable[[], Awaitable[str]] | None = None,
     on_password: Callable[[], Awaitable[str]] | None = None,
     on_otp_code: Callable[[str], None] | None = None,
+    on_qr_done: Callable[[], None] | None = None,
 ) -> AulaApiClient:
     """Authenticate via MitID (or cached tokens) and return a ready-to-use client.
 
@@ -264,6 +269,7 @@ async def authenticate_and_create_client(
         mitid_username: MitID username for authentication.
         token_storage: Storage backend for caching tokens.
         on_qr_codes: Callback for displaying QR codes during MitID flow.
+        on_qr_done: Callback invoked once the app has read the QR codes.
         on_login_required: Callback invoked when fresh login is needed.
         httpx_client: Optional ``httpx.AsyncClient`` for the auth flow.
         on_identity_selected: Callback for choosing between multiple identities.
@@ -279,6 +285,7 @@ async def authenticate_and_create_client(
         on_token_digits=on_token_digits,
         on_password=on_password,
         on_otp_code=on_otp_code,
+        on_qr_done=on_qr_done,
     )
     try:
         return await create_client(token_data)
@@ -299,6 +306,7 @@ async def authenticate_and_create_client(
             on_token_digits=on_token_digits,
             on_password=on_password,
             on_otp_code=on_otp_code,
+            on_qr_done=on_qr_done,
         )
         return await create_client(fresh_token_data)
 

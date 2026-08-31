@@ -99,7 +99,7 @@ Pick with `--auth-method` (or the `AULA_AUTH_METHOD` env var):
 
 | Method | Flag | What happens |
 |---|---|---|
-| MitID app | `--auth-method app` (default) | QR codes are printed in the terminal for you to scan. If your app asks for a code instead of a scan, that code is printed too. |
+| MitID app | `--auth-method app` (default) | A QR code is printed in the terminal for you to scan. It comes in two halves that take turns in the same spot, so hold the app on it until both have been read. If your app asks for a code instead of a scan, that code is printed too. |
 | MitID kodeviser | `--auth-method token` | You're asked for the 6 digits on your kodeviser, then your MitID password. |
 
 MitID chip and audio code readers (kodeoplæser) are not supported. If your account offers one, it's listed in a warning at `-v` and the login falls back to whatever else you have.

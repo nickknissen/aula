@@ -101,6 +101,7 @@ class MitIDAuthClient:
         mitid_username: str,
         timeout: int = 30,
         on_qr_codes: Callable[[qrcode.QRCode, qrcode.QRCode], None] | None = None,
+        on_qr_done: Callable[[], None] | None = None,
         httpx_client: httpx.AsyncClient | None = None,
         on_identity_selected: Callable[[list[str]], Awaitable[int]] | None = None,
         auth_method: str = "app",
@@ -113,6 +114,7 @@ class MitIDAuthClient:
         self._mitid_username = mitid_username
         self._timeout = timeout
         self._on_qr_codes = on_qr_codes
+        self._on_qr_done = on_qr_done
         self._on_identity_selected = on_identity_selected
         self._auth_method = auth_method
         self._on_token_digits = on_token_digits
@@ -357,8 +359,9 @@ class MitIDAuthClient:
             client_hash,
             authentication_session_id,
             self._client,
-            self._on_qr_codes,
-            self._on_otp_code,
+            on_qr_codes=self._on_qr_codes,
+            on_qr_done=self._on_qr_done,
+            on_otp_code=self._on_otp_code,
         )
 
         await self._mitid_client.initialize()
