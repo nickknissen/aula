@@ -106,7 +106,26 @@ MitID chip and audio code readers (kodeoplæser) are not supported. If your acco
 
 ### First Login
 
-On first run you'll be prompted to approve the login. Tokens are saved to the storage file and reused on subsequent runs — no authenticator interaction needed until they expire.
+On first run you have to approve the login in your MitID app. With the default `app` method the terminal shows the QR code to scan:
+
+```
+Scan with your MitID app: open it, start the QR scanner, and hold the
+camera steady on the code below. The code comes in two halves that take
+turns in the same spot, so keep the phone still until the app has read
+both. It stays quiet until then, and asks you to approve the login once
+it has them.
+
+QR code 1 of 2:
+█▀▀▀▀▀▀▀███▀▀▀▀███▀▀▀█▀█▀▀▀▀█▀█▀▀▀▀▀▀▀█
+█ █▀▀▀█ █ ██ ▀▄ ███▄ ▀▀▀█▀▄█▀▀█ █▀▀▀█ █
+...
+```
+
+The two codes are halves of one value, not two things to choose between. The first half holds for two seconds, then the halves swap every second in the same spot. Nothing happens in the app until it has read both, so keep the phone still rather than moving it away after the first one. Once the app has them, the codes disappear and the app asks you to approve the login.
+
+If your app asks for a code to type instead of a scan, that code is printed instead of the QR code.
+
+Tokens are saved to the storage file and reused on subsequent runs — no authenticator interaction needed until they expire. `aula logout` removes them and forces a fresh MitID login; the saved MitID username is kept.
 
 For the kodeviser method you can skip the prompts:
 
