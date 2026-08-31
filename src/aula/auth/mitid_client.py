@@ -25,6 +25,7 @@ from ..const import (
     OAUTH_CLIENT_ID,
     OAUTH_SCOPE,
     OAUTH_TOKEN_PATH,
+    STIL_SECURITY_CHECK_HOST,
     USER_AGENT,
 )
 from .browser_client import BrowserClient
@@ -34,6 +35,7 @@ from .exceptions import (
     NetworkError,
     OAuthError,
     SAMLError,
+    SecurityCheckError,
 )
 
 _LOGGER = logging.getLogger(__name__)
@@ -272,6 +274,17 @@ class MitIDAuthClient:
                 )
 
                 if response.is_success:
+                    if STIL_SECURITY_CHECK_HOST in str(response.url):
+                        raise SecurityCheckError(
+                            "STIL's security check blocked the login at "
+                            f"{response.url}. Getting past it needs a browser that runs "
+                            "JavaScript, so this client cannot complete the login while the "
+                            "check is active. It is not triggered for everyone: reports so far "
+                            "point at the connecting IP address, and logins from a Danish IP "
+                            "address are let through. See "
+                            "https://github.com/nickknissen/aula/issues/43."
+                        )
+
                     soup = BeautifulSoup(response.text, "html.parser")
 
                     if BROKER_URL in str(response.url):

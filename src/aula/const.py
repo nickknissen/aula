@@ -58,3 +58,8 @@ CSRF_TOKEN_HEADER = "csrfp-token"
 # MitID / SAML broker
 BROKER_URL = "https://broker.unilogin.dk"
 MITID_BASE_URL = "https://nemlog-in.mitid.dk"
+
+# STIL puts an F5 bot-defence gate in front of the UniLogin broker for some
+# clients. It answers on this host, and passing it needs a JavaScript engine,
+# so the flow can only be reported, not completed. See nickknissen/aula#43.
+STIL_SECURITY_CHECK_HOST = "security-check.stil.dk"

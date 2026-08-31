@@ -242,6 +242,42 @@ Session cookies stale:
   create_client() gets 403 -> force_login=True -> full MitID re-auth
 ```
 
+## STIL Security Check
+
+STIL fronts the UniLogin broker with an F5 BIG-IP bot defence. It does not fire
+for every client. The evidence collected in
+[issue #43](https://github.com/nickknissen/aula/issues/43) points at the
+connecting IP address: a Danish IP is let straight through to the broker, while
+IPs in other countries are diverted into the check.
+
+In a browser the check is invisible. It is a four hop detour that ends back at
+the URL it started from:
+
+```
+broker.unilogin.dk/auth/realms/broker/protocol/saml-stil   302 -> /NDBD/init?data=...
+broker.unilogin.dk/NDBD/init                               302 -> security-check.stil.dk/NDBD/validate?config=UNILOGIN&data=...
+security-check.stil.dk/NDBD/validate                       200    challenge page (window["bobcmn"], TSPD_101 cookies)
+security-check.stil.dk/TSPD/<hex>?type=10                  200    ~294 KB of obfuscated JavaScript
+security-check.stil.dk/NDBD/validate                       302 -> broker.unilogin.dk/NDBD/issue?data=...
+broker.unilogin.dk/NDBD/issue                              302 -> idp.unilogin.dk/NDBD/issue?data=...
+idp.unilogin.dk/NDBD/issue                                 302 -> broker.unilogin.dk/.../saml-stil (the original URL)
+broker.unilogin.dk/auth/realms/broker/protocol/saml-stil   200    IdP picker
+```
+
+The second request to `/NDBD/validate` is identical to the first and answers 302
+instead of 200. The JavaScript ran in between and set the cookie. The `data=`
+token then carries the pass across the three hosts.
+
+There is no meta refresh and no auto submitting form on the challenge page, so a
+plain HTTP client has nothing to follow. `_step2_follow_redirect_to_mitid`
+detects the host and raises `SecurityCheckError` rather than reporting an
+unrecognised page. Completing the check would need a JavaScript engine, which
+this library does not carry.
+
+Browser fingerprint is not the trigger. The reporter in issue #43 was challenged
+while sending a full Chrome header set over HTTP/2, and passed only by running
+the script.
+
 ## Widget Authentication
 
 Third-party widget APIs (Min Uddannelse, EasyIQ, Meebook, Systematic, Cicero) use a separate token mechanism:
