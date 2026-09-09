@@ -1172,13 +1172,13 @@ class TestGetCalendarEvents:
                 "startDateTime": "2026-03-01T08:00:00+01:00",
                 "endDateTime": "2026-03-01T09:00:00+01:00",
                 "belongsToProfiles": [100],
+                "primaryResource": {"name": "Room 101"},
                 "lesson": {
                     "participants": [
                         {"participantRole": "primaryTeacher", "teacherName": "Mrs. Jensen"},
                         {"participantRole": "substituteTeacher", "teacherName": "Mr. Hansen"},
                     ],
                     "lessonStatus": "substitute",
-                    "primaryResource": {"name": "Room 101"},
                 },
             }
         ]
