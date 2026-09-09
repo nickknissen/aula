@@ -982,8 +982,59 @@ class TestWidgetsClientMalformedResponses:
         )
 
     @pytest.mark.asyncio
-    async def test_meebook_weekplan_returns_empty_on_jwt_expiry_message(self, client, caplog):
-        self._responses(client, self.JWT_EXPIRED)
+    async def test_meebook_weekplan_refreshes_and_retries_on_jwt_expiry(self, client):
+        old_token_response = Mock()
+        old_token_response.raise_for_status = Mock()
+        old_token_response.json = Mock(return_value={"data": "token-old"})
+
+        expired_response = Mock()
+        expired_response.raise_for_status = Mock()
+        expired_response.json = Mock(return_value=self.JWT_EXPIRED)
+
+        new_token_response = Mock()
+        new_token_response.raise_for_status = Mock()
+        new_token_response.json = Mock(return_value={"data": "token-new"})
+
+        successful_response = Mock()
+        successful_response.raise_for_status = Mock()
+        successful_response.json = Mock(
+            return_value=[{"name": "Child", "unilogin": "child-1", "weekPlan": []}]
+        )
+
+        client._request_with_version_retry = AsyncMock(
+            side_effect=[
+                old_token_response,
+                expired_response,
+                new_token_response,
+                successful_response,
+            ]
+        )
+        client._refresh_authentication = AsyncMock(return_value=True)
+
+        plans = await client.widgets.get_meebook_weekplan(
+            child_filter=["child-1"],
+            institution_filter=["inst-1"],
+            week="2026-W09",
+            session_uuid="session-1",
+        )
+
+        assert [plan.name for plan in plans] == ["Child"]
+        client._refresh_authentication.assert_awaited_once_with(force=True)
+        calls = client._request_with_version_retry.await_args_list
+        assert calls[1].kwargs["headers"]["Authorization"] == "Bearer token-old"
+        assert calls[3].kwargs["headers"]["Authorization"] == "Bearer token-new"
+
+    @pytest.mark.asyncio
+    async def test_meebook_weekplan_returns_empty_when_jwt_refresh_is_unavailable(
+        self, client, caplog
+    ):
+        client._request_with_version_retry = AsyncMock(
+            side_effect=[
+                _token_response("token-old"),
+                _calendar_response(self.JWT_EXPIRED),
+            ]
+        )
+        client._refresh_authentication = AsyncMock(return_value=False)
 
         plans = await client.widgets.get_meebook_weekplan(
             child_filter=["child-1"],
@@ -993,8 +1044,55 @@ class TestWidgetsClientMalformedResponses:
         )
 
         assert plans == []
+        client._refresh_authentication.assert_awaited_once_with(force=True)
+        calls = client._request_with_version_retry.await_args_list
+        assert sum("aulaToken.getAulaToken" in call_.args[1] for call_ in calls) == 1
+        assert sum(call_.args[1] == f"{MEEBOOK_API}/relatedweekplan/all" for call_ in calls) == 1
+        assert "Meebook weekplan JWT expired and could not be renewed" in caplog.text
+
+    @pytest.mark.asyncio
+    async def test_meebook_weekplan_retries_only_once_when_jwt_stays_expired(self, client, caplog):
+        client._request_with_version_retry = AsyncMock(
+            side_effect=[
+                _token_response("token-old"),
+                _calendar_response(self.JWT_EXPIRED),
+                _token_response("token-new"),
+                _calendar_response(self.JWT_EXPIRED),
+            ]
+        )
+        client._refresh_authentication = AsyncMock(return_value=True)
+
+        plans = await client.widgets.get_meebook_weekplan(
+            child_filter=["child-1"],
+            institution_filter=["inst-1"],
+            week="2026-W09",
+            session_uuid="session-1",
+        )
+
+        assert plans == []
+        client._refresh_authentication.assert_awaited_once_with(force=True)
+        calls = client._request_with_version_retry.await_args_list
+        assert sum("aulaToken.getAulaToken" in call_.args[1] for call_ in calls) == 2
+        assert sum(call_.args[1] == f"{MEEBOOK_API}/relatedweekplan/all" for call_ in calls) == 2
+        assert "Meebook weekplan JWT expired and could not be renewed" in caplog.text
+
+    @pytest.mark.asyncio
+    async def test_meebook_weekplan_does_not_refresh_for_unrelated_error_object(
+        self, client, caplog
+    ):
+        self._responses(client, {"message": "Service temporarily unavailable"})
+        client._refresh_authentication = AsyncMock(return_value=True)
+
+        plans = await client.widgets.get_meebook_weekplan(
+            child_filter=["child-1"],
+            institution_filter=["inst-1"],
+            week="2026-W09",
+            session_uuid="session-1",
+        )
+
+        assert plans == []
+        client._refresh_authentication.assert_not_awaited()
         assert "Meebook weekplan returned dict instead of a list" in caplog.text
-        assert "JWT-Token expired" in caplog.text
 
     @pytest.mark.asyncio
     async def test_meebook_weekplan_skips_non_dict_items(self, client, caplog):
