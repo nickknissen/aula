@@ -1,9 +1,11 @@
+import asyncio
 import inspect
 import json
 import logging
 import time
 import warnings
 from collections.abc import Awaitable, Callable
+from contextvars import ContextVar
 from datetime import date, datetime
 from types import TracebackType
 from typing import Any, Self
@@ -123,7 +125,11 @@ class AulaApiClient:
         self._access_token = access_token
         self._csrf_token = csrf_token
         self._on_token_refresh = on_token_refresh
-        self._auth_retry_in_progress = False
+        self._auth_refresh_lock = asyncio.Lock()
+        self._auth_generation = 0
+        self._auth_refresh_context: ContextVar[bool] = ContextVar(
+            "aula_auth_refresh_context", default=False
+        )
         self.api_url = f"{API_URL}{API_VERSION}"
         self.widgets: AulaWidgetsClient = AulaWidgetsClient(self)
 
@@ -215,11 +221,12 @@ class AulaApiClient:
         refresh via the ``on_token_refresh`` callback (if provided), re-inits
         the session, and retries the request.
         """
+        observed_generation = self._auth_generation
         response = await self._do_request(method, url, headers=headers, params=params, json=json)
 
         # Check for auth failures that can be recovered via token refresh.
         # Only attempt once to avoid infinite loops.
-        if not self._auth_retry_in_progress and self._on_token_refresh:
+        if not self._auth_refresh_context.get() and self._on_token_refresh:
             needs_retry = response.status_code == 401
             if not needs_retry:
                 sub_code = self._extract_sub_code(response)
@@ -233,19 +240,10 @@ class AulaApiClient:
                     "Auth failure (HTTP %d), attempting token refresh and retry",
                     response.status_code,
                 )
-                self._auth_retry_in_progress = True
-                try:
-                    new_token = await self._on_token_refresh()
-                    if new_token:
-                        self._access_token = new_token
-                        await self.init()
-                        response = await self._do_request(
-                            method, url, headers=headers, params=params, json=json
-                        )
-                except Exception as e:
-                    _LOGGER.warning("Token refresh failed: %s", e)
-                finally:
-                    self._auth_retry_in_progress = False
+                if await self._refresh_authentication(observed_generation):
+                    response = await self._do_request(
+                        method, url, headers=headers, params=params, json=json
+                    )
 
         # After retry (or no retry), check for sub-code errors on the final response.
         sub_code = self._extract_sub_code(response)
@@ -254,6 +252,47 @@ class AulaApiClient:
             self._raise_for_sub_code(sub_code, api_method)
 
         return response
+
+    async def _refresh_authentication(
+        self,
+        observed_generation: int | None = None,
+        *,
+        force: bool = False,
+    ) -> bool:
+        """Refresh and reinitialize authentication once for concurrent callers.
+
+        A caller that waited for another request's successful refresh can
+        replay immediately when its observed generation is stale. ``force``
+        is reserved for providers that report token expiry in a successful
+        HTTP response rather than through Aula's authentication status.
+        """
+        if self._on_token_refresh is None:
+            return False
+
+        async with self._auth_refresh_lock:
+            if (
+                not force
+                and observed_generation is not None
+                and observed_generation != self._auth_generation
+            ):
+                return True
+
+            previous_access_token = self._access_token
+            refresh_context_token = self._auth_refresh_context.set(True)
+            try:
+                new_token = await self._on_token_refresh()
+                if not new_token:
+                    return False
+                self._access_token = new_token
+                await self.init()
+                self._auth_generation += 1
+                return True
+            except Exception as e:
+                self._access_token = previous_access_token
+                _LOGGER.warning("Token refresh failed: %s", e)
+                return False
+            finally:
+                self._auth_refresh_context.reset(refresh_context_token)
 
     async def _do_request(
         self,
