@@ -3,6 +3,8 @@ import html
 from dataclasses import dataclass, field
 from typing import Any
 
+from bs4 import BeautifulSoup
+
 from .base import AulaDataClass
 
 #: EasyIQ tags every calendar row with an ``itemType``. Its own widget source
@@ -22,11 +24,13 @@ HOMEWORK_ITEM_TYPES = (1, 2, 3, 4, 8)
 #: (``ItemType``), so a case-sensitive lookup silently parses nothing. The
 #: ``*Display`` and ``*ISO`` variants come first because they are the ones the
 #: widget itself reads.
-_START_KEYS = ("starttimeiso", "start", "startdatetime", "starttime", "from")
-_END_KEYS = ("endtimeiso", "end", "enddatetime", "endtime", "to")
-_COURSE_KEYS = ("coursesdisplay", "courses", "course", "subject", "title", "name")
+_START_KEYS = ("starttimeiso", "startdate", "start", "startdatetime", "starttime", "from")
+_END_KEYS = ("endtimeiso", "enddate", "end", "enddatetime", "endtime", "to")
+_COURSE_KEYS = ("coursesdisplay", "courses", "course", "subject")
+_TITLE_KEYS = ("title", "name")
 _ACTIVITY_KEYS = ("activitiesdisplay", "activities", "activity", "lesson", "classname")
 _DESCRIPTION_KEYS = ("description", "details", "note", "content")
+_OWNER_KEYS = ("ownername", "teacher")
 _ITEM_TYPE_KEYS = ("itemtype", "itemtypeid", "type")
 _ID_KEYS = ("id", "workid")
 
@@ -100,6 +104,33 @@ def _item_type(folded: dict[str, Any]) -> int | None:
     return None
 
 
+def _strict_bool(value: Any) -> bool:
+    """Parse only EasyIQ's observed true encodings."""
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, int):
+        return value == 1
+    return isinstance(value, str) and value.strip().casefold() in {"true", "1", "yes"}
+
+
+def _description_title(description: str) -> str:
+    """Return the first heading or visible line from an EasyIQ notice."""
+    if not description:
+        return ""
+
+    soup = BeautifulSoup(description, "html.parser")
+    for heading in soup.find_all(("h1", "h2", "h3")):
+        text = html.unescape(heading.get_text(" ", strip=True)).strip()
+        if text:
+            return text
+
+    for line in soup.get_text("\n").splitlines():
+        text = html.unescape(line).strip()
+        if text:
+            return text
+    return ""
+
+
 @dataclass
 class EasyIQCalendarEvent(AulaDataClass):
     """One row from EasyIQ's ``CalendarGetWeekplanEvents`` endpoint.
@@ -116,26 +147,41 @@ class EasyIQCalendarEvent(AulaDataClass):
     activities: str = ""
     description: str = ""
     _raw: dict | None = field(default=None, repr=False)
+    owner_name: str = field(default="", kw_only=True)
+    is_all_day: bool = field(default=False, kw_only=True)
+    is_notice: bool = field(default=False, kw_only=True)
+    event_title: str = field(default="", kw_only=True)
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> EasyIQCalendarEvent:
         folded = _fold_keys(data)
+        course = _first_text(folded, _COURSE_KEYS)
+        is_notice = not course
         return cls(
             _raw=data,
             item_type=_item_type(folded),
             event_id=_first_text(folded, _ID_KEYS),
             start=_first_timestamp(folded, _START_KEYS),
             end=_first_timestamp(folded, _END_KEYS),
-            courses=_first_text(folded, _COURSE_KEYS),
+            courses=course,
             activities=_first_text(folded, _ACTIVITY_KEYS),
             description=_first_text(folded, _DESCRIPTION_KEYS),
+            owner_name=_first_text(folded, _OWNER_KEYS),
+            is_all_day=_strict_bool(folded.get("isallday")) or is_notice,
+            is_notice=is_notice,
+            event_title=_first_text(folded, _TITLE_KEYS),
         )
 
     @property
     def title(self) -> str:
-        """Best available label for the row, preferring the subject.
+        """Best available label from the explicit title, subject, or content.
 
-        Empty when the row carries neither, so callers render their own
-        placeholder rather than receiving one as data.
+        Empty when the row carries no useful label or content, so callers
+        render their own placeholder rather than receiving one as data.
         """
-        return self.courses or self.activities
+        return (
+            self.event_title
+            or self.courses
+            or self.activities
+            or _description_title(self.description)
+        )

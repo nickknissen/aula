@@ -93,6 +93,14 @@ def _as_list(data: Any, provider: str) -> list[Any]:
     return items
 
 
+def _is_meebook_jwt_expired(payload: Any) -> bool:
+    """Return whether Meebook reported its known JWT-expiry body."""
+    if not isinstance(payload, dict):
+        return False
+    message = payload.get("message")
+    return isinstance(message, str) and "jwt-token expired" in message.casefold()
+
+
 def _ordered_unique(pairs: list[tuple[str, str]]) -> list[tuple[str, str]]:
     """Drop repeats while keeping first-seen order."""
     seen: set[tuple[str, str]] = set()
@@ -115,13 +123,14 @@ def _find_events(payload: Any) -> list[dict[str, Any]] | None:
     if isinstance(payload, list):
         return [event for event in payload if isinstance(event, dict)]
     if isinstance(payload, dict):
-        for key in ("events", "calendarEvents", "items", "data", "result"):
-            value = payload.get(key)
+        folded = {str(key).casefold(): value for key, value in payload.items()}
+        for key in ("events", "calendarevents", "weekplan", "items", "data", "result"):
+            value = folded.get(key)
             if isinstance(value, list):
                 return [event for event in value if isinstance(event, dict)]
             if isinstance(value, dict):
                 nested = _find_events(value)
-                if nested:
+                if nested is not None:
                     return nested
     return None
 
@@ -150,6 +159,13 @@ def _log_unreadable_body(source: str, payload: Any, **context: str) -> None:
 
 class _WidgetRequestClient(Protocol):
     api_url: str
+
+    async def _refresh_authentication(
+        self,
+        observed_generation: int | None = None,
+        *,
+        force: bool = False,
+    ) -> bool: ...
 
     async def _request_with_version_retry(
         self,
@@ -861,6 +877,9 @@ class AulaWidgetsClient:
                 description=event.description,
                 activities=event.activities,
                 item_type=event.item_type,
+                owner_name=event.owner_name,
+                is_all_day=event.is_all_day,
+                is_notice=event.is_notice,
             )
             for event in events
             if event.item_type in WEEKPLAN_ITEM_TYPES
@@ -918,8 +937,6 @@ class AulaWidgetsClient:
         week: str,
         session_uuid: str,
     ) -> list[MeebookStudentPlan]:
-        token = await self._get_bearer_token(WIDGET_MEEBOOK)
-
         parts = week.split("-W")
         if len(parts) == 2:
             week = f"{parts[0]}-W{int(parts[1]):02d}"
@@ -931,21 +948,35 @@ class AulaWidgetsClient:
             "institutionFilter[]": institution_filter,
         }
 
-        headers = {
-            "Authorization": token,
-            "Accept": "application/json",
-            "sessionUUID": session_uuid,
-            "X-Version": "1.0",
-        }
+        async def request_weekplan() -> Any:
+            token = await self._get_bearer_token(WIDGET_MEEBOOK)
+            headers = {
+                "Authorization": token,
+                "Accept": "application/json",
+                "sessionUUID": session_uuid,
+                "X-Version": "1.0",
+            }
 
-        resp = await self._api_client._request_with_version_retry(
-            "get",
-            f"{MEEBOOK_API}/relatedweekplan/all",
-            params=params,
-            headers=headers,
-        )
-        resp.raise_for_status()
-        plans = _as_list(resp.json(), "Meebook weekplan")
+            resp = await self._api_client._request_with_version_retry(
+                "get",
+                f"{MEEBOOK_API}/relatedweekplan/all",
+                params=params,
+                headers=headers,
+            )
+            resp.raise_for_status()
+            return resp.json()
+
+        payload = await request_weekplan()
+        if _is_meebook_jwt_expired(payload):
+            refreshed = await self._api_client._refresh_authentication(force=True)
+            if refreshed:
+                payload = await request_weekplan()
+
+            if not refreshed or _is_meebook_jwt_expired(payload):
+                _LOGGER.warning("Meebook weekplan JWT expired and could not be renewed")
+                return []
+
+        plans = _as_list(payload, "Meebook weekplan")
         return [MeebookStudentPlan.from_dict(s) for s in plans]
 
     async def get_momo_courses(

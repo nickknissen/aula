@@ -183,6 +183,9 @@ class TestWidgetsClient:
                             "end": "2026-02-24 09:00",
                             "description": "<p>Algebra</p>",
                             "itemType": 9,
+                            "ownerName": "Ada Teacher",
+                            "isAllDay": "true",
+                            "isNotice": False,
                         }
                     ]
                 }
@@ -205,6 +208,9 @@ class TestWidgetsClient:
         assert appointments[0].end == "2026-02-24 09:00"
         assert appointments[0].description == "<p>Algebra</p>"
         assert appointments[0].item_type == 9
+        assert appointments[0].owner_name == "Ada Teacher"
+        assert appointments[0].is_all_day is True
+        assert appointments[0].is_notice is False
         calls = client._request_with_version_retry.await_args_list
         assert calls[1].args == ("post", f"{EASYIQ_API}/weekplaninfo")
         assert calls[1].kwargs["headers"] == {
@@ -453,6 +459,32 @@ class TestWidgetsClient:
         assert calls[3].args == ("get", EASYIQ_CALENDAR_URL)
 
     @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        "envelope",
+        [
+            {"Events": [{"Id": "event-1", "ItemType": 9}]},
+            {"WeekPlan": [{"Id": "event-1", "ItemType": 9}]},
+            {"Data": {"Events": [{"Id": "event-1", "ItemType": 9}]}},
+        ],
+        ids=["events", "week-plan", "nested-mixed-case"],
+    )
+    async def test_easyiq_calendar_reads_observed_envelope_variants(self, client, envelope):
+        client._request_with_version_retry = AsyncMock(
+            side_effect=[_token_response("token-easy"), _calendar_response(envelope)]
+        )
+
+        events = await client.widgets.get_easyiq_calendar_events(
+            week="2026-W09",
+            institution_filter=["inst-1"],
+            child_profile_id="4242",
+            child_user_id="child-user-1",
+            all_child_user_ids=["child-user-1"],
+            guardian_login="guardian-1",
+        )
+
+        assert [event.event_id for event in events] == ["event-1"]
+
+    @pytest.mark.asyncio
     async def test_easyiq_calendar_falls_through_to_the_accepted_identifiers(self, client):
         """EasyIQ answers 200-with-nothing for identifiers it does not know."""
         client._request_with_version_retry = AsyncMock(
@@ -560,6 +592,43 @@ class TestWidgetsClient:
         assert calls[3].args == ("get", EASYIQ_CALENDAR_URL)
 
     @pytest.mark.asyncio
+    async def test_easyiq_weekplan_fallback_preserves_notice_metadata(self, client):
+        client._request_with_version_retry = AsyncMock(
+            side_effect=[
+                _token_response("token-easy"),
+                _calendar_response({"data": {"appointments": []}}),
+                _token_response("token-easy"),
+                _calendar_response(
+                    {
+                        "Events": [
+                            {
+                                "Id": "notice-1",
+                                "ItemType": 8,
+                                "Title": "Sports day",
+                                "OwnerName": "Ada Teacher",
+                            }
+                        ]
+                    }
+                ),
+            ]
+        )
+
+        appointments = await client.widgets.get_easyiq_weekplan(
+            "2026-W09",
+            "guardian-1",
+            ["inst-1"],
+            "child-user-1",
+            child_profile_id="4242",
+        )
+
+        assert len(appointments) == 1
+        assert appointments[0].appointment_id == "notice-1"
+        assert appointments[0].title == "Sports day"
+        assert appointments[0].owner_name == "Ada Teacher"
+        assert appointments[0].is_all_day is True
+        assert appointments[0].is_notice is True
+
+    @pytest.mark.asyncio
     async def test_get_easyiq_weekplan_falls_back_when_the_api_returns_nothing(self, client):
         """A 200 with an empty appointment list is the shape issue #45 reported."""
         empty = Mock()
@@ -614,7 +683,10 @@ class TestWidgetsClient:
     @pytest.mark.asyncio
     async def test_easyiq_calendar_stays_quiet_on_a_genuinely_empty_week(self, client, caplog):
         client._request_with_version_retry = AsyncMock(
-            side_effect=[_token_response("token-easy"), *[_calendar_response([])] * 4]
+            side_effect=[
+                _token_response("token-easy"),
+                *[_calendar_response({"Data": {"Events": []}})] * 4,
+            ]
         )
 
         homework = await client.widgets.get_easyiq_homework(
@@ -982,8 +1054,59 @@ class TestWidgetsClientMalformedResponses:
         )
 
     @pytest.mark.asyncio
-    async def test_meebook_weekplan_returns_empty_on_jwt_expiry_message(self, client, caplog):
-        self._responses(client, self.JWT_EXPIRED)
+    async def test_meebook_weekplan_refreshes_and_retries_on_jwt_expiry(self, client):
+        old_token_response = Mock()
+        old_token_response.raise_for_status = Mock()
+        old_token_response.json = Mock(return_value={"data": "token-old"})
+
+        expired_response = Mock()
+        expired_response.raise_for_status = Mock()
+        expired_response.json = Mock(return_value=self.JWT_EXPIRED)
+
+        new_token_response = Mock()
+        new_token_response.raise_for_status = Mock()
+        new_token_response.json = Mock(return_value={"data": "token-new"})
+
+        successful_response = Mock()
+        successful_response.raise_for_status = Mock()
+        successful_response.json = Mock(
+            return_value=[{"name": "Child", "unilogin": "child-1", "weekPlan": []}]
+        )
+
+        client._request_with_version_retry = AsyncMock(
+            side_effect=[
+                old_token_response,
+                expired_response,
+                new_token_response,
+                successful_response,
+            ]
+        )
+        client._refresh_authentication = AsyncMock(return_value=True)
+
+        plans = await client.widgets.get_meebook_weekplan(
+            child_filter=["child-1"],
+            institution_filter=["inst-1"],
+            week="2026-W09",
+            session_uuid="session-1",
+        )
+
+        assert [plan.name for plan in plans] == ["Child"]
+        client._refresh_authentication.assert_awaited_once_with(force=True)
+        calls = client._request_with_version_retry.await_args_list
+        assert calls[1].kwargs["headers"]["Authorization"] == "Bearer token-old"
+        assert calls[3].kwargs["headers"]["Authorization"] == "Bearer token-new"
+
+    @pytest.mark.asyncio
+    async def test_meebook_weekplan_returns_empty_when_jwt_refresh_is_unavailable(
+        self, client, caplog
+    ):
+        client._request_with_version_retry = AsyncMock(
+            side_effect=[
+                _token_response("token-old"),
+                _calendar_response(self.JWT_EXPIRED),
+            ]
+        )
+        client._refresh_authentication = AsyncMock(return_value=False)
 
         plans = await client.widgets.get_meebook_weekplan(
             child_filter=["child-1"],
@@ -993,8 +1116,55 @@ class TestWidgetsClientMalformedResponses:
         )
 
         assert plans == []
+        client._refresh_authentication.assert_awaited_once_with(force=True)
+        calls = client._request_with_version_retry.await_args_list
+        assert sum("aulaToken.getAulaToken" in call_.args[1] for call_ in calls) == 1
+        assert sum(call_.args[1] == f"{MEEBOOK_API}/relatedweekplan/all" for call_ in calls) == 1
+        assert "Meebook weekplan JWT expired and could not be renewed" in caplog.text
+
+    @pytest.mark.asyncio
+    async def test_meebook_weekplan_retries_only_once_when_jwt_stays_expired(self, client, caplog):
+        client._request_with_version_retry = AsyncMock(
+            side_effect=[
+                _token_response("token-old"),
+                _calendar_response(self.JWT_EXPIRED),
+                _token_response("token-new"),
+                _calendar_response(self.JWT_EXPIRED),
+            ]
+        )
+        client._refresh_authentication = AsyncMock(return_value=True)
+
+        plans = await client.widgets.get_meebook_weekplan(
+            child_filter=["child-1"],
+            institution_filter=["inst-1"],
+            week="2026-W09",
+            session_uuid="session-1",
+        )
+
+        assert plans == []
+        client._refresh_authentication.assert_awaited_once_with(force=True)
+        calls = client._request_with_version_retry.await_args_list
+        assert sum("aulaToken.getAulaToken" in call_.args[1] for call_ in calls) == 2
+        assert sum(call_.args[1] == f"{MEEBOOK_API}/relatedweekplan/all" for call_ in calls) == 2
+        assert "Meebook weekplan JWT expired and could not be renewed" in caplog.text
+
+    @pytest.mark.asyncio
+    async def test_meebook_weekplan_does_not_refresh_for_unrelated_error_object(
+        self, client, caplog
+    ):
+        self._responses(client, {"message": "Service temporarily unavailable"})
+        client._refresh_authentication = AsyncMock(return_value=True)
+
+        plans = await client.widgets.get_meebook_weekplan(
+            child_filter=["child-1"],
+            institution_filter=["inst-1"],
+            week="2026-W09",
+            session_uuid="session-1",
+        )
+
+        assert plans == []
+        client._refresh_authentication.assert_not_awaited()
         assert "Meebook weekplan returned dict instead of a list" in caplog.text
-        assert "JWT-Token expired" in caplog.text
 
     @pytest.mark.asyncio
     async def test_meebook_weekplan_skips_non_dict_items(self, client, caplog):
