@@ -20,10 +20,10 @@ from .api_client import AulaApiClient
 from .auth_flow import authenticate_and_create_client
 from .config import CONFIG_FILE, DEFAULT_TOKEN_FILE, load_config, save_config
 from .const import (
+    EASYIQ_WEEKPLAN_WIDGETS,
     MIN_UDDANNELSE_TASK_WIDGETS,
     WIDGET_BIBLIOTEKET,
     WIDGET_EASYIQ_HOMEWORK,
-    WIDGET_EASYIQ_WEEKPLAN,
     WIDGET_HUSKELISTEN,
     WIDGET_MEEBOOK,
     WIDGET_MIN_UDDANNELSE_UGEPLAN,
@@ -2061,7 +2061,8 @@ async def easyiq_ugeplan(ctx, week):
     """Fetch EasyIQ weekly plan (ugeplan) for children."""
     week = _resolve_week(week)
     async with await _get_client(ctx) as client:
-        if not await _require_widget(client, WIDGET_EASYIQ_WEEKPLAN, "EasyIQ Ugeplan"):
+        widget_id = await _require_any_widget(client, EASYIQ_WEEKPLAN_WIDGETS, "EasyIQ Ugeplan")
+        if widget_id is None:
             return
 
         try:
@@ -2110,6 +2111,7 @@ async def easyiq_ugeplan(ctx, week):
                         child_profile_id=str(child.id),
                         all_child_user_ids=all_child_user_ids,
                         all_institution_filter=institution_filter,
+                        widget_id=widget_id,
                     )
                     all_appointments.extend(_with_child(dict(a), child) for a in appointments)
                 except EasyIQChildNotInPortal:
@@ -2142,6 +2144,7 @@ async def easyiq_ugeplan(ctx, week):
                     child_profile_id=str(child.id),
                     all_child_user_ids=all_child_user_ids,
                     all_institution_filter=institution_filter,
+                    widget_id=widget_id,
                 )
             except EasyIQChildNotInPortal:
                 _echo_no_easyiq_identity(child.name, "weekly plan")
@@ -3133,9 +3136,12 @@ async def weekly_summary(ctx, child, week, providers):
                     click.echo()
 
         # ── EasyIQ – Weekly Plan ─────────────────────────────────────────────
-        if WeeklySummaryProvider.EASYIQ in enabled and await _has_widget(
-            client, WIDGET_EASYIQ_WEEKPLAN
-        ):
+        easyiq_weekplan_widget = (
+            await _first_available_widget(client, EASYIQ_WEEKPLAN_WIDGETS)
+            if WeeklySummaryProvider.EASYIQ in enabled
+            else None
+        )
+        if easyiq_weekplan_widget is not None:
             easyiq_appointments: list[dict] = []
             easyiq_any = False
             for c in children:
@@ -3156,6 +3162,7 @@ async def weekly_summary(ctx, child, week, providers):
                         child_profile_id=str(c.id),
                         all_child_user_ids=all_child_user_ids,
                         all_institution_filter=institution_filter,
+                        widget_id=easyiq_weekplan_widget,
                     )
                 except EasyIQChildNotInPortal:
                     # Expected for children whose institution is not on EasyIQ.

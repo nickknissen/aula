@@ -25,6 +25,7 @@ CICERO_API = "https://surf.cicero-suite.com/portal-api/rest/aula"
 
 # Widget IDs for third-party integrations
 WIDGET_EASYIQ_WEEKPLAN = "0128"
+WIDGET_EASYIQ_LEGACY = "0001"
 WIDGET_EASYIQ_HOMEWORK = "0142"
 WIDGET_BIBLIOTEKET = "0019"
 WIDGET_MIN_UDDANNELSE_UGEPLAN = "0029"
@@ -32,6 +33,15 @@ WIDGET_MIN_UDDANNELSE_TASKS = "0030"
 WIDGET_MIN_UDDANNELSE_SSO = "0023"
 WIDGET_MEEBOOK = "0004"
 WIDGET_HUSKELISTEN = "0062"
+
+# Verified EasyIQ weekplan-capable widgets, in preference order. The reference
+# integration also sees legacy 0001 and homework 0142 accepted for weekplans;
+# keep the current dedicated 0128 widget first when an account exposes it.
+EASYIQ_WEEKPLAN_WIDGETS = (
+    WIDGET_EASYIQ_WEEKPLAN,
+    WIDGET_EASYIQ_LEGACY,
+    WIDGET_EASYIQ_HOMEWORK,
+)
 
 # Widget IDs that can mint a token for MinUddannelse's opgaveliste endpoint, in
 # preference order. Not every school lists 0030, and a school that only has the

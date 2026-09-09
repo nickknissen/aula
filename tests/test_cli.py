@@ -33,10 +33,13 @@ from aula.cli import (
     logout,
     print_mu_task_tables,
     report_sick,
+    weekly_summary,
 )
 from aula.const import (
+    EASYIQ_WEEKPLAN_WIDGETS,
     MIN_UDDANNELSE_TASK_WIDGETS,
     WIDGET_EASYIQ_HOMEWORK,
+    WIDGET_EASYIQ_LEGACY,
     WIDGET_EASYIQ_WEEKPLAN,
 )
 from aula.models import (
@@ -130,7 +133,7 @@ class TestWidgetAvailability:
 
 
 class TestWidgetPreference:
-    """MinUddannelse opgaver are reachable through more than one widget."""
+    """Some providers are reachable through more than one widget."""
 
     @pytest.fixture(autouse=True)
     def _clear_cache(self):
@@ -196,6 +199,50 @@ class TestWidgetPreference:
         assert "0030" in out
         assert "0023" in out
         assert "aula widgets" in out
+
+    @pytest.mark.asyncio
+    async def test_easyiq_prefers_the_dedicated_weekplan_widget(self):
+        client = self._client(
+            [WIDGET_EASYIQ_HOMEWORK, WIDGET_EASYIQ_LEGACY, WIDGET_EASYIQ_WEEKPLAN]
+        )
+
+        assert (
+            await _first_available_widget(client, EASYIQ_WEEKPLAN_WIDGETS) == WIDGET_EASYIQ_WEEKPLAN
+        )
+
+    @pytest.mark.asyncio
+    async def test_easyiq_falls_back_to_the_legacy_widget(self):
+        client = self._client([WIDGET_EASYIQ_HOMEWORK, WIDGET_EASYIQ_LEGACY])
+
+        assert (
+            await _first_available_widget(client, EASYIQ_WEEKPLAN_WIDGETS) == WIDGET_EASYIQ_LEGACY
+        )
+
+    @pytest.mark.asyncio
+    async def test_easyiq_uses_the_homework_widget_as_the_last_verified_candidate(self):
+        client = self._client([WIDGET_EASYIQ_HOMEWORK])
+
+        assert (
+            await _first_available_widget(client, EASYIQ_WEEKPLAN_WIDGETS) == WIDGET_EASYIQ_HOMEWORK
+        )
+
+    @pytest.mark.asyncio
+    async def test_easyiq_reports_when_no_verified_candidate_is_available(self, capsys):
+        client = self._client(["0019"])
+
+        assert await _require_any_widget(client, EASYIQ_WEEKPLAN_WIDGETS, "EasyIQ Ugeplan") is None
+        out = capsys.readouterr().out
+        assert WIDGET_EASYIQ_WEEKPLAN in out
+        assert WIDGET_EASYIQ_LEGACY in out
+        assert WIDGET_EASYIQ_HOMEWORK in out
+
+    @pytest.mark.asyncio
+    async def test_easyiq_unreadable_widget_list_optimistically_uses_the_preferred_id(self):
+        client = self._client([], side_effect=RuntimeError("boom"))
+
+        assert (
+            await _first_available_widget(client, EASYIQ_WEEKPLAN_WIDGETS) == WIDGET_EASYIQ_WEEKPLAN
+        )
 
 
 class TestWithChild:
@@ -713,9 +760,9 @@ class TestEasyiqPerChildInstitutionScoping:
         client.__aexit__ = AsyncMock(return_value=False)
         return client
 
-    def _run(self, command, client, monkeypatch, *args):
+    def _run(self, command, client, monkeypatch, *args, output_format="text"):
         monkeypatch.setattr("aula.cli._get_client", AsyncMock(return_value=client))
-        return CliRunner().invoke(command, list(args), obj={"OUTPUT_FORMAT": "text"})
+        return CliRunner().invoke(command, list(args), obj={"OUTPUT_FORMAT": output_format})
 
     def test_ugeplan_scopes_institution_filter_per_child(self, monkeypatch):
         school_child = self._child(1, "u-school", "SCH-1")
@@ -730,6 +777,46 @@ class TestEasyiqPerChildInstitutionScoping:
         assert calls[0].args[2] == ["SCH-1"]
         assert calls[1].args[2] == ["DAY-2"]
         assert calls[0].args[2] != calls[1].args[2]
+        assert all(call_.kwargs["widget_id"] == WIDGET_EASYIQ_WEEKPLAN for call_ in calls)
+
+    def test_ugeplan_json_uses_the_selected_legacy_widget(self, monkeypatch):
+        child = self._child(1, "u-school", "SCH-1")
+        client = self._client([child])
+        client.get_widgets = AsyncMock(return_value=[MagicMock(widget_id=WIDGET_EASYIQ_LEGACY)])
+
+        result = self._run(
+            easyiq_ugeplan,
+            client,
+            monkeypatch,
+            output_format="json",
+        )
+
+        assert result.exit_code == 0
+        calls = client.widgets.get_easyiq_weekplan.await_args_list
+        assert len(calls) == 1
+        assert calls[0].kwargs["widget_id"] == WIDGET_EASYIQ_LEGACY
+
+    def test_weekly_summary_uses_the_selected_legacy_widget(self, monkeypatch):
+        child = self._child(1, "u-school", "SCH-1")
+        client = self._client([child])
+        client.get_widgets = AsyncMock(return_value=[MagicMock(widget_id=WIDGET_EASYIQ_LEGACY)])
+        client.get_calendar_events = AsyncMock(return_value=[])
+        client.get_message_threads = AsyncMock(return_value=[])
+
+        result = self._run(
+            weekly_summary,
+            client,
+            monkeypatch,
+            "--provider",
+            "easyiq",
+        )
+
+        assert result.exit_code == 0
+        client.widgets.get_easyiq_weekplan.assert_awaited_once()
+        assert (
+            client.widgets.get_easyiq_weekplan.await_args.kwargs["widget_id"]
+            == WIDGET_EASYIQ_LEGACY
+        )
 
     def test_ugeplan_passes_every_institution_for_the_portal_session(self, monkeypatch):
         """The session is cached, so it must be made under all institutions.
