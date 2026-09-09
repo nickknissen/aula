@@ -969,7 +969,7 @@ class AulaApiClient:
                 substitute = self._find_participant_by_role(lesson, "substituteTeacher")
 
                 has_substitute = lesson.get("lessonStatus", "").lower() == "substitute"
-                location = get_in(lesson, "primaryResource.name")
+                location = get_in(event, "primaryResource.name")
 
                 events.append(
                     CalendarEvent(
