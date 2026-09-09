@@ -70,6 +70,64 @@ def test_alternate_keys_are_read():
     assert event.description == "Husk tøj"
 
 
+def test_start_date_and_end_date_are_normalized():
+    event = EasyIQCalendarEvent.from_dict(
+        {"StartDate": "2026/08/13 12:55", "EndDate": "2026/08/13 14:25"}
+    )
+    assert event.start == "2026-08-13T12:55:00"
+    assert event.end == "2026-08-13T14:25:00"
+
+
+def test_owner_name_aliases_are_read():
+    assert EasyIQCalendarEvent.from_dict({"OwnerName": "Ada Teacher"}).owner_name == "Ada Teacher"
+    assert EasyIQCalendarEvent.from_dict({"teacher": "Grace Teacher"}).owner_name == "Grace Teacher"
+
+
+def test_is_all_day_uses_only_known_true_encodings():
+    for value in (True, "true", "1", "yes", 1):
+        event = EasyIQCalendarEvent.from_dict({"CoursesDisplay": "Dansk", "IsAllDay": value})
+        assert event.is_all_day is True
+
+    for value in (False, "false", "0", 0, "sometimes", None):
+        event = EasyIQCalendarEvent.from_dict({"CoursesDisplay": "Dansk", "IsAllDay": value})
+        assert event.is_all_day is False
+
+    assert EasyIQCalendarEvent.from_dict({"CoursesDisplay": "Dansk"}).is_all_day is False
+
+
+def test_rows_without_a_course_are_all_day_notices():
+    notice = EasyIQCalendarEvent.from_dict({"Description": "School closed"})
+    lesson = EasyIQCalendarEvent.from_dict({"CoursesDisplay": "Matematik"})
+
+    assert notice.is_notice is True
+    assert notice.is_all_day is True
+    assert lesson.is_notice is False
+
+
+def test_explicit_title_does_not_pretend_to_be_a_course():
+    event = EasyIQCalendarEvent.from_dict({"Title": "Sports day"})
+
+    assert event.event_title == "Sports day"
+    assert event.title == "Sports day"
+    assert event.courses == ""
+    assert event.is_notice is True
+    assert EasyIQCalendarEvent.from_dict({"Name": "Parents evening"}).event_title == (
+        "Parents evening"
+    )
+
+
+def test_notice_title_comes_from_heading_then_visible_text():
+    with_heading = EasyIQCalendarEvent.from_dict(
+        {"Description": "<h1> </h1><p>Introduction</p><h2>School &amp; SFO closed</h2>"}
+    )
+    without_heading = EasyIQCalendarEvent.from_dict(
+        {"Description": "<p>Remember indoor shoes</p><p>Applies all week</p>"}
+    )
+
+    assert with_heading.title == "School & SFO closed"
+    assert without_heading.title == "Remember indoor shoes"
+
+
 def test_list_values_are_joined():
     event = EasyIQCalendarEvent.from_dict({"activities": ["Læsning", "Skrivning"]})
     assert event.activities == "Læsning, Skrivning"
@@ -139,6 +197,13 @@ def test_event_id_is_read():
 
 
 def test_dict_conversion_drops_raw():
-    result = dict(EasyIQCalendarEvent.from_dict({"itemType": 4, "courses": "Dansk"}))
+    result = dict(
+        EasyIQCalendarEvent.from_dict(
+            {"itemType": 4, "courses": "Dansk", "OwnerName": "Ada Teacher", "IsAllDay": True}
+        )
+    )
     assert result["courses"] == "Dansk"
+    assert result["owner_name"] == "Ada Teacher"
+    assert result["is_all_day"] is True
+    assert result["is_notice"] is False
     assert "_raw" not in result

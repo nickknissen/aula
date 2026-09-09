@@ -123,13 +123,14 @@ def _find_events(payload: Any) -> list[dict[str, Any]] | None:
     if isinstance(payload, list):
         return [event for event in payload if isinstance(event, dict)]
     if isinstance(payload, dict):
-        for key in ("events", "calendarEvents", "items", "data", "result"):
-            value = payload.get(key)
+        folded = {str(key).casefold(): value for key, value in payload.items()}
+        for key in ("events", "calendarevents", "weekplan", "items", "data", "result"):
+            value = folded.get(key)
             if isinstance(value, list):
                 return [event for event in value if isinstance(event, dict)]
             if isinstance(value, dict):
                 nested = _find_events(value)
-                if nested:
+                if nested is not None:
                     return nested
     return None
 
@@ -876,6 +877,9 @@ class AulaWidgetsClient:
                 description=event.description,
                 activities=event.activities,
                 item_type=event.item_type,
+                owner_name=event.owner_name,
+                is_all_day=event.is_all_day,
+                is_notice=event.is_notice,
             )
             for event in events
             if event.item_type in WEEKPLAN_ITEM_TYPES

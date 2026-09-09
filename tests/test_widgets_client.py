@@ -183,6 +183,9 @@ class TestWidgetsClient:
                             "end": "2026-02-24 09:00",
                             "description": "<p>Algebra</p>",
                             "itemType": 9,
+                            "ownerName": "Ada Teacher",
+                            "isAllDay": "true",
+                            "isNotice": False,
                         }
                     ]
                 }
@@ -205,6 +208,9 @@ class TestWidgetsClient:
         assert appointments[0].end == "2026-02-24 09:00"
         assert appointments[0].description == "<p>Algebra</p>"
         assert appointments[0].item_type == 9
+        assert appointments[0].owner_name == "Ada Teacher"
+        assert appointments[0].is_all_day is True
+        assert appointments[0].is_notice is False
         calls = client._request_with_version_retry.await_args_list
         assert calls[1].args == ("post", f"{EASYIQ_API}/weekplaninfo")
         assert calls[1].kwargs["headers"] == {
@@ -453,6 +459,32 @@ class TestWidgetsClient:
         assert calls[3].args == ("get", EASYIQ_CALENDAR_URL)
 
     @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        "envelope",
+        [
+            {"Events": [{"Id": "event-1", "ItemType": 9}]},
+            {"WeekPlan": [{"Id": "event-1", "ItemType": 9}]},
+            {"Data": {"Events": [{"Id": "event-1", "ItemType": 9}]}},
+        ],
+        ids=["events", "week-plan", "nested-mixed-case"],
+    )
+    async def test_easyiq_calendar_reads_observed_envelope_variants(self, client, envelope):
+        client._request_with_version_retry = AsyncMock(
+            side_effect=[_token_response("token-easy"), _calendar_response(envelope)]
+        )
+
+        events = await client.widgets.get_easyiq_calendar_events(
+            week="2026-W09",
+            institution_filter=["inst-1"],
+            child_profile_id="4242",
+            child_user_id="child-user-1",
+            all_child_user_ids=["child-user-1"],
+            guardian_login="guardian-1",
+        )
+
+        assert [event.event_id for event in events] == ["event-1"]
+
+    @pytest.mark.asyncio
     async def test_easyiq_calendar_falls_through_to_the_accepted_identifiers(self, client):
         """EasyIQ answers 200-with-nothing for identifiers it does not know."""
         client._request_with_version_retry = AsyncMock(
@@ -560,6 +592,43 @@ class TestWidgetsClient:
         assert calls[3].args == ("get", EASYIQ_CALENDAR_URL)
 
     @pytest.mark.asyncio
+    async def test_easyiq_weekplan_fallback_preserves_notice_metadata(self, client):
+        client._request_with_version_retry = AsyncMock(
+            side_effect=[
+                _token_response("token-easy"),
+                _calendar_response({"data": {"appointments": []}}),
+                _token_response("token-easy"),
+                _calendar_response(
+                    {
+                        "Events": [
+                            {
+                                "Id": "notice-1",
+                                "ItemType": 8,
+                                "Title": "Sports day",
+                                "OwnerName": "Ada Teacher",
+                            }
+                        ]
+                    }
+                ),
+            ]
+        )
+
+        appointments = await client.widgets.get_easyiq_weekplan(
+            "2026-W09",
+            "guardian-1",
+            ["inst-1"],
+            "child-user-1",
+            child_profile_id="4242",
+        )
+
+        assert len(appointments) == 1
+        assert appointments[0].appointment_id == "notice-1"
+        assert appointments[0].title == "Sports day"
+        assert appointments[0].owner_name == "Ada Teacher"
+        assert appointments[0].is_all_day is True
+        assert appointments[0].is_notice is True
+
+    @pytest.mark.asyncio
     async def test_get_easyiq_weekplan_falls_back_when_the_api_returns_nothing(self, client):
         """A 200 with an empty appointment list is the shape issue #45 reported."""
         empty = Mock()
@@ -614,7 +683,10 @@ class TestWidgetsClient:
     @pytest.mark.asyncio
     async def test_easyiq_calendar_stays_quiet_on_a_genuinely_empty_week(self, client, caplog):
         client._request_with_version_retry = AsyncMock(
-            side_effect=[_token_response("token-easy"), *[_calendar_response([])] * 4]
+            side_effect=[
+                _token_response("token-easy"),
+                *[_calendar_response({"Data": {"Events": []}})] * 4,
+            ]
         )
 
         homework = await client.widgets.get_easyiq_homework(
