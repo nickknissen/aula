@@ -70,6 +70,8 @@ async def _refresh_token_via_oidc(refresh_token: str) -> dict[str, Any] | None:
 async def create_client(
     token_data: dict[str, Any],
     http_client: HttpClient | None = None,
+    *,
+    token_storage: TokenStorage | None = None,
 ) -> AulaApiClient:
     """Create an AulaApiClient from stored credentials.
 
@@ -85,6 +87,9 @@ async def create_client(
         http_client: Optional HTTP client implementing the ``HttpClient``
             protocol. When *None*, an ``HttpxHttpClient`` is created with the
             session cookies from ``token_data``.
+        token_storage: Optional storage backend. When supplied, automatic
+            refresh merges rotated credentials into ``token_data`` and saves
+            the complete credential blob before the request is retried.
 
     Returns:
         A ready-to-use ``AulaApiClient`` (``init()`` has been called).
@@ -108,16 +113,29 @@ async def create_client(
         http_client = HttpxHttpClient(cookies=cookies)
 
     # Build a token refresh callback if a refresh_token is available.
-    refresh_token = tokens.get("refresh_token")
+    current_tokens = dict(tokens)
+    refresh_token = current_tokens.get("refresh_token")
     on_token_refresh = None
     if refresh_token:
 
         async def _do_refresh() -> str | None:
-            result = await _refresh_token_via_oidc(refresh_token)
-            if result and result.get("access_token"):
-                _LOGGER.info("Automatic token refresh successful")
-                return result["access_token"]
-            return None
+            current_refresh_token = current_tokens.get("refresh_token")
+            if not current_refresh_token:
+                return None
+
+            result = await _refresh_token_via_oidc(current_refresh_token)
+            if not result or not result.get("access_token"):
+                return None
+
+            current_tokens.update(result)
+            token_data["tokens"] = current_tokens
+            token_data["timestamp"] = time.time()
+            token_data["created_at"] = time.strftime("%Y-%m-%d %H:%M:%S")
+            if token_storage:
+                await token_storage.save(token_data)
+
+            _LOGGER.info("Automatic token refresh successful")
+            return result["access_token"]
 
         on_token_refresh = _do_refresh
 
@@ -292,7 +310,7 @@ async def authenticate_and_create_client(
         on_qr_done=on_qr_done,
     )
     try:
-        return await create_client(token_data)
+        return await create_client(token_data, token_storage=token_storage)
     except AulaAuthenticationError as err:
         _LOGGER.warning(
             "Cached session cookies were rejected (%s); retrying with fresh MitID login",
@@ -312,7 +330,7 @@ async def authenticate_and_create_client(
             on_otp_code=on_otp_code,
             on_qr_done=on_qr_done,
         )
-        return await create_client(fresh_token_data)
+        return await create_client(fresh_token_data, token_storage=token_storage)
 
 
 def _build_token_data(

@@ -105,6 +105,96 @@ class TestCreateClient:
             # access_token cleared after init
             assert client._access_token is None
 
+    @pytest.mark.asyncio
+    async def test_automatic_refresh_persists_and_reuses_rotated_credentials(self):
+        """Reactive refresh saves the full blob and reuses token rotation."""
+        http = _mock_http_client()
+        token_data = {
+            "timestamp": 1.0,
+            "created_at": "old-created-at",
+            "username": "user",
+            "tokens": {
+                "access_token": "access-1",
+                "refresh_token": "refresh-1",
+                "scope": "openid",
+            },
+            "cookies": {"PHPSESSID": "session-1"},
+        }
+        token_storage = AsyncMock()
+
+        client = await create_client(
+            token_data,
+            http_client=http,
+            token_storage=token_storage,
+        )
+        http.request = AsyncMock(
+            side_effect=[
+                HttpResponse(status_code=401),
+                _profile_response(),
+                _profile_response(),
+                _profile_response(),
+                HttpResponse(status_code=401),
+                _profile_response(),
+                _profile_response(),
+                _profile_response(),
+            ]
+        )
+
+        with (
+            patch(
+                "aula.auth_flow._refresh_token_via_oidc",
+                new_callable=AsyncMock,
+                side_effect=[
+                    {
+                        "access_token": "access-2",
+                        "refresh_token": "refresh-2",
+                        "expires_at": 2_000.0,
+                    },
+                    {"access_token": "access-3", "expires_at": 3_000.0},
+                ],
+            ) as refresh_via_oidc,
+            patch("aula.auth_flow.time.time", side_effect=[100.0, 200.0]),
+            patch(
+                "aula.auth_flow.time.strftime",
+                side_effect=["created-after-first", "created-after-second"],
+            ),
+        ):
+            first_profile = await client.get_profile()
+
+            assert first_profile.display_name == "Test"
+            refresh_via_oidc.assert_awaited_once_with("refresh-1")
+            assert token_data == {
+                "timestamp": 100.0,
+                "created_at": "created-after-first",
+                "username": "user",
+                "tokens": {
+                    "access_token": "access-2",
+                    "refresh_token": "refresh-2",
+                    "scope": "openid",
+                    "expires_at": 2_000.0,
+                },
+                "cookies": {"PHPSESSID": "session-1"},
+            }
+            token_storage.save.assert_awaited_once_with(token_data)
+
+            second_profile = await client.get_profile()
+
+        assert second_profile.display_name == "Test"
+        assert [awaited.args for awaited in refresh_via_oidc.await_args_list] == [
+            ("refresh-1",),
+            ("refresh-2",),
+        ]
+        assert token_data["tokens"] == {
+            "access_token": "access-3",
+            "refresh_token": "refresh-2",
+            "scope": "openid",
+            "expires_at": 3_000.0,
+        }
+        assert token_data["timestamp"] == 200.0
+        assert token_data["created_at"] == "created-after-second"
+        assert token_storage.save.await_count == 2
+        assert token_storage.save.await_args.args[0] is token_data
+
 
 # ---------------------------------------------------------------------------
 # authenticate (returns token_data dict)
@@ -420,6 +510,7 @@ class TestAuthenticateAndCreateClient:
         # Verify create_client received the token_data from authenticate
         call_args = mock_create.call_args[0][0]
         assert call_args["tokens"]["access_token"] == "fresh-tok"
+        assert mock_create.call_args.kwargs == {"token_storage": token_storage}
         assert result is mock_create.return_value
 
     @pytest.mark.asyncio
@@ -466,6 +557,8 @@ class TestAuthenticateAndCreateClient:
         assert mock_create.await_count == 2
         assert mock_create.await_args_list[0].args[0] == cached_token_data
         assert mock_create.await_args_list[1].args[0] == fresh_token_data
+        assert mock_create.await_args_list[0].kwargs == {"token_storage": token_storage}
+        assert mock_create.await_args_list[1].kwargs == {"token_storage": token_storage}
         assert result is recovered_client
 
     @pytest.mark.asyncio

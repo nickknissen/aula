@@ -1,5 +1,6 @@
 """Tests for aula.api_client."""
 
+import asyncio
 import inspect
 from datetime import date, datetime
 from unittest.mock import AsyncMock, MagicMock, patch
@@ -86,6 +87,102 @@ class TestRequestWithVersionRetry:
         )
         assert resp.status_code == 500
         assert client._client.request.call_count == 1
+
+    @pytest.mark.asyncio
+    async def test_concurrent_auth_failures_share_one_refresh_and_both_retry(self):
+        """Concurrent callers wait for one refresh and both replay successfully."""
+        both_initial_requests_started = asyncio.Event()
+        initial_request_count = 0
+        request_counts = {"concurrent-one": 0, "concurrent-two": 0}
+
+        async def request(method, url, **kwargs):
+            nonlocal initial_request_count
+            for request_name in request_counts:
+                if f"method={request_name}" not in url:
+                    continue
+                request_counts[request_name] += 1
+                if request_counts[request_name] == 1:
+                    initial_request_count += 1
+                    if initial_request_count == 2:
+                        both_initial_requests_started.set()
+                    return HttpResponse(status_code=401, data=None)
+                return HttpResponse(status_code=200, data={"request": request_name})
+            return HttpResponse(status_code=200, data={"data": {"profiles": []}})
+
+        async def refresh_token():
+            await both_initial_requests_started.wait()
+            return "refreshed-token"
+
+        http_client = AsyncMock()
+        http_client.request = AsyncMock(side_effect=request)
+        http_client.get_cookie = MagicMock(return_value="csrf-token")
+        on_token_refresh = AsyncMock(side_effect=refresh_token)
+        client = AulaApiClient(http_client=http_client, on_token_refresh=on_token_refresh)
+
+        responses = await asyncio.gather(
+            client._request_with_version_retry(
+                "get", f"{API_URL}{API_VERSION}?method=concurrent-one"
+            ),
+            client._request_with_version_retry(
+                "get", f"{API_URL}{API_VERSION}?method=concurrent-two"
+            ),
+        )
+
+        assert [response.status_code for response in responses] == [200, 200]
+        assert [response.json()["request"] for response in responses] == [
+            "concurrent-one",
+            "concurrent-two",
+        ]
+        on_token_refresh.assert_awaited_once_with()
+        assert request_counts == {"concurrent-one": 2, "concurrent-two": 2}
+
+    @pytest.mark.asyncio
+    async def test_session_expired_subcode_refreshes_and_retries(self):
+        """Aula's session-expired envelope follows the same refresh path as 401."""
+        http_client = AsyncMock()
+        http_client.request = AsyncMock(
+            side_effect=[
+                HttpResponse(status_code=200, data={"status": {"subCode": 13}}),
+                HttpResponse(status_code=200),
+                HttpResponse(status_code=200),
+                HttpResponse(status_code=200, data={"data": {"ok": True}}),
+            ]
+        )
+        http_client.get_cookie = MagicMock(return_value="csrf-token")
+        on_token_refresh = AsyncMock(return_value="refreshed-token")
+        client = AulaApiClient(http_client=http_client, on_token_refresh=on_token_refresh)
+
+        response = await client._request_with_version_retry(
+            "get", f"{API_URL}{API_VERSION}?method=subcode-test"
+        )
+
+        assert response.json() == {"data": {"ok": True}}
+        on_token_refresh.assert_awaited_once_with()
+        assert http_client.request.await_count == 4
+
+    @pytest.mark.asyncio
+    async def test_authentication_replay_is_limited_to_one_attempt(self):
+        """A second 401 is returned without another refresh or replay."""
+        http_client = AsyncMock()
+        http_client.request = AsyncMock(
+            side_effect=[
+                HttpResponse(status_code=401),
+                HttpResponse(status_code=200),
+                HttpResponse(status_code=200),
+                HttpResponse(status_code=401),
+            ]
+        )
+        http_client.get_cookie = MagicMock(return_value="csrf-token")
+        on_token_refresh = AsyncMock(return_value="refreshed-token")
+        client = AulaApiClient(http_client=http_client, on_token_refresh=on_token_refresh)
+
+        response = await client._request_with_version_retry(
+            "get", f"{API_URL}{API_VERSION}?method=bounded-retry"
+        )
+
+        assert response.status_code == 401
+        on_token_refresh.assert_awaited_once_with()
+        assert http_client.request.await_count == 4
 
     @pytest.mark.asyncio
     async def test_debug_logging_includes_method_and_response(self, client, caplog):
