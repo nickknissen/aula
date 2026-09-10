@@ -311,6 +311,7 @@ class AulaWidgetsClient:
         institution_filter: list[str],
         guardian_login: str,
         child_user_ids: list[str],
+        widget_id: str,
     ) -> None:
         """Establish the EasyIQ portal session once, and learn its child IDs.
 
@@ -335,7 +336,9 @@ class AulaWidgetsClient:
             # waited for the lock. Re-check rather than repeat it.
             if self._easyiq_session_ready:
                 return
-            await self._bootstrap_easyiq_session(institution_filter, guardian_login, child_user_ids)
+            await self._bootstrap_easyiq_session(
+                institution_filter, guardian_login, child_user_ids, widget_id
+            )
 
     async def authenticate_easyiq_session(
         self,
@@ -344,6 +347,7 @@ class AulaWidgetsClient:
         child_user_ids: list[str],
         child_user_id: str = "",
         token: str | None = None,
+        widget_id: str = WIDGET_EASYIQ_HOMEWORK,
     ) -> dict[str, Any]:
         """``POST /Aula/AuthenticateAulaUser``, returning its body key-folded.
 
@@ -357,7 +361,7 @@ class AulaWidgetsClient:
         raising, since every caller can carry on without it. Transport
         failures do raise.
         """
-        token = token or await self._get_bearer_token(WIDGET_EASYIQ_HOMEWORK)
+        token = token or await self._get_bearer_token(widget_id)
         headers = self.easyiq_headers(
             token, institution_filter, guardian_login, child_user_ids, child_user_id
         )
@@ -379,9 +383,10 @@ class AulaWidgetsClient:
         institution_filter: list[str],
         guardian_login: str,
         child_user_ids: list[str],
+        widget_id: str,
     ) -> None:
         """Make the portal session and read its child IDs. Holds the lock."""
-        token = await self._get_bearer_token(WIDGET_EASYIQ_HOMEWORK)
+        token = await self._get_bearer_token(widget_id)
         headers = self.easyiq_headers(token, institution_filter, guardian_login, child_user_ids)
         try:
             body = await self.authenticate_easyiq_session(
@@ -597,7 +602,10 @@ class AulaWidgetsClient:
         # resolvable, and children at the guardian's other institutions could
         # then be mistaken for children EasyIQ does not know.
         await self.ensure_easyiq_session(
-            all_institution_filter or institution_filter, guardian_login, all_child_user_ids
+            all_institution_filter or institution_filter,
+            guardian_login,
+            all_child_user_ids,
+            widget_id,
         )
 
         easyiq_child_id = self.resolve_easyiq_child_id(child_user_id)

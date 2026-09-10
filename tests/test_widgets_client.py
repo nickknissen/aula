@@ -19,6 +19,8 @@ from aula.const import (
     MIN_UDDANNELSE_API,
     SYSTEMATIC_API,
     WIDGET_EASYIQ_HOMEWORK,
+    WIDGET_EASYIQ_LEGACY,
+    WIDGET_EASYIQ_WEEKPLAN,
     WIDGET_HUSKELISTEN,
     WIDGET_MIN_UDDANNELSE_TASKS,
     WIDGET_MIN_UDDANNELSE_UGEPLAN,
@@ -284,6 +286,49 @@ class TestWidgetsClient:
         }
 
     @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        "widget_id",
+        [WIDGET_EASYIQ_WEEKPLAN, WIDGET_EASYIQ_LEGACY],
+        ids=["dedicated", "legacy"],
+    )
+    async def test_calendar_bootstrap_uses_the_selected_widget(
+        self, unbootstrapped_client, widget_id
+    ):
+        client = unbootstrapped_client
+        client._request_with_version_retry = AsyncMock(
+            side_effect=[
+                _token_response(f"{widget_id}-bootstrap"),
+                _calendar_response(None),
+                _calendar_response({"Children": [{"Id": "9001", "Login": "astr8360"}]}),
+                _token_response(f"{widget_id}-read"),
+                _calendar_response(None),
+                _calendar_response({"child": "astr8360"}),
+                _calendar_response([{"ItemType": 9, "Title": "Dansk"}]),
+            ]
+        )
+
+        events = await client.widgets.get_easyiq_calendar_events(
+            week="2026-W09",
+            institution_filter=["inst-1"],
+            child_profile_id="4242",
+            child_user_id="astr8360",
+            all_child_user_ids=["astr8360"],
+            guardian_login="guardian-1",
+            widget_id=widget_id,
+        )
+
+        assert len(events) == 1
+        token_urls = [
+            call_.args[1]
+            for call_ in client._request_with_version_retry.await_args_list
+            if "getAulaToken" in call_.args[1]
+        ]
+        assert token_urls == [
+            f"{client.api_url}?method=aulaToken.getAulaToken&widgetId={widget_id}",
+            f"{client.api_url}?method=aulaToken.getAulaToken&widgetId={widget_id}",
+        ]
+
+    @pytest.mark.asyncio
     async def test_portal_session_is_established_before_any_controller(self, unbootstrapped_client):
         """Without AuthenticateAulaUser the portal's controllers all 500."""
         client = unbootstrapped_client
@@ -310,6 +355,11 @@ class TestWidgetsClient:
 
         assert [hw.subject for hw in homework] == ["Dansk"]
         calls = client._request_with_version_retry.await_args_list
+        token_urls = [call_.args[1] for call_ in calls if "getAulaToken" in call_.args[1]]
+        assert token_urls == [
+            f"{client.api_url}?method=aulaToken.getAulaToken&widgetId={WIDGET_EASYIQ_HOMEWORK}",
+            f"{client.api_url}?method=aulaToken.getAulaToken&widgetId={WIDGET_EASYIQ_HOMEWORK}",
+        ]
         assert calls[1].args == ("post", f"{EASYIQ_PORTAL}{EASYIQ_AUTHENTICATE_PATH}")
         assert calls[2].args == ("get", f"{EASYIQ_PORTAL}{EASYIQ_CHILDREN_PATH}")
         # EasyIQ's own ID is used as loginId, matched on Login not Name, and
@@ -383,7 +433,10 @@ class TestWidgetsClient:
         await asyncio.gather(
             *(
                 client.widgets.ensure_easyiq_session(
-                    ["inst-1"], "guardian-1", ["astr8360", "kris37r9"]
+                    ["inst-1"],
+                    "guardian-1",
+                    ["astr8360", "kris37r9"],
+                    WIDGET_EASYIQ_HOMEWORK,
                 )
                 for _ in range(4)
             )
@@ -1260,7 +1313,9 @@ class TestEasyiqProtocolCorrectIdentifier:
             ]
         )
 
-        await client.widgets.ensure_easyiq_session(["inst-1"], "guardian-1", ["astr8360"])
+        await client.widgets.ensure_easyiq_session(
+            ["inst-1"], "guardian-1", ["astr8360"], WIDGET_EASYIQ_HOMEWORK
+        )
 
         assert client.widgets._easyiq_parent_login_id == "parent-42"
 
@@ -1274,7 +1329,9 @@ class TestEasyiqProtocolCorrectIdentifier:
             ]
         )
 
-        await client.widgets.ensure_easyiq_session(["inst-1"], "guardian-1", ["astr8360"])
+        await client.widgets.ensure_easyiq_session(
+            ["inst-1"], "guardian-1", ["astr8360"], WIDGET_EASYIQ_HOMEWORK
+        )
 
         assert client.widgets._easyiq_parent_login_id is None
 
@@ -1291,7 +1348,9 @@ class TestEasyiqProtocolCorrectIdentifier:
             ]
         )
 
-        await client.widgets.ensure_easyiq_session(["inst-1"], "guardian-1", ["astr8360"])
+        await client.widgets.ensure_easyiq_session(
+            ["inst-1"], "guardian-1", ["astr8360"], WIDGET_EASYIQ_HOMEWORK
+        )
 
         assert client.widgets._easyiq_parent_login_id is None
         # A bad AuthenticateAulaUser body is not fatal: GetChildren still runs.
@@ -1307,7 +1366,9 @@ class TestEasyiqProtocolCorrectIdentifier:
             ]
         )
 
-        await client.widgets.ensure_easyiq_session(["inst-1"], "guardian-1", ["astr8360"])
+        await client.widgets.ensure_easyiq_session(
+            ["inst-1"], "guardian-1", ["astr8360"], WIDGET_EASYIQ_HOMEWORK
+        )
 
         assert client.widgets.resolve_easyiq_child_id("astr8360") == "9001"
         # The real casing survives, even though the lookup key is casefolded.
