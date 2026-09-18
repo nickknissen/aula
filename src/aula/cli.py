@@ -9,7 +9,7 @@ import os
 import platform
 import sys
 from collections import defaultdict
-from collections.abc import Awaitable, Callable, Sequence
+from collections.abc import Awaitable, Callable, Iterable, Sequence
 from zoneinfo import ZoneInfo
 
 import click
@@ -354,6 +354,11 @@ def _resolve_week(week: str | None) -> str:
     if week.isdigit():
         return f"{now.year}-W{int(week)}"
     return week
+
+
+def _unique_names(name_lists: Iterable[list[str]]) -> list[str]:
+    """Flatten per-event name lists into one de-duplicated, ordered list."""
+    return list(dict.fromkeys(name for names in name_lists for name in names if name))
 
 
 def _on_login_required():
@@ -2930,15 +2935,9 @@ async def weekly_summary(ctx, child, week, providers):
                             locations = list(
                                 dict.fromkeys(ev.location for ev in evs if ev.location)
                             )
-                            teachers = list(
-                                dict.fromkeys(ev.teacher_name for ev in evs if ev.teacher_name)
-                            )
-                            substitutes = list(
-                                dict.fromkeys(
-                                    ev.substitute_name
-                                    for ev in evs
-                                    if ev.has_substitute and ev.substitute_name
-                                )
+                            teachers = _unique_names(ev.teacher_names for ev in evs)
+                            substitutes = _unique_names(
+                                ev.substitute_names for ev in evs if ev.has_substitute
                             )
                             parts = [time_range, titles]
                             if locations:
@@ -4352,13 +4351,9 @@ async def daily_summary(ctx, child, target_date):
                     time_range = f"{start_dt.strftime('%H:%M')}–{end_dt.strftime('%H:%M')}"
                     titles = " / ".join(dict.fromkeys(ev.title or "Untitled" for ev in evs))
                     locations = list(dict.fromkeys(ev.location for ev in evs if ev.location))
-                    teachers = list(dict.fromkeys(ev.teacher_name for ev in evs if ev.teacher_name))
-                    substitutes = list(
-                        dict.fromkeys(
-                            ev.substitute_name
-                            for ev in evs
-                            if ev.has_substitute and ev.substitute_name
-                        )
+                    teachers = _unique_names(ev.teacher_names for ev in evs)
+                    substitutes = _unique_names(
+                        ev.substitute_names for ev in evs if ev.has_substitute
                     )
                     parts = [time_range, titles]
                     if locations:

@@ -6,6 +6,7 @@ from .attachment import AttachmentLink as AttachmentLink
 from .attachment import AttachmentMedia as AttachmentMedia
 from .auto_reply import AutoReply as AutoReply
 from .calendar_event import CalendarEvent as CalendarEvent
+from .calendar_event import merge_duplicate_lessons as merge_duplicate_lessons
 from .child import Child as Child
 from .comment import Comment as Comment
 from .consent import ConsentResponse as ConsentResponse
