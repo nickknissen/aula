@@ -62,6 +62,7 @@ from .models import (
     SecureDocument,
     VacationRegistration,
     WidgetConfiguration,
+    merge_duplicate_lessons,
 )
 from .utils.mapping import get_in
 from .widgets import AulaWidgetsClient
@@ -96,6 +97,25 @@ def _compact_payload_for_log(payload: Any, *, max_chars: int = 4000) -> str:
     if len(rendered) > max_chars:
         return f"{rendered[:max_chars]}...<truncated>"
     return rendered
+
+
+def _teacher_names(lesson: dict[str, Any], role: str) -> list[str]:
+    """Return every named participant on ``lesson`` holding ``role``.
+
+    Aula usually splits a co-taught lesson across one row per adult, which
+    ``merge_duplicate_lessons`` folds back together, but a single row has also
+    been seen carrying several participants in the same role. Reading all of
+    them here means both shapes end up with a complete teacher list.
+    """
+    participants = lesson.get("participants", [])
+    if not isinstance(participants, list):
+        return []
+    names = [
+        p.get("teacherName")
+        for p in participants
+        if isinstance(p, dict) and p.get("participantRole") == role
+    ]
+    return list(dict.fromkeys(name for name in names if name))
 
 
 class AulaApiClient:
@@ -1019,6 +1039,8 @@ class AulaApiClient:
                         teacher_name=teacher.get("teacherName", ""),
                         has_substitute=has_substitute,
                         substitute_name=substitute.get("teacherName"),
+                        teacher_names=_teacher_names(lesson, "primaryTeacher"),
+                        substitute_names=_teacher_names(lesson, "substituteTeacher"),
                         location=location,
                         belongs_to=next(iter(event.get("belongsToProfiles", [])), None),
                         _raw=event,
@@ -1032,7 +1054,7 @@ class AulaApiClient:
                 )
                 continue
 
-        return events
+        return merge_duplicate_lessons(events)
 
     async def get_calendar_event(
         self, event_id: int, occurrence_datetime: str | None = None

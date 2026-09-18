@@ -1356,6 +1356,76 @@ class TestGetCalendarEvents:
         events = await client.get_calendar_events([100], datetime(2026, 3, 1), datetime(2026, 3, 1))
         assert events == []
 
+    @pytest.mark.asyncio
+    async def test_co_taught_lesson_returned_once(self, client):
+        """Aula's one-row-per-adult duplicates collapse to one event."""
+        raw_events = [
+            {
+                "id": "3120da43",
+                "title": "DFA 2",
+                "startDateTime": "2026-09-14T08:15:00+01:00",
+                "endDateTime": "2026-09-14T09:00:00+01:00",
+                "belongsToProfiles": [100],
+                "primaryResource": {"name": "Room 101"},
+                "lesson": {
+                    "participants": [
+                        {"participantRole": "primaryTeacher", "teacherName": "Laerer 1"},
+                    ],
+                },
+            },
+            {
+                "id": "eb86b3c9",
+                "title": "DFA 2",
+                "startDateTime": "2026-09-14T08:15:00+01:00",
+                "endDateTime": "2026-09-14T09:00:00+01:00",
+                "belongsToProfiles": [100],
+                "primaryResource": {"name": "Room 101"},
+                "lesson": {
+                    "participants": [
+                        {"participantRole": "primaryTeacher", "teacherName": "Laerer 2"},
+                    ],
+                },
+            },
+        ]
+        client._request_with_version_retry = AsyncMock(
+            return_value=HttpResponse(status_code=200, data={"data": raw_events})
+        )
+
+        events = await client.get_calendar_events(
+            [100], datetime(2026, 9, 14), datetime(2026, 9, 14)
+        )
+
+        assert len(events) == 1
+        assert events[0].teacher_names == ["Laerer 1", "Laerer 2"]
+
+    @pytest.mark.asyncio
+    async def test_multiple_teachers_on_one_row(self, client):
+        """Several primary teachers inside a single row are all read."""
+        raw_events = [
+            {
+                "id": 1,
+                "title": "Math",
+                "startDateTime": "2026-03-01T08:00:00+01:00",
+                "endDateTime": "2026-03-01T09:00:00+01:00",
+                "belongsToProfiles": [100],
+                "lesson": {
+                    "participants": [
+                        {"participantRole": "primaryTeacher", "teacherName": "Mrs. Jensen"},
+                        {"participantRole": "primaryTeacher", "teacherName": "Mr. Poulsen"},
+                    ],
+                },
+            }
+        ]
+        client._request_with_version_retry = AsyncMock(
+            return_value=HttpResponse(status_code=200, data={"data": raw_events})
+        )
+
+        events = await client.get_calendar_events([100], datetime(2026, 3, 1), datetime(2026, 3, 1))
+
+        assert len(events) == 1
+        assert events[0].teacher_names == ["Mrs. Jensen", "Mr. Poulsen"]
+        assert events[0].teacher_name == "Mrs. Jensen"
+
 
 class TestGetPosts:
     """Tests for AulaApiClient.get_posts method."""
