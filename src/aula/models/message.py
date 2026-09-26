@@ -12,6 +12,8 @@ class Message(AulaDataClass):
     id: str
     content_html: str
     attachments: list[Attachment] = field(default_factory=list)
+    sender_name: str | None = None
+    send_datetime: str | None = None
     _raw: dict | None = field(default=None, repr=False)
 
     @property
@@ -40,5 +42,7 @@ class Message(AulaDataClass):
             id=str(message_id) if message_id is not None else "",
             content_html=text if isinstance(text, str) else "",
             attachments=parse_attachments(data.get("attachments")),
+            sender_name=get_in(data, "sender.fullName", default=None) or None,
+            send_datetime=data.get("sendDateTime") or None,
             _raw=data,
         )

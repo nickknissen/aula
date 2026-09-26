@@ -79,3 +79,24 @@ def test_message_from_dict_without_attachments():
     msg = Message.from_dict({"id": "m3", "text": {"html": ""}})
     assert msg.attachments == []
     assert msg.has_attachments is False
+
+
+def test_message_from_dict_sender_and_send_time():
+    data = {
+        "id": "m2",
+        "text": {"html": "<p>Hej</p>"},
+        "sender": {"fullName": "Anne Lærer", "shortName": "AL"},
+        "sendDateTime": "2026-09-25T08:15:00+02:00",
+    }
+    msg = Message.from_dict(data)
+    assert msg.sender_name == "Anne Lærer"
+    assert msg.send_datetime == "2026-09-25T08:15:00+02:00"
+    result = dict(msg)
+    assert result["sender_name"] == "Anne Lærer"
+    assert result["send_datetime"] == "2026-09-25T08:15:00+02:00"
+
+
+def test_message_from_dict_without_sender():
+    msg = Message.from_dict({"id": "m3", "text": "plain"})
+    assert msg.sender_name is None
+    assert msg.send_datetime is None
