@@ -118,6 +118,12 @@ def _teacher_names(lesson: dict[str, Any], role: str) -> list[str]:
     return list(dict.fromkeys(name for name in names if name))
 
 
+# Message types Aula's web client accepts as the target of a read marker.
+_MARKABLE_MESSAGE_TYPES = ("Message", "MessageEdited", "MessageDeleted", "AutoReply")
+# Upper bound on pages of 20 read while looking for a message in one thread.
+_MAX_THREAD_PAGES = 50
+
+
 class AulaApiClient:
     """Async client for Aula API endpoints.
 
@@ -994,12 +1000,36 @@ class AulaApiClient:
 
         return messages
 
+    @staticmethod
+    def _api_data(resp: HttpResponse, api_method: str) -> dict[str, Any]:
+        """Return the ``data`` object of an Aula answer, or raise when it is not a success.
+
+        ``raise_for_status()`` only looks at the HTTP status, but Aula reports its own
+        errors inside an HTTP 200: ``{"status": {"code": N, ...}, "data": ...}``, where
+        ``code`` 0 is success. A body that is not that envelope is not trusted either.
+        """
+        resp.raise_for_status()
+        body = resp.json()
+        status = body.get("status") if isinstance(body, dict) else None
+        if not isinstance(status, dict) or status.get("code") != 0:
+            code = status.get("code") if isinstance(status, dict) else None
+            raise HttpRequestError(
+                f"Aula rejected {api_method} (status code {code})", resp.status_code
+            )
+        data = body.get("data")
+        return data if isinstance(data, dict) else {}
+
     async def mark_thread_read(self, thread_id: str) -> bool:
         """Mark a message thread as read, up to and including its latest message.
 
         Aula keeps one read marker per thread: the ID of the last message read. This
         finds the newest message and moves the marker there, as the web client does
-        when a thread is opened.
+        when a thread is opened. The write is checked afterwards: the marker Aula
+        reports for the thread must be the message that was sent.
+
+        Only threads in the guardian's own mailbox are handled. Common inboxes and OTP
+        inboxes need an extra inbox ID in the call, which this does not send, so such
+        a thread raises ``ValueError`` instead of being marked in the wrong place.
 
         Args:
             thread_id: The thread to mark, as returned by ``get_message_threads()``.
@@ -1007,22 +1037,34 @@ class AulaApiClient:
         Returns:
             ``True`` when the marker was set, ``False`` when the thread holds no message
             that can be marked.
+
+        Raises:
+            HttpRequestError: When Aula rejects a call or does not confirm the write.
+            ValueError: When the thread is not in the guardian's own mailbox.
         """
-        resp = await self._request_with_version_retry(
-            "get",
-            f"{self.api_url}?method=messaging.getMessagesForThread&threadId={thread_id}&page=0&limit=5",
-        )
-        resp.raise_for_status()
-        raw_messages = get_in(resp.json(), "data.messages", default=[])
-        newest = next(
-            (
-                m
-                for m in raw_messages
-                if m.get("messageType")
-                in ("Message", "MessageEdited", "MessageDeleted", "AutoReply")
-            ),
-            None,
-        )
+        get_url = f"{self.api_url}?method=messaging.getMessagesForThread&threadId={thread_id}"
+        newest: dict[str, Any] | None = None
+        # The newest entries come first, and a thread can start with events (recipients
+        # added or removed) that are not messages, so keep paging until one turns up.
+        for page in range(_MAX_THREAD_PAGES):
+            resp = await self._request_with_version_retry("get", f"{get_url}&page={page}&limit=20")
+            data = self._api_data(resp, "messaging.getMessagesForThread")
+            owner = data.get("mailBoxOwner")
+            if isinstance(owner, dict) and owner.get("mailBoxOwnerType") != "institutionProfile":
+                raise ValueError(
+                    f"thread {thread_id} is in a common or OTP inbox, "
+                    "which mark-read does not handle"
+                )
+            newest = next(
+                (
+                    m
+                    for m in data.get("messages") or []
+                    if isinstance(m, dict) and m.get("messageType") in _MARKABLE_MESSAGE_TYPES
+                ),
+                None,
+            )
+            if newest is not None or not data.get("moreMessagesExist"):
+                break
         if newest is None or not newest.get("id"):
             return False
 
@@ -1036,7 +1078,14 @@ class AulaApiClient:
                 "otpInboxId": None,
             },
         )
-        resp.raise_for_status()
+        self._api_data(resp, "messaging.setLastReadMessage")
+
+        resp = await self._request_with_version_retry("get", f"{get_url}&page=0&limit=1")
+        marker = self._api_data(resp, "messaging.getMessagesForThread").get("lastReadMessageId")
+        if marker != newest["id"]:
+            raise HttpRequestError(
+                f"Aula did not confirm the read marker of thread {thread_id}", resp.status_code
+            )
         return True
 
     async def get_calendar_events(

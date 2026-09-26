@@ -1063,19 +1063,36 @@ class TestMarkRead:
         assert "✓ 1" in result.output
         assert "✓ 2" in result.output
 
-    def test_a_failing_thread_does_not_stop_the_rest(self, run, fake_client):
+    def test_a_failing_thread_is_reported_and_the_rest_still_run(self, run, fake_client):
         fake_client.mark_thread_read = AsyncMock(side_effect=[RuntimeError("boom"), True])
 
         result = run("1", "2")
 
-        assert result.exit_code == 0
+        assert result.exit_code == 1
         assert "✗ 1" in result.output
         assert "✓ 2" in result.output
+        assert "boom" in result.output
 
-    def test_json_output_lists_the_result_per_thread(self, run):
-        result = run("1", output_format="json")
+    def test_a_thread_with_nothing_to_mark_fails_the_command(self, run, fake_client):
+        fake_client.mark_thread_read = AsyncMock(return_value=False)
 
-        assert json.loads(result.output) == [{"thread_id": "1", "marked": True}]
+        result = run("1")
+
+        assert result.exit_code == 1
+        assert "✗ 1" in result.output
+
+    def test_json_output_stays_valid_when_a_thread_fails(self, run, fake_client):
+        fake_client.mark_thread_read = AsyncMock(side_effect=[RuntimeError("boom"), True])
+
+        result = run("1", "2", output_format="json")
+
+        assert result.exit_code == 1
+        assert json.loads(result.stdout) == [
+            {"thread_id": "1", "marked": False},
+            {"thread_id": "2", "marked": True},
+        ]
+        assert "boom" in result.stderr
+        assert "boom" not in result.stdout
 
     def test_needs_a_thread_id(self, run):
         assert run().exit_code != 0
