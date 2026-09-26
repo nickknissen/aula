@@ -1,6 +1,8 @@
+import datetime
 from dataclasses import dataclass, field
 from typing import Any
 
+from ..utils.dates import parse_api_datetime
 from ..utils.html import html_to_markdown, html_to_plain
 from ..utils.mapping import get_in
 from .attachment import Attachment, parse_attachments
@@ -13,6 +15,10 @@ class Message(AulaDataClass):
     content_html: str
     attachments: list[Attachment] = field(default_factory=list)
     _raw: dict | None = field(default=None, repr=False)
+    # Keyword-only, so the positional order above (and ``_raw`` in it) stays
+    # what it was before these were added.
+    sender_name: str | None = field(default=None, kw_only=True)
+    send_datetime: datetime.datetime | None = field(default=None, kw_only=True)
 
     @property
     def content(self) -> str:
@@ -40,5 +46,7 @@ class Message(AulaDataClass):
             id=str(message_id) if message_id is not None else "",
             content_html=text if isinstance(text, str) else "",
             attachments=parse_attachments(data.get("attachments")),
+            sender_name=get_in(data, "sender.fullName", default=None) or None,
+            send_datetime=parse_api_datetime(data.get("sendDateTime")),
             _raw=data,
         )
