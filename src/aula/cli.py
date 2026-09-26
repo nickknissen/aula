@@ -3320,6 +3320,43 @@ def _strip_relation(name: str | None) -> str | None:
     return name
 
 
+@cli.command("mark-read")
+@click.argument("thread_ids", nargs=-1, required=True)
+@click.pass_context
+@async_cmd
+async def mark_read(ctx, thread_ids):
+    """Mark message threads as read.
+
+    Writes to Aula: each thread is read up to and including its latest message, as if
+    it had been opened in the app. Thread IDs are the ones `aula messages` shows. Only
+    threads in your own mailbox are handled. Exits non-zero when any thread could not
+    be marked, after trying all of them.
+
+    Examples:
+
+      aula mark-read 170189345
+
+      aula mark-read 170924263 170924078
+    """
+    is_json = bool(ctx.obj) and ctx.obj.get("OUTPUT_FORMAT") == "json"
+    results: list[dict] = []
+    async with await _get_client(ctx) as client:
+        for thread_id in thread_ids:
+            try:
+                marked = await client.mark_thread_read(thread_id)
+            except Exception as e:
+                print_error(f"marking thread {thread_id} as read: {e}", err=is_json)
+                marked = False
+            results.append({"thread_id": thread_id, "marked": marked})
+
+    if not output_json(ctx, results):
+        for r in results:
+            click.echo(f"  {'✓' if r['marked'] else '✗'} {r['thread_id']}")
+
+    if not all(r["marked"] for r in results):
+        ctx.exit(1)
+
+
 @cli.command("update-presence")
 @click.option(
     "--date",

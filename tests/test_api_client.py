@@ -7,10 +7,11 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from aula.api_client import AulaApiClient
+from aula.api_client import AulaApiClient, ThreadScanLimitError
 from aula.const import API_URL, API_VERSION, CSRF_TOKEN_HEADER
 from aula.http import (
     AulaAuthenticationError,
+    AulaConnectionError,
     AulaServerError,
     HttpRequestError,
     HttpResponse,
@@ -3385,3 +3386,278 @@ class TestUpdatePresenceStatus:
             await mock_client.update_presence_status([], PresenceState.SICK)
 
         mock_client._request_with_version_retry.assert_not_awaited()
+
+
+class TestMarkThreadRead:
+    """Tests for AulaApiClient.mark_thread_read method.
+
+    The responses are real ``HttpResponse`` objects, so the HTTP-status check and the
+    check of Aula's own status envelope both run.
+    """
+
+    OWNER = {"mailBoxOwnerType": "institutionProfile", "id": 1}
+
+    MISSING = object()
+
+    @classmethod
+    def _page(cls, messages, *, more=False, last_read=None, owner=OWNER, code=0, http=200):
+        data = {
+            "messages": messages,
+            "moreMessagesExist": more,
+            "lastReadMessageId": last_read,
+        }
+        if owner is not cls.MISSING:
+            data["mailBoxOwner"] = owner
+        return HttpResponse(status_code=http, data={"status": {"code": code}, "data": data})
+
+    @staticmethod
+    def _ok():
+        return HttpResponse(status_code=200, data={"status": {"code": 0}, "data": None})
+
+    @staticmethod
+    def _client(*responses):
+        client = AulaApiClient(http_client=AsyncMock(), access_token="test_token")
+        client._request_with_version_retry = AsyncMock(side_effect=list(responses))
+        return client
+
+    @staticmethod
+    def _msg(msg_id, message_type="Message"):
+        return {"id": msg_id, "messageType": message_type}
+
+    @staticmethod
+    def _calls(client):
+        return [
+            (c.args[0], c.args[1], c.kwargs)
+            for c in client._request_with_version_retry.await_args_list
+        ]
+
+    @pytest.mark.asyncio
+    async def test_sets_the_marker_on_the_newest_message_and_checks_it(self):
+        """Aula lists the newest message first, and that is where the marker goes."""
+        client = self._client(
+            self._page([self._msg("new"), self._msg("old")]),
+            self._ok(),
+            self._page([self._msg("new")], last_read="new"),
+        )
+
+        assert await client.mark_thread_read("42") is True
+
+        get_call, post_call, check_call = self._calls(client)
+        assert get_call[0] == "get"
+        assert "method=messaging.getMessagesForThread&threadId=42&page=0" in get_call[1]
+        assert post_call[0] == "post"
+        assert post_call[1].endswith("?method=messaging.setLastReadMessage")
+        assert post_call[2]["json"] == {
+            "threadId": "42",
+            "messageId": "new",
+            "commonInboxId": None,
+            "otpInboxId": None,
+        }
+        assert check_call[0] == "get"
+
+    @pytest.mark.asyncio
+    async def test_skips_entries_that_are_not_messages(self):
+        """A thread event such as a recipient change is not a message to mark."""
+        client = self._client(
+            self._page(
+                [self._msg("event", "RecipientsRemoved"), self._msg("msg", "MessageEdited")]
+            ),
+            self._ok(),
+            self._page([], last_read="msg"),
+        )
+
+        assert await client.mark_thread_read("42") is True
+
+        assert self._calls(client)[1][2]["json"]["messageId"] == "msg"
+
+    @pytest.mark.asyncio
+    async def test_keeps_paging_when_the_first_page_holds_only_events(self):
+        """Events on page 0 do not mean the thread has no message."""
+        client = self._client(
+            self._page([self._msg("event", "RecipientsAdded")], more=True),
+            self._page([self._msg("msg")]),
+            self._ok(),
+            self._page([], last_read="msg"),
+        )
+
+        assert await client.mark_thread_read("42") is True
+
+        calls = self._calls(client)
+        assert "page=0" in calls[0][1]
+        assert "page=1" in calls[1][1]
+        assert calls[2][2]["json"]["messageId"] == "msg"
+
+    @pytest.mark.asyncio
+    async def test_thread_without_messages_is_not_written(self):
+        """With nothing to mark once every page is read, no write is sent."""
+        client = self._client(self._page([self._msg("event", "RecipientsAdded")]))
+
+        assert await client.mark_thread_read("42") is False
+
+        assert len(self._calls(client)) == 1
+
+    @pytest.mark.asyncio
+    async def test_api_error_in_a_200_answer_is_not_success(self):
+        """Aula reports its own errors inside an HTTP 200."""
+        rejected = HttpResponse(status_code=200, data={"status": {"code": 5}, "data": None})
+        client = self._client(self._page([self._msg("new")]), rejected)
+
+        with pytest.raises(HttpRequestError, match="rejected messaging.setLastReadMessage"):
+            await client.mark_thread_read("42")
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("body", [None, "", "<html>", [], {}, {"status": "ok"}, {"data": {}}])
+    async def test_malformed_answer_is_not_success(self, body):
+        """An empty or unexpected body is not read as a success."""
+        client = self._client(
+            self._page([self._msg("new")]), HttpResponse(status_code=200, data=body)
+        )
+
+        with pytest.raises(HttpRequestError):
+            await client.mark_thread_read("42")
+
+    @pytest.mark.asyncio
+    async def test_api_error_while_reading_the_thread_writes_nothing(self):
+        """A rejected read stops before any write."""
+        client = self._client(self._page([self._msg("new")], code=1))
+
+        with pytest.raises(HttpRequestError):
+            await client.mark_thread_read("42")
+
+        assert len(self._calls(client)) == 1
+
+    @pytest.mark.asyncio
+    async def test_http_error_raises(self):
+        """An HTTP error status raises through the response's own check."""
+        client = self._client(
+            self._page([self._msg("new")]), HttpResponse(status_code=500, data=None)
+        )
+
+        with pytest.raises(AulaServerError):
+            await client.mark_thread_read("42")
+
+    @pytest.mark.asyncio
+    async def test_network_error_propagates(self):
+        """A failed connection is not swallowed."""
+        client = self._client(
+            self._page([self._msg("new")]), AulaConnectionError("down", status_code=0)
+        )
+
+        with pytest.raises(AulaConnectionError):
+            await client.mark_thread_read("42")
+
+    @pytest.mark.asyncio
+    async def test_unconfirmed_marker_is_not_success(self):
+        """The write counts only when Aula reports the marker on that message."""
+        client = self._client(
+            self._page([self._msg("new")]),
+            self._ok(),
+            self._page([], last_read="old"),
+        )
+
+        with pytest.raises(HttpRequestError, match="did not confirm"):
+            await client.mark_thread_read("42")
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        "owner",
+        [
+            {"mailBoxOwnerType": "commonInbox", "id": 9},
+            {"mailBoxOwnerType": "otpInbox", "id": 9},
+            {"mailBoxOwnerType": None},
+            {"id": 1},
+            {},
+            None,
+            "institutionProfile",
+            [],
+            MISSING,
+        ],
+    )
+    async def test_mailbox_not_shown_to_be_the_guardians_own_is_refused(self, owner):
+        """The inbox IDs are sent as null, so a mailbox not shown to be the own one is refused."""
+        client = self._client(self._page([self._msg("new")], owner=owner))
+
+        with pytest.raises(ValueError, match="not shown to be in your own mailbox"):
+            await client.mark_thread_read("42")
+
+        assert len(self._calls(client)) == 1
+
+    @pytest.mark.asyncio
+    async def test_urls_follow_an_api_version_bump_between_calls(self):
+        """A version negotiated by the first request is used by paging and the check."""
+        client = AulaApiClient(http_client=AsyncMock(), access_token="test_token")
+        old_url = client.api_url
+        new_url = old_url.replace(old_url.split("/v")[-1], str(int(old_url.split("/v")[-1]) + 1))
+        answers = iter(
+            [
+                self._page([self._msg("event", "RecipientsAdded")], more=True),
+                self._page([self._msg("msg")]),
+                self._ok(),
+                self._page([], last_read="msg"),
+            ]
+        )
+        seen: list[str] = []
+
+        async def request(method, url, **kwargs):
+            seen.append(url)
+            if len(seen) == 1:
+                client.api_url = new_url  # what a 410 answer does inside the real request
+            return next(answers)
+
+        client._request_with_version_retry = request
+
+        assert await client.mark_thread_read("42") is True
+
+        assert seen[0].startswith(old_url + "?")
+        assert all(url.startswith(new_url + "?") for url in seen[1:])
+
+    @pytest.mark.asyncio
+    async def test_marks_deleted_and_auto_reply_messages(self):
+        """The web client accepts these types as the newest message too."""
+        for message_type in ("MessageDeleted", "AutoReply"):
+            client = self._client(
+                self._page([self._msg("last", message_type)]),
+                self._ok(),
+                self._page([], last_read="last"),
+            )
+
+            assert await client.mark_thread_read("42") is True
+            assert self._calls(client)[1][2]["json"]["messageId"] == "last"
+
+    @pytest.mark.asyncio
+    async def test_page_limit_is_an_error_not_no_messages(self, monkeypatch):
+        """Events on every permitted page, with more to come, are not 'nothing to mark'."""
+        monkeypatch.setattr("aula.api_client._MAX_THREAD_PAGES", 3)
+        client = self._client(
+            *[self._page([self._msg(f"e{i}", "RecipientsAdded")], more=True) for i in range(3)]
+        )
+
+        with pytest.raises(ThreadScanLimitError, match="first 3 pages"):
+            await client.mark_thread_read("42")
+
+        assert len(self._calls(client)) == 3
+
+    @pytest.mark.asyncio
+    async def test_message_on_the_last_permitted_page_is_found(self, monkeypatch):
+        """The cap is inclusive: the last page allowed is still read."""
+        monkeypatch.setattr("aula.api_client._MAX_THREAD_PAGES", 3)
+        client = self._client(
+            self._page([self._msg("e0", "RecipientsAdded")], more=True),
+            self._page([self._msg("e1", "RecipientsAdded")], more=True),
+            self._page([self._msg("msg")], more=True),
+            self._ok(),
+            self._page([], last_read="msg"),
+        )
+
+        assert await client.mark_thread_read("42") is True
+
+    @pytest.mark.asyncio
+    async def test_exhausted_event_only_thread_is_false(self, monkeypatch):
+        """Only events, and Aula says there are no more pages: nothing to mark."""
+        monkeypatch.setattr("aula.api_client._MAX_THREAD_PAGES", 3)
+        client = self._client(
+            self._page([self._msg("e0", "RecipientsAdded")], more=True),
+            self._page([self._msg("e1", "RecipientsAdded")], more=False),
+        )
+
+        assert await client.mark_thread_read("42") is False

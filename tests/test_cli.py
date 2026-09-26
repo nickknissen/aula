@@ -1033,3 +1033,96 @@ class TestPrintMuTaskTables:
         lines = capsys.readouterr().out.splitlines()
 
         assert lines[-1] == "  [1] https://example.com/1"
+
+
+class TestMarkRead:
+    @pytest.fixture
+    def fake_client(self):
+        client = MagicMock()
+        client.mark_thread_read = AsyncMock(return_value=True)
+        client.__aenter__ = AsyncMock(return_value=client)
+        client.__aexit__ = AsyncMock(return_value=False)
+        return client
+
+    @pytest.fixture
+    def run(self, fake_client, monkeypatch):
+        monkeypatch.setattr("aula.cli._get_client", AsyncMock(return_value=fake_client))
+
+        def invoke(*args, output_format="text"):
+            return CliRunner().invoke(
+                cli.mark_read, list(args), obj={"OUTPUT_FORMAT": output_format}
+            )
+
+        return invoke
+
+    def test_marks_every_thread_given(self, run, fake_client):
+        result = run("1", "2")
+
+        assert result.exit_code == 0
+        assert [c.args for c in fake_client.mark_thread_read.await_args_list] == [("1",), ("2",)]
+        assert "✓ 1" in result.output
+        assert "✓ 2" in result.output
+
+    def test_a_failing_thread_is_reported_and_the_rest_still_run(self, run, fake_client):
+        fake_client.mark_thread_read = AsyncMock(side_effect=[RuntimeError("boom"), True])
+
+        result = run("1", "2")
+
+        assert result.exit_code == 1
+        assert "✗ 1" in result.output
+        assert "✓ 2" in result.output
+        assert "boom" in result.output
+
+    def test_a_thread_with_nothing_to_mark_fails_the_command(self, run, fake_client):
+        fake_client.mark_thread_read = AsyncMock(return_value=False)
+
+        result = run("1")
+
+        assert result.exit_code == 1
+        assert "✗ 1" in result.output
+
+    def test_json_output_stays_valid_when_a_thread_fails(self, run, fake_client):
+        fake_client.mark_thread_read = AsyncMock(side_effect=[RuntimeError("boom"), True])
+
+        result = run("1", "2", output_format="json")
+
+        assert result.exit_code == 1
+        assert json.loads(result.stdout) == [
+            {"thread_id": "1", "marked": False},
+            {"thread_id": "2", "marked": True},
+        ]
+        assert "boom" in result.stderr
+        assert "boom" not in result.stdout
+
+    def test_a_refused_thread_is_followed_by_a_marked_one(self, run, fake_client):
+        fake_client.mark_thread_read = AsyncMock(side_effect=[ValueError("common inbox"), True])
+
+        result = run("1", "2")
+
+        assert result.exit_code == 1
+        assert "✗ 1" in result.output
+        assert "✓ 2" in result.output
+
+    def test_json_output_when_every_thread_is_marked(self, run):
+        result = run("1", "2", output_format="json")
+
+        assert result.exit_code == 0
+        assert json.loads(result.stdout) == [
+            {"thread_id": "1", "marked": True},
+            {"thread_id": "2", "marked": True},
+        ]
+
+    def test_json_output_when_every_thread_fails(self, run, fake_client):
+        fake_client.mark_thread_read = AsyncMock(side_effect=RuntimeError("boom"))
+
+        result = run("1", "2", output_format="json")
+
+        assert result.exit_code == 1
+        assert json.loads(result.stdout) == [
+            {"thread_id": "1", "marked": False},
+            {"thread_id": "2", "marked": False},
+        ]
+        assert result.stderr.count("boom") == 2
+
+    def test_needs_a_thread_id(self, run):
+        assert run().exit_code != 0

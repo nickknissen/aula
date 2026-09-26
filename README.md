@@ -196,11 +196,21 @@ The username can also be set via the `AULA_MITID_USERNAME` environment variable 
 | Command | Description |
 |---|---|
 | `aula messages` | Recent message threads |
+| `aula mark-read THREAD_ID...` | Mark threads as read (writes to Aula, own mailbox only; see below) |
 | `aula auto-reply` | View auto-reply status |
 | `aula contacts` | Contact list |
 | `aula notifications` | Recent notifications |
 | `aula notification-settings` | View notification preferences |
 | `aula search` | Search documents across Aula |
+
+`aula mark-read` moves a thread's read marker to its newest message, as the app does
+when a thread is opened, and checks that Aula took it. The marker targets the newest
+message found while reading; messages arriving afterward may remain unread. A thread
+can begin with events (recipients added or removed) that are not messages, so it
+reads up to 50 pages of 20. Running out of that scan limit raises an error, while a
+thread that holds only events is returned unmarked and makes the command exit 1.
+Only threads in your own mailbox are handled; common and OTP inboxes are refused.
+It tries every thread given and exits with a non-zero code if any was not marked.
 
 ### Calendar
 

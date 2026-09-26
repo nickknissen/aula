@@ -118,6 +118,16 @@ def _teacher_names(lesson: dict[str, Any], role: str) -> list[str]:
     return list(dict.fromkeys(name for name in names if name))
 
 
+# Message types Aula's web client accepts as the target of a read marker.
+_MARKABLE_MESSAGE_TYPES = ("Message", "MessageEdited", "MessageDeleted", "AutoReply")
+# Upper bound on pages of 20 read while looking for a message in one thread.
+_MAX_THREAD_PAGES = 50
+
+
+class ThreadScanLimitError(Exception):
+    """Raised when a thread's first pages hold no message, but Aula reports more pages."""
+
+
 class AulaApiClient:
     """Async client for Aula API endpoints.
 
@@ -993,6 +1003,123 @@ class AulaApiClient:
                 break
 
         return messages
+
+    @staticmethod
+    def _api_data(resp: HttpResponse, api_method: str) -> dict[str, Any]:
+        """Return the ``data`` object of an Aula answer, or raise when it is not a success.
+
+        ``raise_for_status()`` only looks at the HTTP status, but Aula reports its own
+        errors inside an HTTP 200: ``{"status": {"code": N, ...}, "data": ...}``, where
+        ``code`` 0 is success. A body that is not that envelope is not trusted either.
+        """
+        resp.raise_for_status()
+        body = resp.json()
+        status = body.get("status") if isinstance(body, dict) else None
+        if not isinstance(status, dict) or status.get("code") != 0:
+            code = status.get("code") if isinstance(status, dict) else None
+            raise HttpRequestError(
+                f"Aula rejected {api_method} (status code {code})", resp.status_code
+            )
+        data = body.get("data")
+        return data if isinstance(data, dict) else {}
+
+    def _thread_messages_url(self, thread_id: str, page: int, limit: int) -> str:
+        """URL for one page of a thread's messages, on the API version in use now.
+
+        Built on every call: a request can negotiate a newer API version, and a URL
+        kept from before that would go to the old one.
+        """
+        return (
+            f"{self.api_url}?method=messaging.getMessagesForThread"
+            f"&threadId={thread_id}&page={page}&limit={limit}"
+        )
+
+    async def mark_thread_read(self, thread_id: str) -> bool:
+        """Mark a message thread as read, up to and including its latest message.
+
+        Aula keeps one read marker per thread: the ID of the last message read. This
+        finds the newest message and moves the marker there, as the web client does
+        when a thread is opened. The write is checked afterwards: the marker Aula
+        reports for the thread must be the message that was sent.
+
+        The newest message is taken from the first page that holds one. A message that
+        arrives while this runs is not seen, so the marker goes on the newest message
+        as it was when the thread was read, and that thread may still show as unread.
+
+        A thread can begin with events (recipients added or removed) that are not
+        messages, so pages of 20 are read until a message turns up, at most
+        ``_MAX_THREAD_PAGES`` of them.
+
+        Only threads in the guardian's own mailbox are handled. Common inboxes and OTP
+        inboxes need an extra inbox ID in the call, which this does not send, so a
+        thread whose mailbox is not shown to be the guardian's own is refused with
+        ``ValueError`` instead of being marked in the wrong place.
+
+        Args:
+            thread_id: The thread to mark, as returned by ``get_message_threads()``.
+
+        Returns:
+            ``True`` when the marker was set, ``False`` when the thread holds no message
+            that can be marked.
+
+        Raises:
+            HttpRequestError: When Aula rejects a call or does not confirm the write.
+            ValueError: When the thread is not shown to be in the guardian's own mailbox.
+            ThreadScanLimitError: When ``_MAX_THREAD_PAGES`` pages held no message and
+                Aula says there are more.
+        """
+        newest: dict[str, Any] | None = None
+        more = False
+        for page in range(_MAX_THREAD_PAGES):
+            resp = await self._request_with_version_retry(
+                "get", self._thread_messages_url(thread_id, page, 20)
+            )
+            data = self._api_data(resp, "messaging.getMessagesForThread")
+            owner = data.get("mailBoxOwner")
+            if not isinstance(owner, dict) or owner.get("mailBoxOwnerType") != "institutionProfile":
+                raise ValueError(
+                    f"thread {thread_id} is not shown to be in your own mailbox, "
+                    "and mark-read only handles those"
+                )
+            newest = next(
+                (
+                    m
+                    for m in data.get("messages") or []
+                    if isinstance(m, dict) and m.get("messageType") in _MARKABLE_MESSAGE_TYPES
+                ),
+                None,
+            )
+            more = bool(data.get("moreMessagesExist"))
+            if newest is not None or not more:
+                break
+        if newest is None and more:
+            raise ThreadScanLimitError(
+                f"thread {thread_id} has no message in its first {_MAX_THREAD_PAGES} pages"
+            )
+        if newest is None or not newest.get("id"):
+            return False
+
+        resp = await self._request_with_version_retry(
+            "post",
+            f"{self.api_url}?method=messaging.setLastReadMessage",
+            json={
+                "threadId": thread_id,
+                "messageId": newest["id"],
+                "commonInboxId": None,
+                "otpInboxId": None,
+            },
+        )
+        self._api_data(resp, "messaging.setLastReadMessage")
+
+        resp = await self._request_with_version_retry(
+            "get", self._thread_messages_url(thread_id, 0, 1)
+        )
+        marker = self._api_data(resp, "messaging.getMessagesForThread").get("lastReadMessageId")
+        if marker != newest["id"]:
+            raise HttpRequestError(
+                f"Aula did not confirm the read marker of thread {thread_id}", resp.status_code
+            )
+        return True
 
     async def get_calendar_events(
         self, institution_profile_ids: list[int], start: datetime, end: datetime
