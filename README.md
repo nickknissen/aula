@@ -204,10 +204,11 @@ The username can also be set via the `AULA_MITID_USERNAME` environment variable 
 | `aula search` | Search documents across Aula |
 
 `aula mark-read` moves a thread's read marker to its newest message, as the app does
-when a thread is opened, and checks that Aula took it. It reads the thread as it is
-at that moment: a message that arrives during the call is not part of it. A thread
+when a thread is opened, and checks that Aula took it. The marker targets the newest
+message found while reading; messages arriving afterward may remain unread. A thread
 can begin with events (recipients added or removed) that are not messages, so it
-reads up to 50 pages of 20, and stops with an error if none of them holds a message.
+reads up to 50 pages of 20. Running out of that scan limit raises an error, while a
+thread that holds only events is returned unmarked and makes the command exit 1.
 Only threads in your own mailbox are handled; common and OTP inboxes are refused.
 It tries every thread given and exits with a non-zero code if any was not marked.
 
