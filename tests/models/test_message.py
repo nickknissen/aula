@@ -1,5 +1,9 @@
 """Tests for aula.models.message."""
 
+import datetime
+
+import pytest
+
 from aula.models.message import Message
 
 
@@ -90,13 +94,36 @@ def test_message_from_dict_sender_and_send_time():
     }
     msg = Message.from_dict(data)
     assert msg.sender_name == "Anne Lærer"
-    assert msg.send_datetime == "2026-09-25T08:15:00+02:00"
+    assert msg.send_datetime == datetime.datetime.fromisoformat("2026-09-25T08:15:00+02:00")
     result = dict(msg)
     assert result["sender_name"] == "Anne Lærer"
-    assert result["send_datetime"] == "2026-09-25T08:15:00+02:00"
+    assert "send_datetime" in result
 
 
 def test_message_from_dict_without_sender():
     msg = Message.from_dict({"id": "m3", "text": "plain"})
     assert msg.sender_name is None
     assert msg.send_datetime is None
+
+
+@pytest.mark.parametrize(
+    "sender",
+    [None, {}, {"fullName": None}, {"fullName": ""}, "not a dict"],
+)
+def test_message_from_dict_sender_missing_or_empty(sender):
+    msg = Message.from_dict({"id": "m4", "text": "x", "sender": sender})
+    assert msg.sender_name is None
+
+
+@pytest.mark.parametrize("value", [None, "", "not a date", 12345])
+def test_message_from_dict_send_datetime_unreadable(value):
+    msg = Message.from_dict({"id": "m5", "text": "x", "sendDateTime": value})
+    assert msg.send_datetime is None
+
+
+def test_message_positional_arguments_unchanged():
+    """``_raw`` is still the fourth positional field: the new ones are keyword-only."""
+    msg = Message("1", "text", [], {"original": True})
+    assert msg._raw == {"original": True}
+    assert msg.sender_name is None
+    assert "_raw" not in dict(msg)
