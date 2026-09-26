@@ -1033,3 +1033,49 @@ class TestPrintMuTaskTables:
         lines = capsys.readouterr().out.splitlines()
 
         assert lines[-1] == "  [1] https://example.com/1"
+
+
+class TestMarkRead:
+    @pytest.fixture
+    def fake_client(self):
+        client = MagicMock()
+        client.mark_thread_read = AsyncMock(return_value=True)
+        client.__aenter__ = AsyncMock(return_value=client)
+        client.__aexit__ = AsyncMock(return_value=False)
+        return client
+
+    @pytest.fixture
+    def run(self, fake_client, monkeypatch):
+        monkeypatch.setattr("aula.cli._get_client", AsyncMock(return_value=fake_client))
+
+        def invoke(*args, output_format="text"):
+            return CliRunner().invoke(
+                cli.mark_read, list(args), obj={"OUTPUT_FORMAT": output_format}
+            )
+
+        return invoke
+
+    def test_marks_every_thread_given(self, run, fake_client):
+        result = run("1", "2")
+
+        assert result.exit_code == 0
+        assert [c.args for c in fake_client.mark_thread_read.await_args_list] == [("1",), ("2",)]
+        assert "✓ 1" in result.output
+        assert "✓ 2" in result.output
+
+    def test_a_failing_thread_does_not_stop_the_rest(self, run, fake_client):
+        fake_client.mark_thread_read = AsyncMock(side_effect=[RuntimeError("boom"), True])
+
+        result = run("1", "2")
+
+        assert result.exit_code == 0
+        assert "✗ 1" in result.output
+        assert "✓ 2" in result.output
+
+    def test_json_output_lists_the_result_per_thread(self, run):
+        result = run("1", output_format="json")
+
+        assert json.loads(result.output) == [{"thread_id": "1", "marked": True}]
+
+    def test_needs_a_thread_id(self, run):
+        assert run().exit_code != 0

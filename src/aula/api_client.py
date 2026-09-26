@@ -994,6 +994,51 @@ class AulaApiClient:
 
         return messages
 
+    async def mark_thread_read(self, thread_id: str) -> bool:
+        """Mark a message thread as read, up to and including its latest message.
+
+        Aula keeps one read marker per thread: the ID of the last message read. This
+        finds the newest message and moves the marker there, as the web client does
+        when a thread is opened.
+
+        Args:
+            thread_id: The thread to mark, as returned by ``get_message_threads()``.
+
+        Returns:
+            ``True`` when the marker was set, ``False`` when the thread holds no message
+            that can be marked.
+        """
+        resp = await self._request_with_version_retry(
+            "get",
+            f"{self.api_url}?method=messaging.getMessagesForThread&threadId={thread_id}&page=0&limit=5",
+        )
+        resp.raise_for_status()
+        raw_messages = get_in(resp.json(), "data.messages", default=[])
+        newest = next(
+            (
+                m
+                for m in raw_messages
+                if m.get("messageType")
+                in ("Message", "MessageEdited", "MessageDeleted", "AutoReply")
+            ),
+            None,
+        )
+        if newest is None or not newest.get("id"):
+            return False
+
+        resp = await self._request_with_version_retry(
+            "post",
+            f"{self.api_url}?method=messaging.setLastReadMessage",
+            json={
+                "threadId": thread_id,
+                "messageId": newest["id"],
+                "commonInboxId": None,
+                "otpInboxId": None,
+            },
+        )
+        resp.raise_for_status()
+        return True
+
     async def get_calendar_events(
         self, institution_profile_ids: list[int], start: datetime, end: datetime
     ) -> list[CalendarEvent]:

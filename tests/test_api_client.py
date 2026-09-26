@@ -3385,3 +3385,68 @@ class TestUpdatePresenceStatus:
             await mock_client.update_presence_status([], PresenceState.SICK)
 
         mock_client._request_with_version_retry.assert_not_awaited()
+
+
+class TestMarkThreadRead:
+    """Tests for AulaApiClient.mark_thread_read method."""
+
+    @staticmethod
+    def _response(data):
+        response = HttpResponse(status_code=200, data=data)
+        response.raise_for_status = MagicMock()  # type: ignore[assignment]
+        return response
+
+    @staticmethod
+    def _client(messages):
+        client = AulaApiClient(http_client=AsyncMock(), access_token="test_token")
+        fetched = TestMarkThreadRead._response({"data": {"messages": messages}})
+        written = TestMarkThreadRead._response({"status": {"code": 200}, "data": None})
+        client._request_with_version_retry = AsyncMock(side_effect=[fetched, written])
+        return client
+
+    @pytest.mark.asyncio
+    async def test_sets_the_marker_on_the_newest_message(self):
+        """Aula lists the newest message first, and that is where the marker goes."""
+        client = self._client(
+            [
+                {"id": "new", "messageType": "Message"},
+                {"id": "old", "messageType": "Message"},
+            ]
+        )
+
+        assert await client.mark_thread_read("42") is True
+
+        get_call, post_call = client._request_with_version_retry.await_args_list
+        assert get_call.args[0] == "get"
+        assert "method=messaging.getMessagesForThread&threadId=42" in get_call.args[1]
+        assert post_call.args[0] == "post"
+        assert post_call.args[1].endswith("?method=messaging.setLastReadMessage")
+        assert post_call.kwargs["json"] == {
+            "threadId": "42",
+            "messageId": "new",
+            "commonInboxId": None,
+            "otpInboxId": None,
+        }
+
+    @pytest.mark.asyncio
+    async def test_skips_entries_that_are_not_messages(self):
+        """A thread event such as a recipient change is not a message to mark."""
+        client = self._client(
+            [
+                {"id": "event", "messageType": "RecipientsAdded"},
+                {"id": "msg", "messageType": "MessageEdited"},
+            ]
+        )
+
+        assert await client.mark_thread_read("42") is True
+
+        assert client._request_with_version_retry.await_args.kwargs["json"]["messageId"] == "msg"
+
+    @pytest.mark.asyncio
+    async def test_thread_without_messages_is_not_written(self):
+        """With nothing to mark, no write is sent."""
+        client = self._client([{"id": "event", "messageType": "RecipientsAdded"}])
+
+        assert await client.mark_thread_read("42") is False
+
+        assert client._request_with_version_retry.await_count == 1

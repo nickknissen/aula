@@ -3320,6 +3320,39 @@ def _strip_relation(name: str | None) -> str | None:
     return name
 
 
+@cli.command("mark-read")
+@click.argument("thread_ids", nargs=-1, required=True)
+@click.pass_context
+@async_cmd
+async def mark_read(ctx, thread_ids):
+    """Mark message threads as read.
+
+    Writes to Aula: each thread is read up to and including its latest message, as if
+    it had been opened in the app. Thread IDs are the ones `aula messages` shows.
+
+    Examples:
+
+      aula mark-read 170189345
+
+      aula mark-read 170924263 170924078
+    """
+    results: list[dict] = []
+    async with await _get_client(ctx) as client:
+        for thread_id in thread_ids:
+            try:
+                marked = await client.mark_thread_read(thread_id)
+                results.append({"thread_id": thread_id, "marked": marked})
+            except Exception as e:
+                print_error(f"marking thread {thread_id} as read: {e}")
+                results.append({"thread_id": thread_id, "marked": False})
+
+    if output_json(ctx, results):
+        return
+
+    for r in results:
+        click.echo(f"  {'✓' if r['marked'] else '✗'} {r['thread_id']}")
+
+
 @cli.command("update-presence")
 @click.option(
     "--date",
