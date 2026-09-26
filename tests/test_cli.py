@@ -1094,5 +1094,35 @@ class TestMarkRead:
         assert "boom" in result.stderr
         assert "boom" not in result.stdout
 
+    def test_a_refused_thread_is_followed_by_a_marked_one(self, run, fake_client):
+        fake_client.mark_thread_read = AsyncMock(side_effect=[ValueError("common inbox"), True])
+
+        result = run("1", "2")
+
+        assert result.exit_code == 1
+        assert "✗ 1" in result.output
+        assert "✓ 2" in result.output
+
+    def test_json_output_when_every_thread_is_marked(self, run):
+        result = run("1", "2", output_format="json")
+
+        assert result.exit_code == 0
+        assert json.loads(result.stdout) == [
+            {"thread_id": "1", "marked": True},
+            {"thread_id": "2", "marked": True},
+        ]
+
+    def test_json_output_when_every_thread_fails(self, run, fake_client):
+        fake_client.mark_thread_read = AsyncMock(side_effect=RuntimeError("boom"))
+
+        result = run("1", "2", output_format="json")
+
+        assert result.exit_code == 1
+        assert json.loads(result.stdout) == [
+            {"thread_id": "1", "marked": False},
+            {"thread_id": "2", "marked": False},
+        ]
+        assert result.stderr.count("boom") == 2
+
     def test_needs_a_thread_id(self, run):
         assert run().exit_code != 0
