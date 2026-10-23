@@ -1904,7 +1904,7 @@ class AulaApiClient:
                 break
         result = state.result(reason)
         return PaginationResult(
-            [Message.from_dict(row) for row in result.items],
+            [Message.from_search_hit(row) for row in result.items],
             result.complete,
             result.termination_reason,
         )

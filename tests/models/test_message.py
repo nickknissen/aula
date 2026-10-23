@@ -127,3 +127,39 @@ def test_message_positional_arguments_unchanged():
     assert msg._raw == {"original": True}
     assert msg.sender_name is None
     assert "_raw" not in dict(msg)
+
+
+def search_hit(text="Teacher: <div>Hello parents</div>", **message):
+    return {
+        "threadId": 1001,
+        "thread": {"id": "1001", "subject": "Pickup"},
+        "searchMessage": {
+            "id": "m-1",
+            "text": {"html": text},
+            "sendDateTime": "2026-01-05T09:00:00+00:00",
+            **message,
+        },
+    }
+
+
+def test_from_search_hit_reads_the_matching_message():
+    msg = Message.from_search_hit(search_hit())
+    assert msg.id == "m-1"
+    assert msg.sender_name == "Teacher"
+    assert msg.content_html == "<div>Hello parents</div>"
+    assert msg.send_datetime == datetime.datetime(2026, 1, 5, 9, 0, 0, tzinfo=datetime.UTC)
+    assert msg._raw["thread"]["subject"] == "Pickup"
+
+
+def test_from_search_hit_keeps_a_named_sender_and_the_whole_text():
+    msg = Message.from_search_hit(
+        search_hit(text="Note: bring boots", sender={"fullName": "Class Teacher"})
+    )
+    assert msg.sender_name == "Class Teacher"
+    assert msg.content_html == "Note: bring boots"
+
+
+def test_from_search_hit_leaves_text_without_a_name_prefix_alone():
+    msg = Message.from_search_hit(search_hit(text="<div>Hi: there</div>"))
+    assert msg.sender_name is None
+    assert msg.content_html == "<div>Hi: there</div>"

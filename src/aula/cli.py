@@ -957,7 +957,9 @@ async def messages(ctx, limit, unread, search, folders):
             try:
                 search_result = await client.search_messages_result(
                     text=search,
-                    institution_profile_ids=prof.institution_profile_ids,
+                    # The children's ids only: Aula answers 403 when the
+                    # guardian's own are among them.
+                    institution_profile_ids=[child.id for child in prof.children],
                     institution_codes=institution_codes,
                     limit=limit,
                 )
@@ -969,7 +971,14 @@ async def messages(ctx, limit, unread, search, folders):
             if output_json(
                 ctx,
                 {
-                    "items": [dict(m) for m in results],
+                    "items": [
+                        {
+                            **dict(m),
+                            "thread_id": get_in(m._raw or {}, "thread.id"),
+                            "subject": get_in(m._raw or {}, "thread.subject", default=""),
+                        }
+                        for m in results
+                    ],
                     "complete": search_result.complete,
                     "termination_reason": search_result.termination_reason,
                 },
@@ -993,9 +1002,9 @@ async def messages(ctx, limit, unread, search, folders):
 
             for i, msg in enumerate(results):
                 msg_raw = msg._raw or {}
-                sender = get_in(msg_raw, "sender.fullName", default="Unknown")
-                send_date = msg_raw.get("sendDateTime", "")
-                subject = msg_raw.get("threadSubject", "")
+                sender = msg.sender_name or "Unknown"
+                send_date = get_in(msg_raw, "searchMessage.sendDateTime", default="")
+                subject = get_in(msg_raw, "thread.subject", default="")
 
                 for line in format_message_lines(subject, sender, send_date, msg.content):
                     click.echo(line)
