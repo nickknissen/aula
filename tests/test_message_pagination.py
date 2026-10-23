@@ -25,6 +25,8 @@ def reader(pages, kind, monkeypatch, *, cap=10):
 
 
 def page(kind, rows, **metadata):
+    if kind == "search":
+        rows = [{**row, "searchMessage": row} for row in rows]
     return {
         {"threads": "threads", "messages": "messages", "search": "results"}[kind]: rows,
         **metadata,

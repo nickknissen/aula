@@ -957,8 +957,6 @@ async def messages(ctx, limit, unread, search, folders):
             try:
                 search_result = await client.search_messages_result(
                     text=search,
-                    # The children's ids only: Aula answers 403 when the
-                    # guardian's own are among them.
                     institution_profile_ids=[child.id for child in prof.children],
                     institution_codes=institution_codes,
                     limit=limit,

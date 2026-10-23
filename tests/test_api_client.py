@@ -18,6 +18,11 @@ from aula.http import (
 )
 
 
+def search_hit(message):
+    """A search.findMessage result: the thread, with the message inside."""
+    return {"threadId": 1, "thread": {"id": "1", "subject": "Subject"}, "searchMessage": message}
+
+
 class TestRequestWithVersionRetry:
     """Tests for AulaApiClient._request_with_version_retry method."""
 
@@ -985,7 +990,7 @@ class TestPaginationSafetyGuards:
                 status_code=200,
                 data={
                     "data": {
-                        "results": [{"id": "m1", "text": {"html": "<p>hi</p>"}}],
+                        "results": [search_hit({"id": "m1", "text": {"html": "<p>hi</p>"}})],
                         "totalSize": 99999,
                     }
                 },
@@ -1776,8 +1781,8 @@ class TestSearchMessages:
                 data={
                     "data": {
                         "results": [
-                            {"id": "m1", "text": {"html": "<p>Hello</p>"}},
-                            {"id": "m2", "text": "Plain text"},
+                            search_hit({"id": "m1", "text": {"html": "<p>Hello</p>"}}),
+                            search_hit({"id": "m2", "text": "Plain text"}),
                         ],
                         "totalSize": 2,
                     }
@@ -1796,7 +1801,7 @@ class TestSearchMessages:
             status_code=200,
             data={
                 "data": {
-                    "results": [{"id": "m1", "text": "page1"}],
+                    "results": [search_hit({"id": "m1", "text": "page1"})],
                     "totalSize": 2,
                 }
             },
@@ -1805,7 +1810,7 @@ class TestSearchMessages:
             status_code=200,
             data={
                 "data": {
-                    "results": [{"id": "m2", "text": "page2"}],
+                    "results": [search_hit({"id": "m2", "text": "page2"})],
                     "totalSize": 2,
                 }
             },
@@ -1824,9 +1829,9 @@ class TestSearchMessages:
                 data={
                     "data": {
                         "results": [
-                            {"id": "m1", "text": {"html": "<b>bold</b>"}},
-                            {"id": "m2", "text": "plain"},
-                            {"id": "m3", "text": 12345},
+                            search_hit({"id": "m1", "text": {"html": "<b>bold</b>"}}),
+                            search_hit({"id": "m2", "text": "plain"}),
+                            search_hit({"id": "m3", "text": 12345}),
                         ],
                         "totalSize": 3,
                     }
@@ -1847,20 +1852,22 @@ class TestSearchMessages:
                 data={
                     "data": {
                         "results": [
-                            {
-                                "id": "m1",
-                                "text": {"html": "<p>See the plan</p>"},
-                                "attachments": [
-                                    {
-                                        "id": 5002,
-                                        "name": "weekplan.pdf",
-                                        "file": {
+                            search_hit(
+                                {
+                                    "id": "m1",
+                                    "text": {"html": "<p>See the plan</p>"},
+                                    "attachments": [
+                                        {
+                                            "id": 5002,
                                             "name": "weekplan.pdf",
-                                            "url": "https://files.example.test/weekplan.pdf",
-                                        },
-                                    }
-                                ],
-                            }
+                                            "file": {
+                                                "name": "weekplan.pdf",
+                                                "url": "https://files.example.test/weekplan.pdf",
+                                            },
+                                        }
+                                    ],
+                                }
+                            )
                         ],
                         "totalSize": 1,
                     }
