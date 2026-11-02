@@ -82,7 +82,7 @@ tasks = await client.widgets.get_mu_tasks(
 )
 ```
 
-Use the `client.widgets.*` namespace for widget calls (for example: `get_mu_tasks`, `get_ugeplan`, `get_easyiq_weekplan`, `get_meebook_weekplan`, `get_momo_courses`, `get_library_status`).
+Use the `client.widgets.*` namespace for widget calls (for example: `get_mu_tasks`, `get_ugeplan`, `get_easyiq_weekplan`, `get_meebook_weekplan`, `get_docendo_weekplan`, `get_momo_courses`, `get_library_status`).
 
 Legacy direct widget methods on `AulaApiClient` are deprecated and will be removed in a future release. Migrate to `client.widgets.<method>(...)`.
 
@@ -295,6 +295,7 @@ downloaded beside them because its identity cannot be established from its name.
 | `aula easyiq:ugeplan` | EasyIQ weekly plan |
 | `aula easyiq:homework` | EasyIQ homework |
 | `aula meebook:ugeplan` | Meebook weekly plan |
+| `aula docendo:ugeplan` | Docendo weekly plan, matched to children by class |
 | `aula momo:forløb` | MoMo courses |
 | `aula momo:huskeliste` | MoMo reminders |
 | `aula library:status` | Library loans & reservations |

@@ -24,6 +24,7 @@ from .const import (
     MIN_UDDANNELSE_TASK_WIDGETS,
     MIN_UDDANNELSE_UGEPLAN_WIDGETS,
     WIDGET_BIBLIOTEKET,
+    WIDGET_DOCENDO,
     WIDGET_EASYIQ_HOMEWORK,
     WIDGET_HUSKELISTEN,
     WIDGET_MEEBOOK,
@@ -31,6 +32,7 @@ from .const import (
 from .models import (
     Child,
     DailyOverview,
+    DocendoWeekPlan,
     Group,
     Message,
     MessageThread,
@@ -86,6 +88,7 @@ class WeeklySummaryProvider(enum.StrEnum):
     MU_OPGAVER = "mu_opgaver"
     MU_UGEPLAN = "mu_ugeplan"
     MEEBOOK = "meebook"
+    DOCENDO = "docendo"
     EASYIQ = "easyiq"
     EASYIQ_HOMEWORK = "easyiq_homework"
 
@@ -640,6 +643,48 @@ def _with_child(row: dict, child: Child) -> dict:
     saying the same thing.
     """
     return {**row, "child_id": child.id, "child_name": child.name}
+
+
+def _docendo_plans_for_child(
+    plans: list[DocendoWeekPlan], child: Child, *, only_child: bool
+) -> list[DocendoWeekPlan]:
+    """Pick the plans for the child's class, as Aula shows it in the institution profile.
+
+    An only child gets every plan when none matches, since the class name in
+    Aula can be missing or spelled in a way that does not match Docendo's.
+    """
+    class_name = get_in(child._raw or {}, "institutionProfile.metadata", default=None)
+    matched = [plan for plan in plans if plan.matches_class(class_name)]
+    return matched or (plans if only_child else [])
+
+
+def _docendo_plan_lines(plan: DocendoWeekPlan) -> list[str]:
+    from .utils.html import html_to_plain
+
+    lines = [line for line in html_to_plain(plan.note).splitlines() if line.strip()]
+    current_day = None
+    for lesson in plan.lessons:
+        if not lesson.has_content or lesson.start_time is None:
+            continue
+        start = lesson.start_time.astimezone(ZoneInfo("Europe/Copenhagen"))
+        if start.date() != current_day:
+            current_day = start.date()
+            lines.append(f"{DANISH_WEEKDAYS[start.weekday()]} {start.day}/{start.month}")
+        span = start.strftime("%H:%M")
+        if lesson.end_time and lesson.end_time > lesson.start_time:
+            end = lesson.end_time.astimezone(ZoneInfo("Europe/Copenhagen"))
+            span += f"-{end.strftime('%H:%M')}"
+        lines.append(f"- {lesson.title or 'Lektion'} {span}")
+        for label, value in (
+            (None, lesson.description),
+            ("Læringsmål", lesson.learning_goal),
+            ("Elevforberedelse", lesson.notes_for_students),
+        ):
+            text = [line for line in html_to_plain(value).splitlines() if line.strip()]
+            if text and label:
+                text[0] = f"{label}: {text[0]}"
+            lines.extend(f"  {line}" for line in text)
+    return lines
 
 
 def _easyiq_child_user_ids(profile_context: dict) -> list[str]:
@@ -2484,6 +2529,61 @@ async def meebook_ugeplan(ctx, week):
             print_empty("weekly plans")
 
 
+@cli.command("docendo:ugeplan")
+@click.option(
+    "--week",
+    type=str,
+    default=None,
+    help="Week number (e.g. 8) or full format (2026-W8). Defaults to current week.",
+)
+@click.pass_context
+@async_cmd
+async def docendo_ugeplan(ctx, week):
+    """Fetch Docendo weekly plans (ugeplan) for children."""
+    week = _resolve_week(week)
+    async with await _get_client(ctx) as client:
+        if not await _require_widget(client, WIDGET_DOCENDO, "Docendo"):
+            return
+
+        try:
+            prof: Profile = await client.get_profile()
+        except Exception as e:
+            print_error(f"fetching profile: {e}")
+            return
+
+        try:
+            plans = await client.widgets.get_docendo_weekplan(week)
+        except Exception as e:
+            print_error(f"fetching Docendo weekplan: {e}")
+            return
+
+        only_child = len(prof.children) == 1
+        pairs = [
+            (child, plan)
+            for child in prof.children
+            for plan in _docendo_plans_for_child(plans, child, only_child=only_child)
+        ]
+        unmatched = [plan for plan in plans if all(plan is not p for _, p in pairs)]
+
+        rows = [_with_child(dict(plan), child) for child, plan in pairs]
+        rows += [{**dict(plan), "child_id": None, "child_name": None} for plan in unmatched]
+        if output_json(ctx, rows):
+            return
+
+        if not plans:
+            print_empty("weekly plans")
+            return
+
+        print_heading(f"Docendo weekly plan [{week}]")
+        sections = [(f"{child.name} ({plan.name})", plan) for child, plan in pairs]
+        sections += [(f"{plan.name} (no matching child)", plan) for plan in unmatched]
+        for title, plan in sections:
+            click.echo(title)
+            for line in _docendo_plan_lines(plan):
+                click.echo(f"  {line}")
+            click.echo()
+
+
 @cli.command("momo:forløb")
 @click.pass_context
 @async_cmd
@@ -3230,6 +3330,36 @@ async def weekly_summary(ctx, child, week, providers):
                                 for line in html_to_plain(task.content).splitlines():
                                     if line.strip():
                                         click.echo(f"  {line}")
+                    click.echo()
+
+        # ── Docendo – Weekly Plan ────────────────────────────────────────────
+        if WeeklySummaryProvider.DOCENDO in enabled and await _has_widget(client, WIDGET_DOCENDO):
+            try:
+                docendo_plans = await client.widgets.get_docendo_weekplan(week)
+            except Exception as e:
+                docendo_plans = []
+                _log.warning("Could not fetch Docendo weekplan: %s", e)
+
+            only_child = len(prof.children) == 1
+            docendo_pairs = [
+                (c, plan)
+                for c in children
+                for plan in _docendo_plans_for_child(docendo_plans, c, only_child=only_child)
+            ]
+
+            if json_result is not None:
+                json_result["docendo_weekplan"] = [
+                    _with_child(dict(plan), c) for c, plan in docendo_pairs
+                ]
+
+            if not is_json and docendo_pairs:
+                click.echo("Weekly plan (Docendo)")
+                click.echo()
+                for c, plan in docendo_pairs:
+                    click.echo(f"{c.name} ({plan.name})")
+                    click.echo()
+                    for line in _docendo_plan_lines(plan):
+                        click.echo(line)
                     click.echo()
 
         # ── EasyIQ – Weekly Plan ─────────────────────────────────────────────
