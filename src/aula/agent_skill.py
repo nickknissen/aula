@@ -59,7 +59,7 @@ aula --output json weekly-summary
 aula --output json weekly-summary --child "Emma" --week 10 --provider all
 ```
 Returns: `{week, calendar_events, unread_messages, mu_tasks, meebook_weekplan, ...}`
-Providers: `mu_opgaver`, `mu_ugeplan`, `meebook`, `easyiq`, `easyiq_homework`, `all`.
+Providers: `mu_opgaver`, `mu_ugeplan`, `meebook`, `docendo`, `easyiq`, `easyiq_homework`, `all`.
 
 ### Core data commands
 
@@ -140,6 +140,12 @@ aula --output json easyiq:homework --week 10
 ```bash
 aula --output json meebook:ugeplan --week 10
 ```
+
+#### `docendo:ugeplan` — Docendo weekly plan
+```bash
+aula --output json docendo:ugeplan --week 10
+```
+One plan per class. Each row has `child_name`, or `null` when no child's class matches.
 
 #### `momo:forløb` — MoMo courses
 ```bash

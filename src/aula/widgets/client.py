@@ -1,9 +1,12 @@
 import asyncio
+import base64
+import json
 import logging
 from typing import Any, Protocol
 
 from ..const import (
     CICERO_API,
+    DOCENDO_API,
     EASYIQ_API,
     EASYIQ_AUTHENTICATE_PATH,
     EASYIQ_CALENDAR_PATH,
@@ -14,6 +17,7 @@ from ..const import (
     MEEBOOK_API,
     MIN_UDDANNELSE_API,
     SYSTEMATIC_API,
+    WIDGET_DOCENDO,
     WIDGET_EASYIQ_HOMEWORK,
     WIDGET_EASYIQ_WEEKPLAN,
     WIDGET_HUSKELISTEN,
@@ -24,6 +28,7 @@ from ..models import (
     HOMEWORK_ITEM_TYPES,
     WEEKPLAN_ITEM_TYPES,
     Appointment,
+    DocendoWeekPlan,
     EasyIQCalendarEvent,
     EasyIQHomework,
     LibraryStatus,
@@ -99,6 +104,25 @@ def _is_meebook_jwt_expired(payload: Any) -> bool:
         return False
     message = payload.get("message")
     return isinstance(message, str) and "jwt-token expired" in message.casefold()
+
+
+def _zero_padded_week(week: str) -> str:
+    """Return ``YYYY-Wn`` as ``YYYY-Wnn``, which Meebook and Docendo require."""
+    parts = week.split("-W")
+    if len(parts) == 2 and parts[1].isdigit():
+        return f"{parts[0]}-W{int(parts[1]):02d}"
+    return week
+
+
+def _jwt_subject(jwt: str) -> str | None:
+    """Return the unverified ``sub`` claim of a JWT, or ``None``."""
+    try:
+        payload = jwt.split(".")[1]
+        claims = json.loads(base64.urlsafe_b64decode(payload + "=" * (-len(payload) % 4)))
+    except IndexError, ValueError:
+        return None
+    sub = claims.get("sub") if isinstance(claims, dict) else None
+    return sub if isinstance(sub, str) and sub else None
 
 
 def _ordered_unique(pairs: list[tuple[str, str]]) -> list[tuple[str, str]]:
@@ -951,12 +975,8 @@ class AulaWidgetsClient:
         week: str,
         session_uuid: str,
     ) -> list[MeebookStudentPlan]:
-        parts = week.split("-W")
-        if len(parts) == 2:
-            week = f"{parts[0]}-W{int(parts[1]):02d}"
-
         params = {
-            "currentWeekNumber": week,
+            "currentWeekNumber": _zero_padded_week(week),
             "userProfile": "guardian",
             "childFilter[]": child_filter,
             "institutionFilter[]": institution_filter,
@@ -992,6 +1012,45 @@ class AulaWidgetsClient:
 
         plans = _as_list(payload, "Meebook weekplan")
         return [MeebookStudentPlan.from_dict(s) for s in plans]
+
+    async def get_docendo_weekplan(self, week: str) -> list[DocendoWeekPlan]:
+        """Return one weekplan per class for all of the guardian's children.
+
+        Docendo does not filter by child. Use ``DocendoWeekPlan.matches_class``
+        with the child's ``institution_profile.metadata`` to pair them up.
+        """
+        jwt = (await self._get_bearer_token(WIDGET_DOCENDO)).removeprefix("Bearer ")
+        headers = {
+            "Accept": "application/json",
+            # Docendo's own widget sends this misspelled scheme.
+            "Authorization": f"Baerer {jwt}",
+            "Origin": "https://www.aula.dk",
+            "Referer": "https://www.aula.dk/",
+        }
+        session_uuid = _jwt_subject(jwt)
+        if session_uuid:
+            headers["aulasessionuuid"] = session_uuid
+
+        resp = await self._api_client._request_with_version_retry(
+            "get",
+            f"{DOCENDO_API}/weekplan",
+            params={"currentWeekNumber": _zero_padded_week(week), "userProfile": "guardian"},
+            headers=headers,
+        )
+        resp.raise_for_status()
+        payload = resp.json()
+
+        data = payload.get("data") if isinstance(payload, dict) else None
+        plans = data.get("weekPlans") if isinstance(data, dict) else None
+        if not isinstance(plans, list):
+            # Only the shape is logged: the body holds class names and teachers' notes.
+            _LOGGER.warning(
+                "Docendo weekplan returned %s with keys %s, treating as empty",
+                type(payload).__name__,
+                sorted(payload)[:10] if isinstance(payload, dict) else None,
+            )
+            return []
+        return [DocendoWeekPlan.from_dict(plan) for plan in plans if isinstance(plan, dict)]
 
     async def get_momo_courses(
         self,

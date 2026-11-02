@@ -11,6 +11,8 @@ from .child import Child as Child
 from .comment import Comment as Comment
 from .consent import ConsentResponse as ConsentResponse
 from .daily_overview import DailyOverview as DailyOverview
+from .docendo_weekplan import DocendoLesson as DocendoLesson
+from .docendo_weekplan import DocendoWeekPlan as DocendoWeekPlan
 from .document import SecureDocument as SecureDocument
 from .easyiq_calendar_event import HOMEWORK_ITEM_TYPES as HOMEWORK_ITEM_TYPES
 from .easyiq_calendar_event import WEEKPLAN_ITEM_TYPES as WEEKPLAN_ITEM_TYPES

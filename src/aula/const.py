@@ -22,6 +22,8 @@ EASYIQ_AUTHENTICATE_PATH = "/Aula/AuthenticateAulaUser"
 EASYIQ_SWITCHCHILD_PATH = "/Aula/SwitchChild"
 MEEBOOK_API = "https://app.meebook.com/aulaapi"
 CICERO_API = "https://surf.cicero-suite.com/portal-api/rest/aula"
+# Unofficial: the endpoint Docendo's own Aula widget calls.
+DOCENDO_API = "https://app.docendo.dk/aula/v2"
 
 # Widget IDs for third-party integrations
 WIDGET_EASYIQ_WEEKPLAN = "0128"
@@ -33,6 +35,7 @@ WIDGET_MIN_UDDANNELSE_TASKS = "0030"
 WIDGET_MIN_UDDANNELSE_SSO = "0023"
 WIDGET_MEEBOOK = "0004"
 WIDGET_HUSKELISTEN = "0062"
+WIDGET_DOCENDO = "0057"
 
 # Verified EasyIQ weekplan-capable widgets, in preference order. The reference
 # integration also sees legacy 0001 and homework 0142 accepted for weekplans;

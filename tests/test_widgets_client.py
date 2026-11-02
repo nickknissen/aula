@@ -8,6 +8,7 @@ import pytest
 from aula.api_client import AulaApiClient
 from aula.const import (
     CICERO_API,
+    DOCENDO_API,
     EASYIQ_API,
     EASYIQ_AUTHENTICATE_PATH,
     EASYIQ_CALENDAR_PATH,
@@ -894,6 +895,58 @@ class TestWidgetsClient:
             "X-Version": "1.0",
         }
         assert meebook_response.method_calls == [call.raise_for_status(), call.json()]
+
+    @pytest.mark.asyncio
+    async def test_get_docendo_weekplan_sends_widget_token_and_session_uuid(self, client):
+        # header.payload.signature, where payload is {"sub": "session-1"}
+        jwt = "eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiJzZXNzaW9uLTEifQ.sig"
+        docendo_response = _calendar_response(
+            {"data": {"weekPlans": [{"name": "4A", "note": "", "events": []}, "junk"]}}
+        )
+        client._request_with_version_retry = AsyncMock(
+            side_effect=[_token_response(jwt), docendo_response]
+        )
+
+        plans = await client.widgets.get_docendo_weekplan("2026-W9")
+
+        assert [plan.name for plan in plans] == ["4A"]
+        calls = client._request_with_version_retry.await_args_list
+        assert calls[0].args[1].endswith("widgetId=0057")
+        assert calls[1].args == ("get", f"{DOCENDO_API}/weekplan")
+        assert calls[1].kwargs["params"] == {
+            "currentWeekNumber": "2026-W09",
+            "userProfile": "guardian",
+        }
+        assert calls[1].kwargs["headers"] == {
+            "Accept": "application/json",
+            "Authorization": f"Baerer {jwt}",
+            "Origin": "https://www.aula.dk",
+            "Referer": "https://www.aula.dk/",
+            "aulasessionuuid": "session-1",
+        }
+
+    @pytest.mark.asyncio
+    async def test_get_docendo_weekplan_omits_session_uuid_for_opaque_token(self, client):
+        client._request_with_version_retry = AsyncMock(
+            side_effect=[_token_response("opaque"), _calendar_response({"data": {"weekPlans": []}})]
+        )
+
+        assert await client.widgets.get_docendo_weekplan("2026-W09") == []
+        headers = client._request_with_version_retry.await_args_list[1].kwargs["headers"]
+        assert "aulasessionuuid" not in headers
+
+    @pytest.mark.asyncio
+    async def test_get_docendo_weekplan_unexpected_shape_is_empty(self, client, caplog):
+        client._request_with_version_retry = AsyncMock(
+            side_effect=[
+                _token_response("token"),
+                _calendar_response({"error": "Klasse 4A ikke fundet"}),
+            ]
+        )
+
+        assert await client.widgets.get_docendo_weekplan("2026-W09") == []
+        assert "keys ['error']" in caplog.text
+        assert "Klasse 4A" not in caplog.text
 
     @pytest.mark.asyncio
     async def test_get_momo_courses_uses_token_and_expected_request_shape(self, client):
