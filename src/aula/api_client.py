@@ -451,6 +451,8 @@ class AulaApiClient:
                         "Skipping child due to parsing error: %s - Data: %s", e, child_dict
                     )
 
+        children.extend(await self._extended_access_children({child.id for child in children}))
+
         institution_profile_ids = [
             ip["id"] for ip in profile_dict.get("institutionProfiles", []) if "id" in ip
         ]
@@ -469,6 +471,40 @@ class AulaApiClient:
             raise ValueError("Failed to parse main profile data") from e
 
         return profile
+
+    async def _extended_access_children(self, known_ids: set[int]) -> list[Child]:
+        """Children the guardian has extended access to ("udvidet adgang", e.g. a bonus parent).
+
+        Aula only lists them in ``getProfileContext``, not in ``getProfilesByLogin``.
+        """
+        try:
+            context = await self.get_profile_context()
+        except HttpRequestError as e:
+            _LOGGER.warning("Could not fetch extended-access children: %s", e)
+            return []
+
+        children = []
+        for institution in get_in(context, "data.institutions", default=None) or []:
+            if not isinstance(institution, dict):
+                continue
+            for child_dict in institution.get("children") or []:
+                if not isinstance(child_dict, dict) or child_dict.get("id") in known_ids:
+                    continue
+                child_dict = {
+                    **child_dict,
+                    "institutionProfile": {
+                        "institutionName": institution.get("name", ""),
+                        "institutionCode": child_dict.get("institutionCode"),
+                    },
+                }
+                try:
+                    child = Child.from_dict(child_dict)
+                except (KeyError, TypeError, ValueError) as e:
+                    _LOGGER.warning("Skipping extended-access child: %s", e)
+                    continue
+                known_ids.add(child.id)
+                children.append(child)
+        return children
 
     async def is_logged_in(self) -> bool:
         """Check if session is still authenticated."""

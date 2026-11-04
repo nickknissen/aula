@@ -444,6 +444,63 @@ class TestGetProfile:
         profile = await client.get_profile()
         assert len(profile.children) == 1
 
+    def _profile_with_own_child(self):
+        return {
+            "profileId": 123,
+            "displayName": "Forælder",
+            "children": [
+                {
+                    "id": 1,
+                    "profileId": 11,
+                    "name": "Barn Et",
+                    "institutionProfile": {"institutionName": "Skole A", "institutionCode": "A1"},
+                }
+            ],
+            "institutionProfiles": [],
+        }
+
+    @pytest.mark.asyncio
+    async def test_get_profile_adds_extended_access_children(self, client):
+        """Children only listed in getProfileContext are added after the own children."""
+        own_in_context = {"id": 1, "profileId": 11, "name": "Barn Et", "institutionCode": "A1"}
+        extended = {"id": 2, "profileId": 22, "name": "Barn To", "institutionCode": "B2"}
+        context = {
+            "data": {"institutions": [{"name": "Skole B", "children": [extended, own_in_context]}]}
+        }
+        client._request_with_version_retry = AsyncMock(
+            side_effect=[
+                self._make_profile_response([self._profile_with_own_child()]),
+                HttpResponse(status_code=200, data=context),
+            ]
+        )
+        profile = await client.get_profile()
+        assert [c.id for c in profile.children] == [1, 2]
+        assert profile.children[1].institution_name == "Skole B"
+        assert profile.children[1]._raw["institutionProfile"]["institutionCode"] == "B2"
+        assert profile.institution_profile_ids == [1, 2]
+
+    @pytest.mark.asyncio
+    async def test_get_profile_context_failure_keeps_own_children(self, client):
+        client._request_with_version_retry = AsyncMock(
+            side_effect=[
+                self._make_profile_response([self._profile_with_own_child()]),
+                HttpResponse(status_code=500, data=None),
+            ]
+        )
+        profile = await client.get_profile()
+        assert [c.id for c in profile.children] == [1]
+
+    @pytest.mark.asyncio
+    async def test_get_profile_context_without_institutions(self, client):
+        client._request_with_version_retry = AsyncMock(
+            side_effect=[
+                self._make_profile_response([self._profile_with_own_child()]),
+                HttpResponse(status_code=200, data={"data": None}),
+            ]
+        )
+        profile = await client.get_profile()
+        assert [c.id for c in profile.children] == [1]
+
     @pytest.mark.asyncio
     async def test_get_profile_http_401_raises_auth_error(self, client):
         """401 response raises AulaAuthenticationError."""
