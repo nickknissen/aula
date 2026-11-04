@@ -15,6 +15,10 @@ from aula.http import AulaAuthenticationError, HttpResponse
 # ---------------------------------------------------------------------------
 
 
+def _profile_context_response() -> HttpResponse:
+    return HttpResponse(status_code=200, data={"data": {"institutions": []}})
+
+
 def _profile_response() -> HttpResponse:
     """Minimal valid response for get_profile / init calls."""
     return HttpResponse(
@@ -133,10 +137,12 @@ class TestCreateClient:
                 _profile_response(),
                 _profile_response(),
                 _profile_response(),
+                _profile_context_response(),
                 HttpResponse(status_code=401),
                 _profile_response(),
                 _profile_response(),
                 _profile_response(),
+                _profile_context_response(),
             ]
         )
 
