@@ -2377,6 +2377,25 @@ class TestGetCommonFiles:
         client._request_with_version_retry.assert_not_called()
 
 
+class TestSearchGroups:
+    @pytest.mark.asyncio
+    async def test_uses_the_portal_search_method(self):
+        client = AulaApiClient(http_client=AsyncMock(), access_token="test_token")
+        client._request_with_version_retry = AsyncMock(
+            return_value=HttpResponse(
+                status_code=200,
+                data={"data": {"results": [{"id": "12345", "name": "3.A"}], "totalSize": 1}},
+            )
+        )
+
+        groups = await client.search_groups("3.A")
+
+        params = client._request_with_version_retry.call_args.kwargs["params"]
+        assert params["method"] == "search.findGroups"
+        assert params["text"] == "3.A"
+        assert [(g.id, g.name) for g in groups] == [(12345, "3.A")]
+
+
 class TestGetVacationRegistrations:
     """Tests for AulaApiClient.get_vacation_registrations method."""
 
