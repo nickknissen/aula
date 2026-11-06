@@ -2327,9 +2327,9 @@ class AulaApiClient:
     async def search_groups(self, text: str, limit: int = 100) -> list[Group]:
         """Search for groups by name."""
         params: dict[str, Any] = {
-            "method": "search.searchGroups",
-            "Text": text,
-            "Limit": limit,
+            "method": "search.findGroups",
+            "text": text,
+            "limit": limit,
         }
         resp = await self._request_with_version_retry("get", self.api_url, params=params)
         resp.raise_for_status()

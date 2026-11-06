@@ -20,6 +20,10 @@ class TestGroup:
         assert group.description == "Main class group"
         assert group._raw is data
 
+    def test_search_result_id_is_read_as_a_number(self):
+        group = Group.from_dict({"id": "12345", "name": "3.A"})
+        assert group.id == 12345
+
     def test_group_from_dict_missing_optional(self):
         data = {"id": 2, "name": "Group B"}
         group = Group.from_dict(data)

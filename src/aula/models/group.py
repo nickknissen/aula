@@ -17,7 +17,7 @@ class Group(AulaDataClass):
     def from_dict(cls, data: dict[str, Any]) -> Group:
         return cls(
             _raw=data,
-            id=data["id"],
+            id=int(data["id"]),
             name=data.get("name", ""),
             group_type=data.get("type", ""),
             institution_code=str(data.get("institutionCode", "")),
