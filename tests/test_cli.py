@@ -44,6 +44,7 @@ from aula.const import (
 )
 from aula.models import (
     Child,
+    CommonFile,
     EasyIQHomework,
     PresenceConfiguration,
     PresenceState,
@@ -1148,3 +1149,75 @@ class TestMarkRead:
 
     def test_needs_a_thread_id(self, run):
         assert run().exit_code != 0
+
+
+class TestCommonFiles:
+    @staticmethod
+    def _child(child_id, institution_code):
+        return Child.from_dict(
+            {
+                "id": child_id,
+                "profileId": child_id + 100,
+                "name": f"Barn {child_id}",
+                "institutionProfile": {"institutionCode": institution_code},
+            }
+        )
+
+    @pytest.fixture
+    def fake_client(self):
+        client = MagicMock()
+        client.get_profile = AsyncMock(
+            return_value=Profile(
+                profile_id=1,
+                display_name="Forælder",
+                children=[
+                    self._child(1, "280001"),
+                    self._child(2, "280001"),
+                    self._child(3, "280002"),
+                ],
+            )
+        )
+        client.get_common_files = AsyncMock(
+            return_value=[
+                CommonFile(
+                    id=501,
+                    title="Ordensregler",
+                    created_at="2026-08-01T08:00:00+00:00",
+                    institution_name="Eksempel Skole",
+                    file_name="ordensregler.pdf",
+                    file_url="https://example.com/1",
+                )
+            ]
+        )
+        client.__aenter__ = AsyncMock(return_value=client)
+        client.__aexit__ = AsyncMock(return_value=False)
+        return client
+
+    @pytest.fixture
+    def run(self, fake_client, monkeypatch):
+        monkeypatch.setattr("aula.cli._get_client", AsyncMock(return_value=fake_client))
+
+        def invoke(output_format="text"):
+            return CliRunner().invoke(
+                cli.documents, ["--common"], obj={"OUTPUT_FORMAT": output_format}
+            )
+
+        return invoke
+
+    def test_asks_once_per_school_of_the_children(self, run, fake_client):
+        run()
+
+        fake_client.get_common_files.assert_awaited_once_with(["280001", "280002"])
+
+    def test_lists_title_school_and_file(self, run):
+        result = run()
+
+        assert result.exit_code == 0
+        assert "Ordensregler" in result.output
+        assert "Eksempel Skole" in result.output
+        assert "ordensregler.pdf" in result.output
+
+    def test_json_output_carries_the_download_url(self, run):
+        result = run(output_format="json")
+
+        assert json.loads(result.stdout)[0]["file_url"] == "https://example.com/1"

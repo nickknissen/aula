@@ -2327,6 +2327,56 @@ class TestGetPresenceConfiguration:
         assert result == []
 
 
+class TestGetCommonFiles:
+    @pytest.fixture
+    def client(self):
+        return AulaApiClient(http_client=AsyncMock(), access_token="test_token")
+
+    @staticmethod
+    def _page(ids, total):
+        files = [{"id": i, "title": f"Fil {i}"} for i in ids]
+        return HttpResponse(
+            status_code=200, data={"data": {"commonFiles": files, "totalAmount": total}}
+        )
+
+    @pytest.mark.asyncio
+    async def test_asks_for_the_childrens_institutions(self, client):
+        client._request_with_version_retry = AsyncMock(return_value=self._page([1], 1))
+
+        await client.get_common_files(["280001"])
+
+        params = client._request_with_version_retry.call_args.kwargs["params"]
+        assert params["method"] == "commonFiles.getCommonFiles"
+        assert params["institutionCodes[]"] == ["280001"]
+        assert params["index"] == 0
+
+    @pytest.mark.asyncio
+    async def test_reads_every_page_by_item_offset(self, client):
+        client._request_with_version_retry = AsyncMock(
+            side_effect=[self._page([1, 2], 3), self._page([3], 3)]
+        )
+
+        files = await client.get_common_files(["280001"], page_size=2)
+
+        assert [f.id for f in files] == [1, 2, 3]
+        calls = client._request_with_version_retry.call_args_list
+        assert [c.kwargs["params"]["index"] for c in calls] == [0, 2]
+
+    @pytest.mark.asyncio
+    async def test_stops_when_a_page_comes_back_empty(self, client):
+        client._request_with_version_retry = AsyncMock(return_value=self._page([], 5))
+
+        assert await client.get_common_files(["280001"]) == []
+        assert client._request_with_version_retry.call_count == 1
+
+    @pytest.mark.asyncio
+    async def test_no_institutions_makes_no_request(self, client):
+        client._request_with_version_retry = AsyncMock()
+
+        assert await client.get_common_files([]) == []
+        client._request_with_version_retry.assert_not_called()
+
+
 class TestGetVacationRegistrations:
     """Tests for AulaApiClient.get_vacation_registrations method."""
 
