@@ -9,6 +9,7 @@ from .calendar_event import CalendarEvent as CalendarEvent
 from .calendar_event import merge_duplicate_lessons as merge_duplicate_lessons
 from .child import Child as Child
 from .comment import Comment as Comment
+from .common_file import CommonFile as CommonFile
 from .consent import ConsentResponse as ConsentResponse
 from .daily_overview import DailyOverview as DailyOverview
 from .docendo_weekplan import DocendoLesson as DocendoLesson

@@ -36,6 +36,7 @@ from .models import (
     ChildPickupResponsibles,
     ChildPresenceState,
     Comment,
+    CommonFile,
     ConsentResponse,
     DailyOverview,
     Group,
@@ -2369,26 +2370,43 @@ class AulaApiClient:
                 _LOGGER.warning("Skipping document due to parsing error: %s", e)
         return result
 
-    async def get_common_files(self, institution_profile_ids: list[int]) -> list[SecureDocument]:
-        """Fetch common institution files."""
-        params: dict[str, Any] = {
-            "method": "secureDocument.getCommonFiles",
-            "institutionProfileIds[]": institution_profile_ids,
-        }
-        resp = await self._request_with_version_retry("get", self.api_url, params=params)
-        resp.raise_for_status()
-        data = resp.json().get("data", [])
-        if not isinstance(data, list):
+    async def get_common_files(
+        self, institution_codes: list[str], page_size: int = 20
+    ) -> list[CommonFile]:
+        """Fetch every common file the given institutions share.
+
+        A guardian passes the institution codes of their children's schools.
+        """
+        if not institution_codes:
             return []
-        result: list[SecureDocument] = []
-        for item in data:
-            if not isinstance(item, dict):
-                continue
-            try:
-                result.append(SecureDocument.from_dict(item))
-            except (TypeError, ValueError, KeyError) as e:
-                _LOGGER.warning("Skipping common file due to parsing error: %s", e)
-        return result
+
+        result: list[CommonFile] = []
+        seen = 0
+        while True:
+            params: dict[str, Any] = {
+                "method": "commonFiles.getCommonFiles",
+                "index": seen,
+                "limit": page_size,
+                "institutionCodes[]": institution_codes,
+            }
+            resp = await self._request_with_version_retry("get", self.api_url, params=params)
+            resp.raise_for_status()
+            batch = get_in(resp.json(), "data.commonFiles", default=[])
+            total = get_in(resp.json(), "data.totalAmount", default=0)
+            if not isinstance(batch, list) or not batch:
+                return result
+
+            seen += len(batch)
+            for item in batch:
+                if not isinstance(item, dict):
+                    continue
+                try:
+                    result.append(CommonFile.from_dict(item))
+                except (TypeError, ValueError, KeyError) as e:
+                    _LOGGER.warning("Skipping common file due to parsing error: %s", e)
+
+            if not isinstance(total, int) or seen >= total:
+                return result
 
     async def get_vacation_registrations(self, child_ids: list[int]) -> list[VacationRegistration]:
         """Fetch vacation registrations for the given children.

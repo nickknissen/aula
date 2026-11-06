@@ -1773,11 +1773,12 @@ async def documents(ctx, common):
             print_error(f"fetching profile: {e}")
             return
 
+        if common:
+            await _print_common_files(ctx, client, prof)
+            return
+
         try:
-            if common:
-                result = await client.get_common_files(prof.institution_profile_ids)
-            else:
-                result = await client.get_secure_documents(prof.institution_profile_ids)
+            result = await client.get_secure_documents(prof.institution_profile_ids)
         except Exception as e:
             print_error(f"fetching documents: {e}")
             return
@@ -1786,10 +1787,10 @@ async def documents(ctx, common):
             return
 
         if not result:
-            print_empty("common files" if common else "documents")
+            print_empty("documents")
             return
 
-        print_heading("Common Files" if common else "Secure Documents")
+        print_heading("Secure Documents")
         for doc in result:
             parts = [f"ID {doc.id}"]
             if doc.document_type:
@@ -1799,6 +1800,35 @@ async def documents(ctx, common):
             click.echo(format_row(doc.title, *parts))
             if doc.created_at:
                 click.echo(f"  Created: {doc.created_at}")
+
+
+def _institution_codes(prof: Profile) -> list[str]:
+    """The children's schools, or the user's own when no children are listed."""
+    sources = [get_in(child._raw, "institutionProfile.institutionCode") for child in prof.children]
+    if not prof.children and prof._raw:
+        sources = [get_in(ip, "institutionCode") for ip in prof._raw.get("institutionProfiles", [])]
+    return list(dict.fromkeys(str(code) for code in sources if code))
+
+
+async def _print_common_files(ctx: click.Context, client: AulaApiClient, prof: Profile) -> None:
+    try:
+        files = await client.get_common_files(_institution_codes(prof))
+    except Exception as e:
+        print_error(f"fetching common files: {e}")
+        return
+
+    if output_json(ctx, [dict(f) for f in files]):
+        return
+
+    if not files:
+        print_empty("common files")
+        return
+
+    print_heading("Common Files")
+    for f in files:
+        click.echo(format_row(f.title, *[p for p in (f.institution_name, f.file_name) if p]))
+        if f.created_at:
+            click.echo(f"  Created: {f.created_at}")
 
 
 @cli.command("vacations")
