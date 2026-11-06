@@ -1571,7 +1571,7 @@ class AulaApiClient:
         params = {
             "method": "posts.getAllPosts",
             "parent": "profile",
-            "index": page - 1,
+            "index": (page - 1) * limit,
             "limit": limit,
             "institutionProfileIds[]": institution_profile_ids,
         }
