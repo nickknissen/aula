@@ -2327,6 +2327,44 @@ class TestGetPresenceConfiguration:
         assert result == []
 
 
+class TestGetSecureDocuments:
+    @pytest.fixture
+    def client(self):
+        return AulaApiClient(http_client=AsyncMock(), access_token="test_token")
+
+    @staticmethod
+    def _page(ids, more):
+        documents = [{"id": i, "title": f"Dokument {i}"} for i in ids]
+        return HttpResponse(
+            status_code=200,
+            data={"data": {"documents": documents, "moreDocumentsExists": more}},
+        )
+
+    @pytest.mark.asyncio
+    async def test_posts_the_users_own_profiles_as_filter(self, client):
+        client._request_with_version_retry = AsyncMock(return_value=self._page([1], False))
+
+        await client.get_secure_documents([100])
+
+        call = client._request_with_version_retry.call_args
+        assert call.args[0] == "post"
+        assert call.args[1].endswith("?method=documents.getSecureDocuments")
+        assert call.kwargs["json"]["filterInstitutionProfileIds"] == [100]
+        assert call.kwargs["json"]["index"] == 0
+
+    @pytest.mark.asyncio
+    async def test_reads_every_page_by_item_offset(self, client):
+        client._request_with_version_retry = AsyncMock(
+            side_effect=[self._page([1, 2], True), self._page([3], False)]
+        )
+
+        documents = await client.get_secure_documents([100], page_size=2)
+
+        assert [d.id for d in documents] == [1, 2, 3]
+        calls = client._request_with_version_retry.call_args_list
+        assert [c.kwargs["json"]["index"] for c in calls] == [0, 2]
+
+
 class TestGetCommonFiles:
     @pytest.fixture
     def client(self):

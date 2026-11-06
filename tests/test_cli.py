@@ -1221,3 +1221,26 @@ class TestCommonFiles:
         result = run(output_format="json")
 
         assert json.loads(result.stdout)[0]["file_url"] == "https://example.com/1"
+
+
+class TestSecureDocuments:
+    def test_filters_on_the_users_own_profiles_only(self, monkeypatch):
+        """Aula refuses the request when a child's institution profile is in the filter."""
+        client = MagicMock()
+        client.get_profile = AsyncMock(
+            return_value=Profile(
+                profile_id=1,
+                display_name="Forælder",
+                institution_profile_ids=[10, 1, 2],
+                _raw={"institutionProfiles": [{"id": 10, "institutionCode": "280001"}]},
+            )
+        )
+        client.get_secure_documents = AsyncMock(return_value=[])
+        client.__aenter__ = AsyncMock(return_value=client)
+        client.__aexit__ = AsyncMock(return_value=False)
+        monkeypatch.setattr("aula.cli._get_client", AsyncMock(return_value=client))
+
+        result = CliRunner().invoke(cli.documents, [], obj={"OUTPUT_FORMAT": "text"})
+
+        assert result.exit_code == 0
+        client.get_secure_documents.assert_awaited_once_with([10])

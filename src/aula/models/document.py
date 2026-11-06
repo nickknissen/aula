@@ -19,7 +19,7 @@ class SecureDocument(AulaDataClass):
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> SecureDocument:
-        owner = data.get("owner") or {}
+        owner = data.get("creator") or data.get("owner") or {}
         owner_name = ""
         if isinstance(owner, dict):
             owner_name = owner.get("name", "") or owner.get("displayName", "")
