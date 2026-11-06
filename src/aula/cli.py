@@ -291,9 +291,11 @@ class _TerminalQRDisplay:
 
     def stop(self) -> None:
         """Take the codes off the screen, whatever ended the login."""
-        if self._task is not None:
-            self._task.cancel()
-            self._task = None
+        if self._task is None:
+            self._erase()
+            return
+        self._task.cancel()
+        self._task = None
         self._erase()
         sys.stdout.write("\x1b[?25h")
         sys.stdout.flush()

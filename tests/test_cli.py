@@ -499,6 +499,28 @@ class TestQrDisplay:
 
         assert capsys.readouterr().out.count("QR code 1 of 2") == 2
 
+    @pytest.mark.parametrize("tty", [True, False])
+    def test_stop_writes_nothing_when_no_codes_were_shown(self, monkeypatch, capsys, tty):
+        """Every command stops the display, and JSON output must stay parseable."""
+        monkeypatch.setattr(cli, "_stdout_is_tty", lambda: tty)
+        display = cli._TerminalQRDisplay()
+
+        display.stop()
+
+        assert capsys.readouterr().out == ""
+
+    @pytest.mark.asyncio
+    async def test_stop_shows_the_cursor_after_animating(self, monkeypatch, capsys):
+        """The animation hides the cursor, so ending it has to bring it back."""
+        monkeypatch.setattr(cli, "_stdout_is_tty", lambda: True)
+        display = cli._TerminalQRDisplay()
+
+        display.show(_qr("part-one"), _qr("part-two"))
+        await asyncio.sleep(0.03)
+        display.stop()
+
+        assert capsys.readouterr().out.endswith("\x1b[?25h")
+
     def test_falls_back_to_ascii_when_blocks_cannot_be_encoded(self, monkeypatch):
         """A console that cannot print blocks would otherwise show a broken code."""
         monkeypatch.setattr(cli, "_terminal_draws_blocks", lambda: False)
