@@ -1778,7 +1778,12 @@ async def documents(ctx, common):
             return
 
         try:
-            result = await client.get_secure_documents(prof.institution_profile_ids)
+            own_ids = [
+                ip["id"]
+                for ip in get_in(prof._raw, "institutionProfiles", default=[])
+                if isinstance(ip, dict) and "id" in ip
+            ]
+            result = await client.get_secure_documents(own_ids)
         except Exception as e:
             print_error(f"fetching documents: {e}")
             return

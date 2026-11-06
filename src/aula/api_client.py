@@ -2348,27 +2348,41 @@ class AulaApiClient:
         return groups
 
     async def get_secure_documents(
-        self, institution_profile_ids: list[int]
+        self, institution_profile_ids: list[int], page_size: int = 20
     ) -> list[SecureDocument]:
-        """Fetch secure documents shared with/by the user."""
-        params: dict[str, Any] = {
-            "method": "secureDocument.getSecureDocuments",
-            "institutionProfileIds[]": institution_profile_ids,
-        }
-        resp = await self._request_with_version_retry("get", self.api_url, params=params)
-        resp.raise_for_status()
-        data = resp.json().get("data", [])
-        if not isinstance(data, list):
-            return []
+        """Fetch every secure document shared with the user.
+
+        Pass the user's own institution profile IDs. Aula answers 403 when a
+        child's institution profile ID is included.
+        """
         result: list[SecureDocument] = []
-        for item in data:
-            if not isinstance(item, dict):
-                continue
-            try:
-                result.append(SecureDocument.from_dict(item))
-            except (TypeError, ValueError, KeyError) as e:
-                _LOGGER.warning("Skipping document due to parsing error: %s", e)
-        return result
+        seen = 0
+        while True:
+            resp = await self._request_with_version_retry(
+                "post",
+                f"{self.api_url}?method=documents.getSecureDocuments",
+                json={
+                    "index": seen,
+                    "limit": page_size,
+                    "filterInstitutionProfileIds": institution_profile_ids,
+                },
+            )
+            resp.raise_for_status()
+            batch = get_in(resp.json(), "data.documents", default=[])
+            if not isinstance(batch, list) or not batch:
+                return result
+
+            seen += len(batch)
+            for item in batch:
+                if not isinstance(item, dict):
+                    continue
+                try:
+                    result.append(SecureDocument.from_dict(item))
+                except (TypeError, ValueError, KeyError) as e:
+                    _LOGGER.warning("Skipping document due to parsing error: %s", e)
+
+            if not get_in(resp.json(), "data.moreDocumentsExists", default=False):
+                return result
 
     async def get_common_files(
         self, institution_codes: list[str], page_size: int = 20
