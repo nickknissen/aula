@@ -1670,6 +1670,17 @@ class TestGetPosts:
         posts = await client.get_posts([100])
         assert posts == []
 
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize(("page", "limit", "index"), [(1, 10, 0), (2, 5, 5), (3, 10, 20)])
+    async def test_page_is_sent_as_item_offset(self, client, page, limit, index):
+        client._request_with_version_retry = AsyncMock(
+            return_value=HttpResponse(status_code=200, data={"data": {"posts": []}})
+        )
+        await client.get_posts([100], page=page, limit=limit)
+        params = client._request_with_version_retry.call_args.kwargs["params"]
+        assert params["index"] == index
+        assert params["limit"] == limit
+
 
 class TestGetNotificationsForActiveProfile:
     """Tests for AulaApiClient.get_notifications_for_active_profile method."""
