@@ -86,7 +86,7 @@ tasks = await client.widgets.get_mu_tasks(
 )
 ```
 
-Pass a subset of `profile.children` to scope the call to those children.
+Pass a subset of `profile.children` to scope the call to those children. For the EasyIQ calls, `easyiq_child_user_ids(profile_context)` from `aula.widgets` gives the `all_child_user_ids` argument.
 
 Use the `client.widgets.*` namespace for widget calls (for example: `get_mu_tasks`, `get_ugeplan`, `get_easyiq_weekplan`, `get_meebook_weekplan`, `get_docendo_weekplan`, `get_momo_courses`, `get_library_status`).
 

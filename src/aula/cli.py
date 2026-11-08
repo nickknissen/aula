@@ -70,7 +70,7 @@ from .utils.table import (
     print_wrapped_row_table,
 )
 from .utils.week import DANISH_WEEKDAYS, weekday_index
-from .widgets import EasyIQChildNotInPortal, WidgetContext
+from .widgets import EasyIQChildNotInPortal, WidgetContext, easyiq_child_user_ids
 
 
 # Decorator to run async functions within Click commands
@@ -666,30 +666,8 @@ def _docendo_plan_lines(plan: DocendoWeekPlan) -> list[str]:
     return lines
 
 
-def _easyiq_child_user_ids(profile_context: dict) -> list[str]:
-    """Every child's UniLogin, which EasyIQ's portal wants as ``x-childfilter``.
-
-    Read from ``profiles.getProfileContext`` rather than ``prof.children``
-    because the portal matches on the UniLogin, which Aula calls ``userId``.
-    Children appear under the active institution profile's ``relations`` and
-    again under each institution the guardian has a child at, so both are
-    read and de-duplicated: a child at a second institution must not be left
-    out of the filter.
-    """
-    data = profile_context.get("data") or {}
-    relations = get_in(data, "institutionProfile.relations") or []
-    institution_children = [
-        child
-        for institution in data.get("institutions") or []
-        if isinstance(institution, dict)
-        for child in institution.get("children") or []
-    ]
-    user_ids = (
-        str(entry["userId"])
-        for entry in [*relations, *institution_children]
-        if isinstance(entry, dict) and entry.get("userId")
-    )
-    return list(dict.fromkeys(user_ids))
+# Kept for library consumers that imported the private name before it moved.
+_easyiq_child_user_ids = easyiq_child_user_ids
 
 
 # Define commands
@@ -2220,18 +2198,15 @@ async def easyiq_ugeplan(ctx, week):
             print_empty("children")
             return
 
-        institution_filter: list[str] = []
-        for child in prof.children:
-            if child.institution_code and child.institution_code not in institution_filter:
-                institution_filter.append(child.institution_code)
-
         try:
             profile_context = await client.get_profile_context()
-            session_uuid = profile_context["data"]["userId"]
+            _, institution_filter, session_uuid = WidgetContext.from_children(
+                prof.children, profile_context
+            )
         except Exception as e:
-            print_error(f"fetching profile context: {e}")
+            print_error(f"preparing widget call: {e}", err=ctx.obj.get("OUTPUT_FORMAT") == "json")
             return
-        all_child_user_ids = _easyiq_child_user_ids(profile_context)
+        all_child_user_ids = easyiq_child_user_ids(profile_context)
 
         from .utils.html import html_to_plain
 
@@ -2343,18 +2318,15 @@ async def easyiq_homework(ctx, week):
             print_empty("children")
             return
 
-        institution_filter: list[str] = []
-        for child in prof.children:
-            if child.institution_code and child.institution_code not in institution_filter:
-                institution_filter.append(child.institution_code)
-
         try:
             profile_context = await client.get_profile_context()
-            session_uuid = profile_context["data"]["userId"]
+            _, institution_filter, session_uuid = WidgetContext.from_children(
+                prof.children, profile_context
+            )
         except Exception as e:
-            print_error(f"fetching profile context: {e}")
+            print_error(f"preparing widget call: {e}", err=ctx.obj.get("OUTPUT_FORMAT") == "json")
             return
-        all_child_user_ids = _easyiq_child_user_ids(profile_context)
+        all_child_user_ids = easyiq_child_user_ids(profile_context)
 
         from .utils.html import html_to_plain
 
@@ -3153,7 +3125,7 @@ async def weekly_summary(ctx, child, week, providers):
         child_filter, institution_filter, session_uuid = widget_ctx
 
         try:
-            all_child_user_ids = _easyiq_child_user_ids(await client.get_profile_context())
+            all_child_user_ids = easyiq_child_user_ids(await client.get_profile_context())
         except Exception as e:
             _log.warning("Could not read children for the EasyIQ child filter: %s", e)
             all_child_user_ids = []

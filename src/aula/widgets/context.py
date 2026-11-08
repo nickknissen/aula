@@ -27,3 +27,21 @@ class WidgetContext(NamedTuple):
             ),
             session_uuid=str(session_uuid),
         )
+
+
+def easyiq_child_user_ids(profile_context: dict[str, Any]) -> list[str]:
+    """Every child's UniLogin, which EasyIQ's portal wants as ``x-childfilter``."""
+    data = profile_context.get("data") or {}
+    relations = get_in(data, "institutionProfile.relations") or []
+    institution_children = [
+        child
+        for institution in data.get("institutions") or []
+        if isinstance(institution, dict)
+        for child in institution.get("children") or []
+    ]
+    user_ids = (
+        str(entry["userId"])
+        for entry in [*relations, *institution_children]
+        if isinstance(entry, dict) and entry.get("userId")
+    )
+    return list(dict.fromkeys(user_ids))

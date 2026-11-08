@@ -848,7 +848,7 @@ class AulaWidgetsClient:
         institutions. The fallback needs ``child_profile_id`` (the child's
         institution profile ID) to identify the child, so it is skipped when
         the caller cannot supply one. ``all_child_user_ids`` is every child's
-        UniLogin, which the portal requires as ``x-childfilter``, and
+        UniLogin (build it with ``easyiq_child_user_ids``), and
         ``all_institution_filter`` every institution the guardian has, which
         is what the portal session is established under.
 
@@ -938,9 +938,9 @@ class AulaWidgetsClient:
 
         ``child_id`` is the child's Aula user ID and ``child_profile_id`` their
         institution profile ID; EasyIQ wants both. ``all_child_user_ids`` is
-        every child's UniLogin, which the portal requires as ``x-childfilter``,
-        and ``all_institution_filter`` every institution the guardian has,
-        which is what the portal session is established under.
+        every child's UniLogin (build it with ``easyiq_child_user_ids``), and
+        ``all_institution_filter`` every institution the guardian has, which
+        is what the portal session is established under.
 
         Raises :class:`EasyIQChildNotInPortal` when the portal knows no such
         child, which means they have no homework rather than that anything
