@@ -3,7 +3,7 @@
 import pytest
 
 from aula.models import Child
-from aula.widgets import WidgetContext
+from aula.widgets import WidgetContext, easyiq_child_user_ids
 
 PROFILE_CONTEXT = {"data": {"userId": "guardian-login"}}
 
@@ -52,3 +52,43 @@ def test_a_profile_context_without_the_guardian_cannot_open_a_widget_session(pro
 
     with pytest.raises(ValueError, match="guardian"):
         WidgetContext.from_children(children, profile_context)
+
+
+def test_easyiq_reads_the_children_at_the_active_institution():
+    profile_context = {
+        "data": {
+            "institutionProfile": {"relations": [{"userId": "kid-one"}, {"userId": "kid-two"}]}
+        }
+    }
+
+    assert easyiq_child_user_ids(profile_context) == ["kid-one", "kid-two"]
+
+
+def test_easyiq_includes_a_sibling_at_another_institution_once():
+    profile_context = {
+        "data": {
+            "institutionProfile": {"relations": [{"userId": "kid-one"}]},
+            "institutions": [
+                {"children": [{"userId": "kid-one"}]},
+                {"children": [{"userId": "kid-two"}]},
+            ],
+        }
+    }
+
+    assert easyiq_child_user_ids(profile_context) == ["kid-one", "kid-two"]
+
+
+def test_easyiq_skips_entries_without_a_unilogin():
+    profile_context = {
+        "data": {
+            "institutionProfile": {"relations": [{"userId": None}, "not-a-child", {"userId": 42}]},
+            "institutions": ["not-an-institution", {"children": None}],
+        }
+    }
+
+    assert easyiq_child_user_ids(profile_context) == ["42"]
+
+
+@pytest.mark.parametrize("profile_context", [{}, {"data": None}])
+def test_easyiq_finds_no_children_in_an_empty_profile_context(profile_context):
+    assert easyiq_child_user_ids(profile_context) == []
