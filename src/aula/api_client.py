@@ -563,7 +563,7 @@ class AulaApiClient:
         resp.raise_for_status()
         data = resp.json().get("data")
         if not data:
-            _LOGGER.warning("No daily overview data for child %d", child_id)
+            _LOGGER.debug("No daily overview data for child %d", child_id)
             return None
         return DailyOverview.from_dict(data[0])
 

@@ -2,6 +2,7 @@
 
 import asyncio
 import inspect
+import logging
 from datetime import date, datetime, timedelta, timezone
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -587,22 +588,15 @@ class TestGetDailyOverview:
         assert result.status is not None
 
     @pytest.mark.asyncio
-    async def test_empty_data_returns_none(self, client):
-        """Empty data returns None."""
+    @pytest.mark.parametrize("data", [[], None])
+    async def test_a_day_without_an_overview_returns_none_quietly(self, client, caplog, data):
         client._request_with_version_retry = AsyncMock(
-            return_value=HttpResponse(status_code=200, data={"data": []})
+            return_value=HttpResponse(status_code=200, data={"data": data})
         )
-        result = await client.get_daily_overview(456)
+        with caplog.at_level(logging.WARNING, logger="aula"):
+            result = await client.get_daily_overview(456)
         assert result is None
-
-    @pytest.mark.asyncio
-    async def test_null_data_returns_none(self, client):
-        """Null data returns None."""
-        client._request_with_version_retry = AsyncMock(
-            return_value=HttpResponse(status_code=200, data={"data": None})
-        )
-        result = await client.get_daily_overview(456)
-        assert result is None
+        assert all(r.levelno < logging.WARNING for r in caplog.records)
 
     @pytest.mark.asyncio
     async def test_http_error_raises(self, client):
