@@ -734,16 +734,17 @@ class TestEasyiqPerChildInstitutionScoping:
 
     @staticmethod
     def _child(child_id: int, user_id: str, inst_code: str) -> Child:
-        raw: dict = {"userId": user_id}
+        institution: dict = {"institutionName": "Test School"}
         if inst_code:
-            raw["institutionProfile"] = {"institutionCode": inst_code}
-        return Child(
-            id=child_id,
-            profile_id=child_id + 1000,
-            name=f"Child{child_id}",
-            institution_name="Test School",
-            profile_picture="",
-            _raw=raw,
+            institution["institutionCode"] = inst_code
+        return Child.from_dict(
+            {
+                "id": child_id,
+                "profileId": child_id + 1000,
+                "name": f"Child{child_id}",
+                "userId": user_id,
+                "institutionProfile": institution,
+            }
         )
 
     @staticmethod
@@ -774,7 +775,7 @@ class TestEasyiqPerChildInstitutionScoping:
             ]
         )
         client.get_profile_context = AsyncMock(
-            return_value=self._profile_context([str(c._raw["userId"]) for c in children if c._raw])
+            return_value=self._profile_context([c.user_id for c in children if c.user_id])
         )
         client.widgets = MagicMock()
         client.widgets.get_easyiq_weekplan = AsyncMock(return_value=[])
