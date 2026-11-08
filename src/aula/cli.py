@@ -596,21 +596,15 @@ async def _get_widget_context(
 
     Returns None and prints an error if data is unavailable.
     """
-    child_filter = [
-        str(child._raw["userId"])
-        for child in prof.children
-        if child._raw and "userId" in child._raw
-    ]
+    child_filter = [child.user_id for child in prof.children if child.user_id]
     if not child_filter:
         click.echo("No child user IDs found in profile data.")
         return None
 
     institution_filter: list[str] = []
     for child in prof.children:
-        if child._raw:
-            inst_code = get_in(child._raw, "institutionProfile.institutionCode", default="")
-            if inst_code and str(inst_code) not in institution_filter:
-                institution_filter.append(str(inst_code))
+        if child.institution_code and child.institution_code not in institution_filter:
+            institution_filter.append(child.institution_code)
 
     try:
         profile_context = await client.get_profile_context()
@@ -996,10 +990,8 @@ async def messages(ctx, limit, unread, search, folders):
 
             institution_codes: list[str] = []
             for child in prof.children:
-                if child._raw:
-                    code = get_in(child._raw, "institutionProfile.institutionCode", default="")
-                    if code and str(code) not in institution_codes:
-                        institution_codes.append(str(code))
+                if child.institution_code and child.institution_code not in institution_codes:
+                    institution_codes.append(child.institution_code)
 
             try:
                 search_result = await client.search_messages_result(
@@ -1150,14 +1142,13 @@ async def notifications(ctx, offset, limit, module):
             prof = await client.get_profile()
             for child in prof.children:
                 children_ids.append(child.id)
-                if not child._raw:
+                code = child.institution_code
+                if not code:
                     continue
-                code = get_in(child._raw, "institutionProfile.institutionCode")
-                name = get_in(child._raw, "institutionProfile.institutionName")
-                if code and name and str(code) not in institution_names:
-                    institution_names[str(code)] = str(name)
-                if code and str(code) not in institution_codes:
-                    institution_codes.append(str(code))
+                if child.institution_name and code not in institution_names:
+                    institution_names[code] = child.institution_name
+                if code not in institution_codes:
+                    institution_codes.append(code)
         except Exception:
             # Keep notifications usable even if profile lookup fails.
             institution_names = {}
@@ -1380,10 +1371,8 @@ async def birthdays(ctx, group_id, start_date, end_date):
 
             institution_codes: list[str] = []
             for child in prof.children:
-                if child._raw:
-                    code = get_in(child._raw, "institutionProfile.institutionCode", default="")
-                    if code and str(code) not in institution_codes:
-                        institution_codes.append(str(code))
+                if child.institution_code and child.institution_code not in institution_codes:
+                    institution_codes.append(child.institution_code)
 
             try:
                 result = await client.get_birthday_events(institution_codes, start, end)
@@ -1809,7 +1798,7 @@ async def documents(ctx, common):
 
 def _institution_codes(prof: Profile) -> list[str]:
     """The children's schools, or the user's own when no children are listed."""
-    sources = [get_in(child._raw, "institutionProfile.institutionCode") for child in prof.children]
+    sources = [child.institution_code for child in prof.children]
     if not prof.children and prof._raw:
         sources = [get_in(ip, "institutionCode") for ip in prof._raw.get("institutionProfiles", [])]
     return list(dict.fromkeys(str(code) for code in sources if code))
@@ -2250,10 +2239,8 @@ async def easyiq_ugeplan(ctx, week):
 
         institution_filter: list[str] = []
         for child in prof.children:
-            if child._raw:
-                inst_code = get_in(child._raw, "institutionProfile.institutionCode", default="")
-                if inst_code and str(inst_code) not in institution_filter:
-                    institution_filter.append(str(inst_code))
+            if child.institution_code and child.institution_code not in institution_filter:
+                institution_filter.append(child.institution_code)
 
         try:
             profile_context = await client.get_profile_context()
@@ -2268,13 +2255,12 @@ async def easyiq_ugeplan(ctx, week):
         if ctx.obj.get("OUTPUT_FORMAT") == "json":
             all_appointments = []
             for child in prof.children:
-                if not child._raw or "userId" not in child._raw:
+                if not child.user_id:
                     continue
-                child_id = str(child._raw["userId"])
+                child_id = child.user_id
                 c_institutions: list[str] = []
-                inst_code = get_in(child._raw, "institutionProfile.institutionCode", default="")
-                if inst_code:
-                    c_institutions.append(str(inst_code))
+                if child.institution_code:
+                    c_institutions.append(child.institution_code)
                 try:
                     appointments = await client.widgets.get_easyiq_weekplan(
                         week,
@@ -2300,13 +2286,12 @@ async def easyiq_ugeplan(ctx, week):
         rendered = 0
 
         for child in prof.children:
-            if not child._raw or "userId" not in child._raw:
+            if not child.user_id:
                 continue
-            child_id = str(child._raw["userId"])
+            child_id = child.user_id
             c_institutions = []
-            inst_code = get_in(child._raw, "institutionProfile.institutionCode", default="")
-            if inst_code:
-                c_institutions.append(str(inst_code))
+            if child.institution_code:
+                c_institutions.append(child.institution_code)
 
             try:
                 appointments = await client.widgets.get_easyiq_weekplan(
@@ -2377,10 +2362,8 @@ async def easyiq_homework(ctx, week):
 
         institution_filter: list[str] = []
         for child in prof.children:
-            if child._raw:
-                inst_code = get_in(child._raw, "institutionProfile.institutionCode", default="")
-                if inst_code and str(inst_code) not in institution_filter:
-                    institution_filter.append(str(inst_code))
+            if child.institution_code and child.institution_code not in institution_filter:
+                institution_filter.append(child.institution_code)
 
         try:
             profile_context = await client.get_profile_context()
@@ -2395,13 +2378,12 @@ async def easyiq_homework(ctx, week):
         if ctx.obj.get("OUTPUT_FORMAT") == "json":
             all_homework = []
             for child in prof.children:
-                if not child._raw or "userId" not in child._raw:
+                if not child.user_id:
                     continue
-                child_id = str(child._raw["userId"])
+                child_id = child.user_id
                 c_institutions: list[str] = []
-                inst_code = get_in(child._raw, "institutionProfile.institutionCode", default="")
-                if inst_code:
-                    c_institutions.append(str(inst_code))
+                if child.institution_code:
+                    c_institutions.append(child.institution_code)
                 try:
                     homework = await client.widgets.get_easyiq_homework(
                         week,
@@ -2426,13 +2408,12 @@ async def easyiq_homework(ctx, week):
         rendered = 0
 
         for child in prof.children:
-            if not child._raw or "userId" not in child._raw:
+            if not child.user_id:
                 continue
-            child_id = str(child._raw["userId"])
+            child_id = child.user_id
             c_institutions = []
-            inst_code = get_in(child._raw, "institutionProfile.institutionCode", default="")
-            if inst_code:
-                c_institutions.append(str(inst_code))
+            if child.institution_code:
+                c_institutions.append(child.institution_code)
 
             try:
                 homework = await client.widgets.get_easyiq_homework(
@@ -2500,21 +2481,15 @@ async def meebook_ugeplan(ctx, week):
             print_empty("children")
             return
 
-        child_filter = [
-            str(child._raw["userId"])
-            for child in prof.children
-            if child._raw and "userId" in child._raw
-        ]
+        child_filter = [child.user_id for child in prof.children if child.user_id]
         if not child_filter:
             print_empty("child user IDs")
             return
 
         institution_filter: list[str] = []
         for child in prof.children:
-            if child._raw:
-                inst_code = get_in(child._raw, "institutionProfile.institutionCode", default="")
-                if inst_code and str(inst_code) not in institution_filter:
-                    institution_filter.append(str(inst_code))
+            if child.institution_code and child.institution_code not in institution_filter:
+                institution_filter.append(child.institution_code)
 
         try:
             profile_context = await client.get_profile_context()
@@ -2640,21 +2615,15 @@ async def momo_course(ctx):
             print_empty("children")
             return
 
-        children = [
-            str(child._raw["userId"])
-            for child in prof.children
-            if child._raw and "userId" in child._raw
-        ]
+        children = [child.user_id for child in prof.children if child.user_id]
         if not children:
             print_empty("child user IDs")
             return
 
         institutions: list[str] = []
         for child in prof.children:
-            if child._raw:
-                inst_code = get_in(child._raw, "institutionProfile.institutionCode", default="")
-                if inst_code and str(inst_code) not in institutions:
-                    institutions.append(str(inst_code))
+            if child.institution_code and child.institution_code not in institutions:
+                institutions.append(child.institution_code)
 
         try:
             profile_context = await client.get_profile_context()
@@ -2715,21 +2684,15 @@ async def momo_reminders(ctx):
             print_empty("children")
             return
 
-        children = [
-            str(child._raw["userId"])
-            for child in prof.children
-            if child._raw and "userId" in child._raw
-        ]
+        children = [child.user_id for child in prof.children if child.user_id]
         if not children:
             print_empty("child user IDs")
             return
 
         institutions: list[str] = []
         for child in prof.children:
-            if child._raw:
-                inst_code = get_in(child._raw, "institutionProfile.institutionCode", default="")
-                if inst_code and str(inst_code) not in institutions:
-                    institutions.append(str(inst_code))
+            if child.institution_code and child.institution_code not in institutions:
+                institutions.append(child.institution_code)
 
         try:
             profile_context = await client.get_profile_context()
@@ -2866,10 +2829,8 @@ async def download_images(ctx, output, since, source, tags):
         children_inst_ids = [child.id for child in prof.children]
         institution_codes: list[str] = []
         for child in prof.children:
-            if child._raw:
-                code = get_in(child._raw, "institutionProfile.institutionCode", default="")
-                if code and code not in institution_codes:
-                    institution_codes.append(code)
+            if child.institution_code and child.institution_code not in institution_codes:
+                institution_codes.append(child.institution_code)
 
         total_downloaded = 0
         total_skipped = 0
@@ -3252,9 +3213,7 @@ async def weekly_summary(ctx, child, week, providers):
 
         # Filter child_filter to selected children only
         if child:
-            selected_user_ids = {
-                str(c._raw["userId"]) for c in children if c._raw and "userId" in c._raw
-            }
+            selected_user_ids = {c.user_id for c in children if c.user_id}
             child_filter = [uid for uid in child_filter if uid in selected_user_ids]
 
         # ── Min Uddannelse – Homework & Tasks ────────────────────────────────
@@ -3409,13 +3368,12 @@ async def weekly_summary(ctx, child, week, providers):
             easyiq_appointments: list[dict] = []
             easyiq_any = False
             for c in children:
-                if not c._raw or "userId" not in c._raw:
+                if not c.user_id:
                     continue
-                c_user_id = str(c._raw["userId"])
+                c_user_id = c.user_id
                 c_institutions: list[str] = []
-                inst_code = get_in(c._raw, "institutionProfile.institutionCode", default="")
-                if inst_code:
-                    c_institutions.append(str(inst_code))
+                if c.institution_code:
+                    c_institutions.append(c.institution_code)
 
                 try:
                     appointments = await client.widgets.get_easyiq_weekplan(
@@ -3471,13 +3429,12 @@ async def weekly_summary(ctx, child, week, providers):
             easyiq_hw_items: list[dict] = []
             easyiq_hw_any = False
             for c in children:
-                if not c._raw or "userId" not in c._raw:
+                if not c.user_id:
                     continue
-                c_user_id = str(c._raw["userId"])
+                c_user_id = c.user_id
                 c_institutions: list[str] = []
-                inst_code = get_in(c._raw, "institutionProfile.institutionCode", default="")
-                if inst_code:
-                    c_institutions.append(str(inst_code))
+                if c.institution_code:
+                    c_institutions.append(c.institution_code)
 
                 try:
                     homework = await client.widgets.get_easyiq_homework(
@@ -4677,9 +4634,7 @@ async def daily_summary(ctx, child, target_date):
             child_filter, institution_filter, session_uuid = widget_ctx
 
             if child:
-                selected_user_ids = {
-                    str(c._raw["userId"]) for c in children if c._raw and "userId" in c._raw
-                }
+                selected_user_ids = {c.user_id for c in children if c.user_id}
                 child_filter = [uid for uid in child_filter if uid in selected_user_ids]
 
             try:

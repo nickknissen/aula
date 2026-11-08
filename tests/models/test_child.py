@@ -25,6 +25,8 @@ def test_child_from_dict_missing_optional():
     child = Child.from_dict(data)
     assert child.institution_name == ""
     assert child.profile_picture == ""
+    assert child.user_id is None
+    assert child.institution_code is None
 
 
 def test_child_from_dict_empty_nested():
@@ -46,6 +48,8 @@ def test_child_dict_conversion():
     assert result["name"] == "Test"
     assert result["id"] == 1
     assert result["profile_id"] == 100
+    assert result["user_id"] is None
+    assert result["institution_code"] is None
     assert "_raw" not in result
 
 
@@ -55,9 +59,38 @@ def test_child_from_dict_null_nested():
         "id": 4,
         "profileId": 400,
         "name": "Diana",
+        "userId": None,
         "institutionProfile": None,
         "profilePicture": None,
     }
     child = Child.from_dict(data)
     assert child.institution_name == ""
     assert child.profile_picture == ""
+    assert child.user_id is None
+    assert child.institution_code is None
+
+
+def test_child_from_dict_identifiers_for_widget_calls():
+    data = {
+        "id": 5,
+        "profileId": 500,
+        "name": "Eve",
+        "userId": "fake0001",
+        "institutionProfile": {"institutionName": "School A", "institutionCode": "999999"},
+    }
+    child = Child.from_dict(data)
+    assert child.user_id == "fake0001"
+    assert child.institution_code == "999999"
+
+
+def test_child_from_dict_numeric_identifiers_become_strings():
+    data = {
+        "id": 6,
+        "profileId": 600,
+        "name": "Finn",
+        "userId": 123456,
+        "institutionProfile": {"institutionCode": 999999},
+    }
+    child = Child.from_dict(data)
+    assert child.user_id == "123456"
+    assert child.institution_code == "999999"

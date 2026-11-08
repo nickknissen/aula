@@ -463,7 +463,13 @@ class TestGetProfile:
     async def test_get_profile_adds_extended_access_children(self, client):
         """Children only listed in getProfileContext are added after the own children."""
         own_in_context = {"id": 1, "profileId": 11, "name": "Barn Et", "institutionCode": "A1"}
-        extended = {"id": 2, "profileId": 22, "name": "Barn To", "institutionCode": "B2"}
+        extended = {
+            "id": 2,
+            "profileId": 22,
+            "name": "Barn To",
+            "userId": "barn2",
+            "institutionCode": "B2",
+        }
         context = {
             "data": {"institutions": [{"name": "Skole B", "children": [extended, own_in_context]}]}
         }
@@ -476,7 +482,8 @@ class TestGetProfile:
         profile = await client.get_profile()
         assert [c.id for c in profile.children] == [1, 2]
         assert profile.children[1].institution_name == "Skole B"
-        assert profile.children[1]._raw["institutionProfile"]["institutionCode"] == "B2"
+        assert profile.children[1].institution_code == "B2"
+        assert profile.children[1].user_id == "barn2"
         assert profile.institution_profile_ids == [1, 2]
 
     @pytest.mark.asyncio
