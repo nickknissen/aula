@@ -73,14 +73,20 @@ Key methods on `AulaApiClient`: `get_profile()`, `get_daily_overview(child_id)`,
 Widget integrations are available via the namespaced widgets client on `AulaApiClient`:
 
 ```python
+from aula.widgets import WidgetContext
+
+profile = await client.get_profile()
+ctx = WidgetContext.from_children(profile.children, await client.get_profile_context())
 tasks = await client.widgets.get_mu_tasks(
     widget_id="0030",  # WIDGET_MIN_UDDANNELSE_TASKS
-    child_filter=["12345"],
-    institution_filter=["5678"],
+    child_filter=ctx.child_filter,
+    institution_filter=ctx.institution_filter,
     week="2026-W8",
-    session_uuid="guardian-user-id",
+    session_uuid=ctx.session_uuid,
 )
 ```
+
+Pass a subset of `profile.children` to scope the call to those children.
 
 Use the `client.widgets.*` namespace for widget calls (for example: `get_mu_tasks`, `get_ugeplan`, `get_easyiq_weekplan`, `get_meebook_weekplan`, `get_docendo_weekplan`, `get_momo_courses`, `get_library_status`).
 

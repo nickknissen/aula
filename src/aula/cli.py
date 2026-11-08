@@ -70,7 +70,7 @@ from .utils.table import (
     print_wrapped_row_table,
 )
 from .utils.week import DANISH_WEEKDAYS, weekday_index
-from .widgets import EasyIQChildNotInPortal
+from .widgets import EasyIQChildNotInPortal, WidgetContext
 
 
 # Decorator to run async functions within Click commands
@@ -591,29 +591,12 @@ async def _require_any_widget(
 async def _get_widget_context(
     client: AulaApiClient,
     prof: Profile,
-) -> tuple[list[str], list[str], str] | None:
-    """Extract child IDs, institution codes, and session UUID for widget API calls.
-
-    Returns None and prints an error if data is unavailable.
-    """
-    child_filter = [child.user_id for child in prof.children if child.user_id]
-    if not child_filter:
-        click.echo("No child user IDs found in profile data.")
-        return None
-
-    institution_filter: list[str] = []
-    for child in prof.children:
-        if child.institution_code and child.institution_code not in institution_filter:
-            institution_filter.append(child.institution_code)
-
+) -> WidgetContext | None:
     try:
-        profile_context = await client.get_profile_context()
-        session_uuid = profile_context["data"]["userId"]
+        return WidgetContext.from_children(prof.children, await client.get_profile_context())
     except Exception as e:
-        click.echo(f"Error fetching profile context: {e}")
+        print_error(f"preparing widget call: {e}")
         return None
-
-    return child_filter, institution_filter, session_uuid
 
 
 def _echo_no_easyiq_identity(child_name: str, resource: str, err: bool = False) -> None:
@@ -2481,22 +2464,10 @@ async def meebook_ugeplan(ctx, week):
             print_empty("children")
             return
 
-        child_filter = [child.user_id for child in prof.children if child.user_id]
-        if not child_filter:
-            print_empty("child user IDs")
+        widget_ctx = await _get_widget_context(client, prof)
+        if widget_ctx is None:
             return
-
-        institution_filter: list[str] = []
-        for child in prof.children:
-            if child.institution_code and child.institution_code not in institution_filter:
-                institution_filter.append(child.institution_code)
-
-        try:
-            profile_context = await client.get_profile_context()
-            session_uuid = profile_context["data"]["userId"]
-        except Exception as e:
-            print_error(f"fetching profile context: {e}")
-            return
+        child_filter, institution_filter, session_uuid = widget_ctx
 
         try:
             students = await client.widgets.get_meebook_weekplan(
@@ -2615,22 +2586,10 @@ async def momo_course(ctx):
             print_empty("children")
             return
 
-        children = [child.user_id for child in prof.children if child.user_id]
-        if not children:
-            print_empty("child user IDs")
+        widget_ctx = await _get_widget_context(client, prof)
+        if widget_ctx is None:
             return
-
-        institutions: list[str] = []
-        for child in prof.children:
-            if child.institution_code and child.institution_code not in institutions:
-                institutions.append(child.institution_code)
-
-        try:
-            profile_context = await client.get_profile_context()
-            session_uuid = profile_context["data"]["userId"]
-        except Exception as e:
-            print_error(f"fetching profile context: {e}")
-            return
+        children, institutions, session_uuid = widget_ctx
 
         try:
             users_with_courses = await client.widgets.get_momo_courses(
@@ -2684,22 +2643,10 @@ async def momo_reminders(ctx):
             print_empty("children")
             return
 
-        children = [child.user_id for child in prof.children if child.user_id]
-        if not children:
-            print_empty("child user IDs")
+        widget_ctx = await _get_widget_context(client, prof)
+        if widget_ctx is None:
             return
-
-        institutions: list[str] = []
-        for child in prof.children:
-            if child.institution_code and child.institution_code not in institutions:
-                institutions.append(child.institution_code)
-
-        try:
-            profile_context = await client.get_profile_context()
-            session_uuid = profile_context["data"]["userId"]
-        except Exception as e:
-            print_error(f"fetching profile context: {e}")
-            return
+        children, institutions, session_uuid = widget_ctx
 
         today = datetime.date.today()
         from_date = today.isoformat()
