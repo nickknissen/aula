@@ -107,6 +107,10 @@ class HttpResponse:
     status_code: int
     data: Any = None
     headers: dict[str, str] = field(default_factory=dict)
+    text: str = ""
+    url: str = ""
+    text: str = ""
+    url: str = ""
 
     def json(self) -> Any:
         """Return pre-parsed JSON data."""
@@ -166,6 +170,7 @@ class HttpClient(Protocol):
         headers: dict[str, str] | None = None,
         params: dict[str, Any] | None = None,
         json: Any | None = None,
+        data: Any | None = None,
     ) -> HttpResponse: ...
 
     async def download_bytes(self, url: str) -> bytes: ...

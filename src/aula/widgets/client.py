@@ -1,6 +1,10 @@
 import asyncio
 import logging
+import re
 from typing import Any, Protocol
+from urllib.parse import urljoin
+
+from bs4 import BeautifulSoup
 
 from ..const import (
     CICERO_API,
@@ -31,6 +35,8 @@ from ..models import (
     MomoUserCourses,
     MUTask,
     MUWeeklyPerson,
+    SfoWebChild,
+    SfoWebStatus,
     UserReminders,
 )
 from ..utils.week import monday_of_week
@@ -160,6 +166,8 @@ def _log_unreadable_body(source: str, payload: Any, **context: str) -> None:
 class _WidgetRequestClient(Protocol):
     api_url: str
 
+    def get_cookie(self, name: str) -> str | None: ...
+
     async def _refresh_authentication(
         self,
         observed_generation: int | None = None,
@@ -175,11 +183,112 @@ class _WidgetRequestClient(Protocol):
         headers: dict[str, str] | None = None,
         params: dict[str, Any] | None = None,
         json: object | None = None,
+        data: object | None = None,
     ) -> HttpResponse: ...
 
 
 class AulaWidgetsClient:
     """Widget provider API client for third-party Aula integrations."""
+
+    @staticmethod
+    def _parse_sfoweb_children(html: str) -> list[SfoWebChild]:
+        """Return children exposed by the SFOweb child selector."""
+        soup = BeautifulSoup(html, "html.parser")
+        container = soup.select_one("#change_child_content")
+
+        if container is None:
+            return []
+
+        children: list[SfoWebChild] = []
+
+        for link in container.find_all("a"):
+            onclick = link.get("onclick") or ""
+
+            match = re.search(
+                r'submitTopMenuForm\(\s*["\']F_News["\']\s*,'
+                r'\s*["\']["\']\s*,'
+                r'\s*["\'](?P<selector>[^"\']+)["\']',
+                onclick,
+            )
+
+            if match is None:
+                continue
+
+            selector = match.group("selector")
+            parts = selector.split("|")
+
+            if not parts:
+                continue
+
+            name = " ".join(link.stripped_strings).strip()
+            if not name:
+                continue
+
+            children.append(
+                SfoWebChild(
+                    name=name,
+                    child_id=parts[0],
+                    selector=selector,
+                )
+            )
+
+        return children
+
+    @staticmethod
+    def _parse_sfoweb_status(html: str) -> SfoWebStatus:
+        """Parse the current status from the SFOweb Status panel."""
+        soup = BeautifulSoup(html, "html.parser")
+
+        for panel in soup.select(".panel"):
+            heading = panel.select_one(".panel-heading")
+            if heading is None:
+                continue
+
+            heading_text = " ".join(heading.stripped_strings)
+            if heading_text.casefold() != "status":
+                continue
+
+            body = panel.select_one(".panel-body")
+            if body is None:
+                continue
+
+            raw_text = " ".join(body.stripped_strings)
+            raw_text = " ".join(raw_text.split())
+
+            if not raw_text:
+                return SfoWebStatus(
+                    status=None,
+                    time=None,
+                    raw_text=None,
+                )
+
+            match = re.match(
+                r"^(?P<status>.*?)(?:\s+kl\.\s*(?P<time>\d{1,2}:\d{2}))?$",
+                raw_text,
+                flags=re.IGNORECASE,
+            )
+
+            if match is None:
+                return SfoWebStatus(
+                    status=raw_text,
+                    time=None,
+                    raw_text=raw_text,
+                )
+
+            status = (match.group("status") or "").strip() or None
+            status_time = match.group("time")
+
+            return SfoWebStatus(
+                status=status,
+                time=status_time,
+                raw_text=raw_text,
+            )
+
+        return SfoWebStatus(
+            status=None,
+            time=None,
+            raw_text=None,
+        )
 
     def __init__(self, api_client: _WidgetRequestClient) -> None:
         self._api_client = api_client
@@ -208,14 +317,210 @@ class AulaWidgetsClient:
         # answered with the other's data.
         self._easyiq_child_lock = asyncio.Lock()
 
-    async def _get_bearer_token(self, widget_id: str) -> str:
+    async def _get_aula_token(self, widget_id: str) -> str:
+        """Return the raw Aula token for a third-party widget."""
         resp = await self._api_client._request_with_version_retry(
             "get",
             f"{self._api_client.api_url}?method=aulaToken.getAulaToken&widgetId={widget_id}",
         )
         resp.raise_for_status()
-        token = "Bearer " + str(resp.json()["data"])
-        return token
+        return str(resp.json()["data"])
+
+    async def _get_bearer_token(self, widget_id: str) -> str:
+        token = await self._get_aula_token(widget_id)
+        return "Bearer " + token
+
+    async def get_sfoweb_page(
+        self,
+        *,
+        widget_id: str,
+        action_url: str,
+        child_filter: list[str],
+        institution_filter: list[str],
+        week: str,
+        session_uuid: str,
+        assurance_level: str = "3",
+    ) -> HttpResponse:
+        """Open the IST/Tabulex SFO Admin widget and return its final HTML page."""
+        token = await self._get_aula_token(widget_id)
+
+        csrf_token = self._api_client.get_cookie("Csrfp-Token")
+        if not csrf_token:
+            raise RuntimeError("Aula Csrfp-Token cookie is missing")
+
+        # Match W0053V0001SSOForm from the Aula portal.
+        form_data = {
+            "sessionUUID": session_uuid,
+            "isMobileApp": "false",
+            "aulaToken": token,
+            "assuranceLevel": assurance_level,
+            "userProfile": "guardian",
+            "childFilter": ",".join(child_filter),
+            "institutionFilter": ",".join(institution_filter),
+            "group": "",
+            "currentWeekNumber": week,
+            "Csrfp-Token": csrf_token,
+        }
+
+        resp = await self._api_client._request_with_version_retry(
+            "post",
+            action_url,
+            headers={
+                "Accept": "text/html,application/xhtml+xml",
+                "Content-Type": "application/x-www-form-urlencoded",
+            },
+            data=form_data,
+        )
+        resp.raise_for_status()
+
+        # SimpleSAML often returns an intermediate HTML page containing a
+        # POST form with SAMLResponse + RelayState. A browser submits this
+        # automatically; httpx does not, so follow a few of these manually.
+        for _ in range(5):
+            if not resp.text:
+                break
+
+            soup = BeautifulSoup(resp.text, "html.parser")
+            form = soup.find("form")
+            if form is None:
+                break
+
+            fields: dict[str, str] = {}
+            for field in form.find_all("input"):
+                name = field.get("name")
+                if not name:
+                    continue
+                fields[name] = field.get("value") or ""
+
+            field_names = set(fields)
+            if "SAMLResponse" not in field_names:
+                break
+
+            next_url = urljoin(resp.url, form.get("action") or "")
+            method = (form.get("method") or "post").lower()
+
+            if method != "post":
+                break
+
+            resp = await self._api_client._request_with_version_retry(
+                "post",
+                next_url,
+                headers={
+                    "Accept": "text/html,application/xhtml+xml",
+                    "Content-Type": "application/x-www-form-urlencoded",
+                },
+                data=fields,
+            )
+            resp.raise_for_status()
+
+        return resp
+
+    async def switch_sfoweb_child(
+        self,
+        response: HttpResponse,
+        selector: str,
+    ) -> HttpResponse:
+        """Switch the active child in an authenticated SFOweb session."""
+        soup = BeautifulSoup(response.text, "html.parser")
+
+        form = soup.find("form", id="form_topmenu")
+        if form is None:
+            raise RuntimeError("SFOweb form_topmenu was not found")
+
+        action_url = urljoin(response.url, form.get("action") or "")
+
+        data: dict[str, str] = {}
+        for field in form.find_all("input"):
+            name = field.get("name")
+            if not name:
+                continue
+            data[name] = field.get("value") or ""
+
+        data["tx_tmsfo_pi1[requestedpage]"] = "F_News"
+        data["tx_tmsfo_pi1[formdata][action]"] = ""
+        data["tx_tmsfo_pi1[formdata][topmenu]"] = selector
+        data["tx_tmsfo_pi1[formdata][submenu]"] = ""
+
+        resp = await self._api_client._request_with_version_retry(
+            "post",
+            action_url,
+            headers={
+                "Accept": "text/html,application/xhtml+xml",
+                "Content-Type": "application/x-www-form-urlencoded",
+            },
+            data=data,
+        )
+        resp.raise_for_status()
+        return resp
+
+    async def get_sfoweb_children_status(
+        self,
+        *,
+        widget_id: str,
+        action_url: str,
+        child_filter: list[str],
+        institution_filter: list[str],
+        week: str,
+        session_uuid: str,
+        assurance_level: str = "3",
+    ) -> dict[str, SfoWebStatus]:
+        """Return current SFOweb status for every available child."""
+        resp = await self.get_sfoweb_page(
+            widget_id=widget_id,
+            action_url=action_url,
+            child_filter=child_filter,
+            institution_filter=institution_filter,
+            week=week,
+            session_uuid=session_uuid,
+            assurance_level=assurance_level,
+        )
+
+        children = self._parse_sfoweb_children(resp.text)
+
+        if not children:
+            return {}
+
+        result: dict[str, SfoWebStatus] = {}
+
+        for child in children:
+            child_resp = await self.switch_sfoweb_child(
+                resp,
+                child.selector,
+            )
+
+            result[child.name] = self._parse_sfoweb_status(
+                child_resp.text
+            )
+
+            # Use the latest response because the child switch changes
+            # SFOweb's server-side session state.
+            resp = child_resp
+
+        return result
+
+    async def get_sfoweb_status(
+        self,
+        *,
+        widget_id: str,
+        action_url: str,
+        child_filter: list[str],
+        institution_filter: list[str],
+        week: str,
+        session_uuid: str,
+        assurance_level: str = "3",
+    ) -> SfoWebStatus:
+        """Return the current status from the IST SFOweb guardian portal."""
+        resp = await self.get_sfoweb_page(
+            widget_id=widget_id,
+            action_url=action_url,
+            child_filter=child_filter,
+            institution_filter=institution_filter,
+            week=week,
+            session_uuid=session_uuid,
+            assurance_level=assurance_level,
+        )
+        return self._parse_sfoweb_status(resp.text)
+
 
     async def get_mu_tasks(
         self,

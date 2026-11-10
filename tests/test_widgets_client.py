@@ -1,3 +1,4 @@
+
 """Tests for widget token and provider endpoints."""
 
 import asyncio
@@ -27,6 +28,7 @@ from aula.const import (
 )
 from aula.http import AulaNotFoundError
 from aula.widgets import EasyIQChildNotInPortal, EasyIQWrongChildSession
+from aula.widgets.client import AulaWidgetsClient
 
 EASYIQ_CALENDAR_URL = f"{EASYIQ_PORTAL}{EASYIQ_CALENDAR_PATH}"
 EASYIQ_HOMEWORK_URL = f"{EASYIQ_PORTAL}{EASYIQ_HOMEWORK_PATH}"
@@ -1763,3 +1765,50 @@ class TestEasyiqProtocolCorrectIdentifier:
 
         assert "astr8360" not in str(excinfo.value)
         assert "kris37r9" not in str(excinfo.value)
+
+
+def test_parse_sfoweb_status_arrived():
+    html = """
+    <div class="panel">
+      <div class="panel-heading">
+        <h4 class="panel-title">Status</h4>
+      </div>
+      <div class="panel-body">
+        <h4>
+          Kommet
+          kl. 07:40
+        </h4>
+      </div>
+    </div>
+    """
+
+    result = AulaWidgetsClient._parse_sfoweb_status(html)
+
+    assert result.status == "Kommet"
+    assert result.time == "07:40"
+    assert result.raw_text == "Kommet kl. 07:40"
+
+
+def test_parse_sfoweb_status_left():
+    html = """
+    <div class="panel">
+      <div class="panel-heading">Status</div>
+      <div class="panel-body">
+        <h4>Gået hjem kl. 15:06</h4>
+      </div>
+    </div>
+    """
+
+    result = AulaWidgetsClient._parse_sfoweb_status(html)
+
+    assert result.status == "Gået hjem"
+    assert result.time == "15:06"
+    assert result.raw_text == "Gået hjem kl. 15:06"
+
+
+def test_parse_sfoweb_status_missing():
+    result = AulaWidgetsClient._parse_sfoweb_status("<html><body></body></html>")
+
+    assert result.status is None
+    assert result.time is None
+    assert result.raw_text is None

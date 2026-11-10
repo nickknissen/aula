@@ -50,5 +50,7 @@ from .presence_template import PresenceWeekTemplate as PresenceWeekTemplate
 from .presence_template import SpareTimeActivity as SpareTimeActivity
 from .profile import Profile as Profile
 from .profile_master_data import ProfileMasterData as ProfileMasterData
+from .sfoweb_child import SfoWebChild as SfoWebChild
+from .sfoweb_status import SfoWebStatus as SfoWebStatus
 from .vacation_registration import VacationRegistration as VacationRegistration
 from .widget import WidgetConfiguration as WidgetConfiguration
