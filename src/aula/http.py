@@ -109,8 +109,6 @@ class HttpResponse:
     headers: dict[str, str] = field(default_factory=dict)
     text: str = ""
     url: str = ""
-    text: str = ""
-    url: str = ""
 
     def json(self) -> Any:
         """Return pre-parsed JSON data."""

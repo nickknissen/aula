@@ -1,4 +1,3 @@
-
 """Tests for widget token and provider endpoints."""
 
 import asyncio
@@ -1812,3 +1811,20 @@ def test_parse_sfoweb_status_missing():
     assert result.status is None
     assert result.time is None
     assert result.raw_text is None
+
+
+def test_parse_sfoweb_status_not_arrived():
+    html = """
+    <div class="panel">
+      <div class="panel-heading">Status</div>
+      <div class="panel-body">
+        <h4>Ikke Kommet</h4>
+      </div>
+    </div>
+    """
+
+    result = AulaWidgetsClient._parse_sfoweb_status(html)
+
+    assert result.status == "Ikke Kommet"
+    assert result.time is None
+    assert result.raw_text == "Ikke Kommet"
