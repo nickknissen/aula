@@ -20,6 +20,7 @@ from .const import (
 )
 from .http import (
     AulaInvalidTokenError,
+    AulaRejectedError,
     AulaSessionExpiredError,
     AulaStepUpRequiredError,
     AulaUserDeactivatedError,
@@ -145,11 +146,12 @@ class AulaApiClient:
     """
 
     # API response sub-codes from the Aula backend envelope (status.subCode).
-    # Discovered via aulalibre's decompilation of AulaNative.dll.
+    # Values match WebResponseStatusSubCodeConstants in the decompiled
+    # AulaNative.dll, where SessionExpiredErrorHandler checks sub-code 23.
     _SUBCODE_USER_DEACTIVATED = 7
     _SUBCODE_STEP_UP_REQUIRED = 8
     _SUBCODE_INVALID_TOKEN = 9
-    _SUBCODE_SESSION_EXPIRED = 13
+    _SUBCODE_SESSION_EXPIRED = 23
 
     def __init__(
         self,
@@ -254,9 +256,9 @@ class AulaApiClient:
         automatically included (matching the browser's behavior where every
         POST carries this header).
 
-        On HTTP 401 or API sub-code 9 (InvalidToken), attempts a single token
-        refresh via the ``on_token_refresh`` callback (if provided), re-inits
-        the session, and retries the request.
+        On HTTP 401 or API sub-code 9 (InvalidToken) or 23 (SessionExpired),
+        attempts a single token refresh via the ``on_token_refresh`` callback
+        (if provided), re-inits the session, and retries the request.
         """
         observed_generation = self._auth_generation
         response = await self._do_request(method, url, headers=headers, params=params, json=json)
@@ -294,9 +296,17 @@ class AulaApiClient:
             if isinstance(status, dict) and status.get("code") is not None:
                 code = status["code"]
                 if code != 0:
-                    api_method = _extract_api_method(url, params) or "unknown method"
-                    raise HttpRequestError(
-                        f"Aula rejected {api_method} (status code {code})", response.status_code
+                    api_method = _extract_api_method(url, params)
+                    detail = f"status code {code}"
+                    if sub_code is not None:
+                        detail += f", sub-code {sub_code}"
+                    detail += f", HTTP {response.status_code}"
+                    raise AulaRejectedError(
+                        f"Aula rejected {api_method or 'unknown method'} ({detail})",
+                        response.status_code,
+                        code=code,
+                        sub_code=sub_code,
+                        api_method=api_method,
                     )
 
         return response

@@ -6,7 +6,13 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 
 from aula.api_client import AulaApiClient
-from aula.http import AulaInvalidTokenError, AulaStepUpRequiredError, HttpRequestError, HttpResponse
+from aula.http import (
+    AulaInvalidTokenError,
+    AulaRejectedError,
+    AulaStepUpRequiredError,
+    HttpRequestError,
+    HttpResponse,
+)
 
 
 def client_with_responses(*responses, refresh=None):
@@ -27,6 +33,40 @@ async def test_explicit_rejection_raises_with_method_and_code(reader, code):
         else:
             await client.get_message_folders()
     assert ("calendar." if reader == "calendar" else "messaging.") in str(exc.value)
+
+
+@pytest.mark.asyncio
+async def test_rejection_carries_code_sub_code_and_http_status():
+    client = client_with_responses(HttpResponse(403, {"status": {"code": 10, "subCode": 33}}))
+    with pytest.raises(AulaRejectedError) as exc:
+        await client.get_message_folders()
+    err = exc.value
+    assert (err.code, err.sub_code, err.status_code) == (10, 33, 403)
+    assert err.api_method == "messaging.getFolders"
+    assert str(err) == (
+        "Aula rejected messaging.getFolders (status code 10, sub-code 33, HTTP 403)"
+    )
+
+
+@pytest.mark.asyncio
+async def test_rejection_without_sub_code_leaves_it_out_of_the_message():
+    client = client_with_responses(HttpResponse(200, {"status": {"code": 10}}))
+    with pytest.raises(AulaRejectedError) as exc:
+        await client.get_message_folders()
+    assert exc.value.sub_code is None
+    assert str(exc.value).endswith("(status code 10, HTTP 200)")
+
+
+@pytest.mark.asyncio
+async def test_sub_code_13_is_not_treated_as_an_expired_session():
+    """Sub-code 13 is a secure-documents sharing error, not an expired session."""
+    refresh = AsyncMock(return_value="new-token")
+    client = client_with_responses(
+        HttpResponse(200, {"status": {"code": 1, "subCode": 13}}), refresh=refresh
+    )
+    with pytest.raises(AulaRejectedError):
+        await client.get_message_folders()
+    refresh.assert_not_awaited()
 
 
 @pytest.mark.asyncio

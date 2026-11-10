@@ -149,7 +149,7 @@ class TestRequestWithVersionRetry:
         http_client = AsyncMock()
         http_client.request = AsyncMock(
             side_effect=[
-                HttpResponse(status_code=200, data={"status": {"subCode": 13}}),
+                HttpResponse(status_code=200, data={"status": {"subCode": 23}}),
                 HttpResponse(status_code=200),
                 HttpResponse(status_code=200),
                 HttpResponse(status_code=200, data={"data": {"ok": True}}),

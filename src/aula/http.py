@@ -12,6 +12,29 @@ class HttpRequestError(Exception):
         self.status_code = status_code
 
 
+class AulaRejectedError(HttpRequestError):
+    """Raised when Aula answers with a non-zero status code in the response body.
+
+    ``code`` is Aula's backend status code (10 is authorization denied) and
+    ``sub_code`` its optional detail code. ``status_code`` stays the HTTP status,
+    which can be 200 even though Aula rejected the call.
+    """
+
+    def __init__(
+        self,
+        message: str,
+        status_code: int,
+        *,
+        code: int,
+        sub_code: int | None = None,
+        api_method: str | None = None,
+    ) -> None:
+        super().__init__(message, status_code)
+        self.code = code
+        self.sub_code = sub_code
+        self.api_method = api_method
+
+
 class AulaAuthenticationError(HttpRequestError):
     """Raised when authentication fails (401 Unauthorized, 403 Forbidden).
 
@@ -53,7 +76,7 @@ class AulaNotFoundError(HttpRequestError):
 
 
 class AulaSessionExpiredError(AulaAuthenticationError):
-    """Raised when the Aula backend reports the session has expired (sub-code 13).
+    """Raised when the Aula backend reports the session has expired (sub-code 23).
 
     The session needs to be re-established via a fresh login.
     """
