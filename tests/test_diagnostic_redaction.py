@@ -12,7 +12,8 @@ from aula.api_client import AulaApiClient
 from aula.auth.exceptions import SAMLError
 from aula.auth.mitid_client import MitIDAuthClient
 from aula.auth_flow import authenticate
-from aula.http import HttpResponse
+from aula.http import HttpRequestError, HttpResponse
+from aula.utils.diagnostics import redact_credentials
 
 
 @pytest.mark.asyncio
@@ -48,6 +49,22 @@ async def test_nested_api_credentials_are_redacted_without_mutating_response(cap
     assert "calendar.getEvents" in caplog.text
     assert "200" in caplog.text
     assert payload == original
+
+
+@pytest.mark.asyncio
+async def test_response_log_shows_the_status_code_aula_refused_with(caplog):
+    envelope = {"status": {"code": 10, "subCode": 23}, "data": None}
+    http = AsyncMock()
+    http.request.return_value = HttpResponse(403, envelope)
+    client = AulaApiClient(http)
+    with caplog.at_level(logging.DEBUG, logger="aula"), pytest.raises(HttpRequestError):
+        await client.get_profile_context()
+    assert '"status":{"code":10,"subCode":23}' in caplog.text
+
+
+def test_only_integer_codes_survive_redaction():
+    redacted = redact_credentials({"code": "oauth-marker", "token": 12345, "status": {"code": 10}})
+    assert redacted == {"code": "[redacted]", "token": "[redacted]", "status": {"code": 10}}
 
 
 @pytest.mark.asyncio

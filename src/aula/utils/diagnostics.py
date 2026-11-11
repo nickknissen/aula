@@ -44,15 +44,22 @@ def diagnostic_url(url: object) -> str:
         return "[invalid URL]"
 
 
+def _is_aula_status_code(field: str, item: object) -> bool:
+    return field == "code" and isinstance(item, int)
+
+
+def _is_secret(key: object, item: object) -> bool:
+    field = "".join(c for c in str(key).lower() if c.isalnum())
+    return field in _SECRET_FIELDS and not _is_aula_status_code(field, item)
+
+
 def redact_credentials(value: Any) -> Any:
     """Copy nested structures, replacing recognized credential fields before logging."""
     if isinstance(value, BaseException):
         return type(value).__name__
     if isinstance(value, dict):
         return {
-            key: "[redacted]"
-            if "".join(c for c in str(key).lower() if c.isalnum()) in _SECRET_FIELDS
-            else redact_credentials(item)
+            key: "[redacted]" if _is_secret(key, item) else redact_credentials(item)
             for key, item in value.items()
         }
     if isinstance(value, (list, tuple)):
