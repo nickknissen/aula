@@ -12,7 +12,7 @@ from aula.api_client import AulaApiClient
 from aula.auth.exceptions import SAMLError
 from aula.auth.mitid_client import MitIDAuthClient
 from aula.auth_flow import authenticate
-from aula.http import HttpResponse
+from aula.http import AulaSessionExpiredError, HttpResponse
 
 
 @pytest.mark.asyncio
@@ -134,3 +134,25 @@ async def test_model_parsing_warnings_redact_credentials_at_reader_entry_point(c
     assert "model-marker" not in caplog.text
     assert "Unexpected location" in caplog.text
     assert payload == original
+
+
+def test_integer_status_code_is_kept_but_string_code_is_redacted():
+    from aula.utils.diagnostics import redact_credentials
+
+    envelope = {"status": {"code": 10, "subCode": 23}}
+    assert redact_credentials(envelope) == envelope
+    assert redact_credentials({"code": "abc"}) == {"code": "[redacted]"}
+    assert redact_credentials({"code": True}) == {"code": "[redacted]"}
+    assert redact_credentials({"token": 12345}) == {"token": "[redacted]"}
+
+
+@pytest.mark.asyncio
+async def test_response_log_shows_aula_status_code(caplog):
+    payload = {"status": {"code": 10, "subCode": 23}, "data": []}
+    http = AsyncMock()
+    http.request.return_value = HttpResponse(200, payload)
+    client = AulaApiClient(http)
+    with caplog.at_level(logging.DEBUG, logger="aula"), pytest.raises(AulaSessionExpiredError):
+        await client.get_calendar_events([1], datetime(2026, 3, 1), datetime(2026, 3, 1))
+    assert '"code":10' in caplog.text
+    assert '"subCode":23' in caplog.text

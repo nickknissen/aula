@@ -44,15 +44,22 @@ def diagnostic_url(url: object) -> str:
         return "[invalid URL]"
 
 
+def _is_secret(key: object, item: object) -> bool:
+    name = "".join(c for c in str(key).lower() if c.isalnum())
+    # Aula's error envelope carries an integer status `code`; OAuth
+    # authorization codes are always strings.
+    if name == "code" and isinstance(item, int) and not isinstance(item, bool):
+        return False
+    return name in _SECRET_FIELDS
+
+
 def redact_credentials(value: Any) -> Any:
     """Copy nested structures, replacing recognized credential fields before logging."""
     if isinstance(value, BaseException):
         return type(value).__name__
     if isinstance(value, dict):
         return {
-            key: "[redacted]"
-            if "".join(c for c in str(key).lower() if c.isalnum()) in _SECRET_FIELDS
-            else redact_credentials(item)
+            key: "[redacted]" if _is_secret(key, item) else redact_credentials(item)
             for key, item in value.items()
         }
     if isinstance(value, (list, tuple)):
