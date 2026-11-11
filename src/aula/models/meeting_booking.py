@@ -7,6 +7,7 @@ from typing import Any
 from ..utils.diagnostics import credential_logger
 from ..utils.mapping import get_in
 from .base import AulaDataClass
+from .calendar_event import CalendarEvent
 
 _LOGGER = credential_logger(__name__)
 MEETING_TYPES = frozenset({"school_home_meeting", "parental_meeting"})
@@ -22,6 +23,38 @@ class MeetingBooking(AulaDataClass):
     end_datetime: datetime
     location: str | None = None
     _raw: dict[str, Any] | None = field(default=None, repr=False)
+
+    def as_calendar_event(self) -> CalendarEvent:
+        """Return the booked slot as a calendar event belonging to this child."""
+        return CalendarEvent(
+            id=self.meeting_id,
+            title=self.title,
+            start_datetime=self.start_datetime,
+            end_datetime=self.end_datetime,
+            teacher_name=None,
+            has_substitute=False,
+            substitute_name=None,
+            location=self.location,
+            belongs_to=self.child_id,
+            event_type=self.meeting_type,
+            _raw=self._raw,
+        )
+
+
+def replace_booked_meetings(
+    events: list[CalendarEvent], bookings: list[MeetingBooking]
+) -> list[CalendarEvent]:
+    """Show one child's booked slots in place of the meetings' booking periods.
+
+    ``events`` and ``bookings`` are the same child's. Aula's calendar row for a
+    parent meeting spans the whole booking period, often days. Each meeting the
+    child has booked is replaced by its booked slots, appended after the other
+    events. A meeting without a booking, such as an invitation not yet answered,
+    stays as the calendar shows it. A new list is returned.
+    """
+    booked = {booking.meeting_id for booking in bookings}
+    kept = [e for e in events if not (e.id in booked and e.event_type in MEETING_TYPES)]
+    return kept + [booking.as_calendar_event() for booking in bookings]
 
 
 def _interval(start: str, end: str) -> tuple[datetime, datetime]:

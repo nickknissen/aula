@@ -19,6 +19,7 @@ from .const import (
     CSRF_TOKEN_HEADER,
 )
 from .http import (
+    AulaAuthenticationError,
     AulaInvalidTokenError,
     AulaRejectedError,
     AulaSessionExpiredError,
@@ -67,7 +68,7 @@ from .models import (
     WidgetConfiguration,
     merge_duplicate_lessons,
 )
-from .models.meeting_booking import meeting_bookings
+from .models.meeting_booking import MEETING_TYPES, meeting_bookings, replace_booked_meetings
 from .models.pagination import PaginationResult
 from .utils.diagnostics import credential_logger, redact_credentials
 from .utils.mapping import get_in
@@ -124,6 +125,13 @@ def _teacher_names(lesson: dict[str, Any], role: str) -> list[str]:
         if isinstance(p, dict) and p.get("participantRole") == role
     ]
     return list(dict.fromkeys(name for name in names if name))
+
+
+def _profile_ids(value: object) -> list[int]:
+    """Return the institution profile IDs in a ``belongsToProfiles`` value."""
+    if not isinstance(value, list):
+        return []
+    return [p for p in value if type(p) is int]
 
 
 # Message types Aula's web client accepts as the target of a read marker.
@@ -1227,6 +1235,7 @@ class AulaApiClient:
 
                 has_substitute = lesson.get("lessonStatus", "").lower() == "substitute"
                 location = get_in(event, "primaryResource.name")
+                profiles = _profile_ids(event.get("belongsToProfiles"))
 
                 events.append(
                     CalendarEvent(
@@ -1240,7 +1249,9 @@ class AulaApiClient:
                         teacher_names=_teacher_names(lesson, "primaryTeacher"),
                         substitute_names=_teacher_names(lesson, "substituteTeacher"),
                         location=location,
-                        belongs_to=next(iter(event.get("belongsToProfiles", [])), None),
+                        belongs_to=next(iter(profiles), None),
+                        belongs_to_profiles=profiles,
+                        event_type=event.get("type"),
                         _raw=event,
                     )
                 )
@@ -1253,6 +1264,59 @@ class AulaApiClient:
                 continue
 
         return merge_duplicate_lessons(events)
+
+    async def get_calendar_events_by_child(
+        self, child_ids: list[int], start: datetime, end: datetime
+    ) -> dict[int, list[CalendarEvent]]:
+        """Fetch children's calendars for inclusive whole days, as one list per child.
+
+        Use Child.id (institution profile ID) and timezone-aware bounds. One
+        calendar request covers every child. An event Aula returns for several of
+        them, such as twins' shared lesson or a school event for siblings, is
+        listed under each child it names.
+
+        A parent meeting a child has booked shows at the booked slot instead of
+        the days-long booking period. That takes one more request per child, made
+        only when the range holds a meeting. If one fails, that child's meetings
+        stay as the calendar shows them and the failure is logged; authentication
+        errors still raise.
+
+        Raise ValueError before making a request if a bound is naive or the start
+        date is after the end date.
+        """
+        if start.utcoffset() is None or end.utcoffset() is None:
+            raise ValueError("Calendar bounds must be timezone-aware")
+        events = await self.get_calendar_events(child_ids, start, end)
+
+        by_child: dict[int, list[CalendarEvent]] = {child_id: [] for child_id in child_ids}
+        for event in events:
+            for profile_id in dict.fromkeys(event.belongs_to_profiles):
+                if profile_id in by_child:
+                    by_child[profile_id].append(event)
+
+        if not any(event.event_type in MEETING_TYPES for event in events):
+            return by_child
+
+        # The calendar read covers whole days; get_meeting_bookings ends exclusively.
+        day_start = start.replace(hour=0, minute=0, second=0, microsecond=0)
+        day_end = end.replace(hour=0, minute=0, second=0, microsecond=0) + timedelta(days=1)
+
+        async def bookings_for(child_id: int) -> list[MeetingBooking]:
+            try:
+                return await self.get_meeting_bookings(child_id, day_start, day_end)
+            except AulaAuthenticationError:
+                raise
+            except HttpRequestError as err:
+                _LOGGER.warning("Could not fetch booked meetings for child %s: %s", child_id, err)
+                return []
+
+        bookings = await asyncio.gather(*(bookings_for(child_id) for child_id in by_child))
+        return {
+            child_id: replace_booked_meetings(child_events, child_bookings)
+            for (child_id, child_events), child_bookings in zip(
+                by_child.items(), bookings, strict=True
+            )
+        }
 
     async def get_meeting_bookings(
         self, child_id: int, start: datetime, end: datetime

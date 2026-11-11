@@ -12,8 +12,8 @@ from click.testing import CliRunner
 from aula.api_client import AulaApiClient
 from aula.cli import meetings
 from aula.http import HttpRequestError, HttpResponse
-from aula.models import Child, Profile
-from aula.models.meeting_booking import meeting_bookings
+from aula.models import CalendarEvent, Child, Profile
+from aula.models.meeting_booking import meeting_bookings, replace_booked_meetings
 
 
 @pytest.fixture
@@ -193,6 +193,65 @@ async def test_invalid_bounds_make_no_requests(client, start, end):
     with pytest.raises(ValueError):
         await client.get_meeting_bookings(11, start, end)
     client._request_with_version_retry.assert_not_awaited()
+
+
+_WEEK = (
+    datetime.fromisoformat("2026-11-02T00:00:00+01:00"),
+    datetime.fromisoformat("2026-11-09T00:00:00+01:00"),
+)
+
+
+def _slots(calendar):
+    return [(e.id, e.event_type, e.start_datetime.isoformat()) for e in calendar]
+
+
+@pytest.mark.asyncio
+async def test_by_child_shows_each_childs_booked_slot(client):
+    """The shared meeting row becomes each child's own appointment."""
+    calendars = await client.get_calendar_events_by_child([11, 12, 13], *_WEEK)
+
+    assert {child: _slots(events) for child, events in calendars.items()} == {
+        11: [(42, "school_home_meeting", "2026-11-02T09:40:00+01:00")],
+        12: [(42, "school_home_meeting", "2026-11-02T09:00:00+01:00")],
+        13: [],
+    }
+    assert calendars[11][0].belongs_to_profiles == [11]
+    assert calendars[11][0].location == "Room A"
+
+
+@pytest.mark.asyncio
+async def test_by_child_keeps_an_unbooked_meeting_as_the_calendar_shows_it(client, row):
+    row["timeSlot"]["timeSlots"][0]["answers"] = [
+        {"concerningProfileId": 11, "selectedTimeSlotIndex": 1}
+    ]
+
+    calendars = await client.get_calendar_events_by_child([11, 12], *_WEEK)
+
+    assert _slots(calendars[11]) == [(42, "school_home_meeting", "2026-11-02T09:40:00+01:00")]
+    # Child 12 has not booked yet, so the whole booking period stays.
+    assert _slots(calendars[12]) == [(42, "school_home_meeting", "2026-11-02T09:00:00+01:00")]
+    assert calendars[12][0].end_datetime.isoformat() == "2026-11-09T12:00:00+01:00"
+
+
+def test_replace_booked_meetings_leaves_other_events_with_the_same_id(row):
+    booking = meeting_bookings([row], 11)[0]
+    lesson = CalendarEvent(
+        id=booking.meeting_id,
+        title="Math",
+        start_datetime=booking.start_datetime,
+        end_datetime=booking.end_datetime,
+        teacher_name=None,
+        has_substitute=False,
+        substitute_name=None,
+        location=None,
+        belongs_to=11,
+        event_type="lesson",
+    )
+
+    assert replace_booked_meetings([lesson], [booking]) == [
+        lesson,
+        booking.as_calendar_event(),
+    ]
 
 
 @pytest.fixture

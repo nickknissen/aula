@@ -87,6 +87,7 @@ def _event(
     end: tuple[int, int] = (9, 0),
     location: str | None = "Room 101",
     belongs_to: int | None = 100,
+    profiles: list[int] | None = None,
     has_substitute: bool = False,
     substitute: str | None = None,
 ) -> CalendarEvent:
@@ -103,7 +104,41 @@ def _event(
         belongs_to=belongs_to,
         teacher_names=[teacher] if teacher else [],
         substitute_names=[substitute] if substitute else [],
+        belongs_to_profiles=profiles or [],
     )
+
+
+def test_belongs_to_profiles_falls_back_to_belongs_to():
+    """Events built the old way still name their child in the profile list."""
+    assert _event(1, belongs_to=42).belongs_to_profiles == [42]
+    assert _event(1, belongs_to=None).belongs_to_profiles == []
+    assert _event(1, belongs_to=42, profiles=[42, 43]).belongs_to_profiles == [42, 43]
+
+
+def test_merge_collapses_rows_shared_by_the_same_children():
+    """Per-adult rows of one lesson twins share still collapse to one event."""
+    merged = merge_duplicate_lessons(
+        [
+            _event(1, teacher="A", profiles=[100, 200]),
+            _event(2, teacher="B", profiles=[200, 100]),
+        ]
+    )
+
+    assert len(merged) == 1
+    assert merged[0].teacher_names == ["A", "B"]
+    assert merged[0].belongs_to_profiles == [100, 200]
+
+
+def test_merge_keeps_rows_naming_different_children_apart():
+    """Rows that only share their first child are not the same lesson."""
+    merged = merge_duplicate_lessons(
+        [
+            _event(1, teacher="A", profiles=[100, 200]),
+            _event(2, teacher="B", profiles=[100]),
+        ]
+    )
+
+    assert [e.belongs_to_profiles for e in merged] == [[100, 200], [100]]
 
 
 def test_merge_collapses_one_row_per_teacher():
