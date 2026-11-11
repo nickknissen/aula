@@ -38,6 +38,7 @@ from .models import (
     WidgetConfiguration,
 )
 from .token_storage import FileTokenStorage, TokenStorage
+from .utils.qr import TerminalQRDisplay
 from .widgets import AulaWidgetsClient
 
 __all__ = [
@@ -56,6 +57,7 @@ __all__ = [
     "HttpRequestError",
     "HttpResponse",
     "HttpxHttpClient",
+    "TerminalQRDisplay",
     "TokenStorage",
     "Profile",
     "Child",
