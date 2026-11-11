@@ -66,6 +66,26 @@ async def main():
 asyncio.run(main())
 ```
 
+To log in through the MitID app from your own terminal program, `TerminalQRDisplay` shows the two QR halves the way `aula login` does:
+
+```python
+from aula import FileTokenStorage, TerminalQRDisplay
+from aula.auth_flow import authenticate_and_create_client
+
+display = TerminalQRDisplay()
+try:
+    client = await authenticate_and_create_client(
+        "your_mitid_username",
+        FileTokenStorage(".aula_tokens.json"),
+        on_qr_codes=display.show,
+        on_qr_done=display.done,
+    )
+finally:
+    display.stop()
+```
+
+Pass `header`, `part_label` (`{part}` becomes 1 or 2) or `done_message` to print your own text, or `None` to print nothing there.
+
 Key methods on `AulaApiClient`: `get_profile()`, `get_daily_overview(child_id)`, `get_message_threads()`, `get_messages_for_thread(thread_id)`, `get_calendar_events(...)`, `get_posts(...)`, `get_groups(...)`, `get_message_folders(...)`, `search(...)`, `update_presence_template(...)`, `update_presence_status(...)`, `get_profile_master_data(...)`, `get_secure_documents(...)`, `get_consent_responses(...)`, `get_auto_reply()`, `get_vacation_registrations(...)`, `get_notification_settings()`, `keep_alive()`. See `src/aula/api_client.py` for the full list.
 
 ### Widget API (Namespace)
