@@ -266,6 +266,14 @@ models for actual appointments, excluding unbooked invitations and other childre
 answers. Long ranges are fetched in chunks; a rejected request raises instead of
 returning a partial list.
 
+For a per-child view, `await client.get_calendar_events_by_child(child_ids, start, end)`
+returns a dict of `CalendarEvent` lists keyed by `Child.id`, with timezone-aware
+bounds covering whole days. Aula returns an event several of your children share
+once, such as twins' lessons or a school event for siblings, so it is listed under
+every child it names. Booked parent meetings show at each child's booked slot.
+`CalendarEvent.belongs_to_profiles` names every child an event belongs to;
+`belongs_to` is only the first.
+
 ### Presence
 
 | Command | Description |

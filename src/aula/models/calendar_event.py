@@ -17,6 +17,9 @@ class CalendarEvent(AulaDataClass):
     has_substitute: bool
     substitute_name: str | None
     location: str | None
+    #: The first profile in ``belongs_to_profiles``. Kept for existing callers;
+    #: an event can belong to several children, so filing it under this one
+    #: alone leaves it off the others' calendars.
     belongs_to: int | None
     _raw: dict | None = field(default=None, repr=False)
     #: Every primary teacher on the lesson, in the order Aula listed them.
@@ -26,6 +29,17 @@ class CalendarEvent(AulaDataClass):
     teacher_names: list[str] = field(default_factory=list)
     #: Every substitute on the lesson, same relationship to ``substitute_name``.
     substitute_names: list[str] = field(default_factory=list)
+    #: Every institution profile the event belongs to, in Aula's order. When one
+    #: request covers several children, Aula returns an event they share once,
+    #: naming all of them here: twins in one class, or siblings invited to the
+    #: same school event. Left empty, it is filled from ``belongs_to``.
+    belongs_to_profiles: list[int] = field(default_factory=list)
+    #: Aula's row type, e.g. ``lesson``, ``event`` or ``school_home_meeting``.
+    event_type: str | None = None
+
+    def __post_init__(self) -> None:
+        if not self.belongs_to_profiles and self.belongs_to is not None:
+            self.belongs_to_profiles = [self.belongs_to]
 
 
 def merge_duplicate_lessons(events: list[CalendarEvent]) -> list[CalendarEvent]:
@@ -39,7 +53,7 @@ def merge_duplicate_lessons(events: list[CalendarEvent]) -> list[CalendarEvent]:
     times in a row, every day.
 
     Rows are merged only when the lesson they describe is indistinguishable --
-    same title, timeslot, room and child. Two genuinely different events that
+    same title, timeslot, room and children. Two genuinely different events that
     merely overlap in time keep their own entries, so nothing real is hidden.
 
     The surviving event keeps the first row's ``id`` and ``_raw``; the adults
@@ -55,7 +69,7 @@ def merge_duplicate_lessons(events: list[CalendarEvent]) -> list[CalendarEvent]:
             event.start_datetime,
             event.end_datetime,
             event.location,
-            event.belongs_to,
+            frozenset(event.belongs_to_profiles),
         )
 
     groups: dict[tuple, list[CalendarEvent]] = {}

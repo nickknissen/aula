@@ -3,7 +3,7 @@
 import asyncio
 import inspect
 import logging
-from datetime import date, datetime, timedelta, timezone
+from datetime import UTC, date, datetime, timedelta, timezone
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -14,6 +14,7 @@ from aula.http import (
     AulaAuthenticationError,
     AulaConnectionError,
     AulaServerError,
+    AulaSessionExpiredError,
     HttpRequestError,
     HttpResponse,
 )
@@ -1589,6 +1590,174 @@ class TestGetCalendarEvents:
         assert len(events) == 1
         assert events[0].teacher_names == ["Mrs. Jensen", "Mr. Poulsen"]
         assert events[0].teacher_name == "Mrs. Jensen"
+
+    @pytest.mark.asyncio
+    async def test_shared_event_keeps_every_profile_and_its_type(self, client):
+        """A lesson twins share names both children, not just the first."""
+        raw_events = [
+            {
+                "id": 1,
+                "title": "Math",
+                "type": "lesson",
+                "startDateTime": "2026-03-01T08:00:00+01:00",
+                "endDateTime": "2026-03-01T09:00:00+01:00",
+                "belongsToProfiles": [100, 200],
+            }
+        ]
+        client._request_with_version_retry = AsyncMock(
+            return_value=HttpResponse(status_code=200, data={"data": raw_events})
+        )
+
+        events = await client.get_calendar_events(
+            [100, 200], datetime(2026, 3, 1), datetime(2026, 3, 1)
+        )
+
+        assert events[0].belongs_to_profiles == [100, 200]
+        assert events[0].belongs_to == 100
+        assert events[0].event_type == "lesson"
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("profiles", [None, "100", [None, "100"]])
+    async def test_unusable_profiles_keep_the_event_unowned(self, client, profiles):
+        """An event whose profiles cannot be read is kept, belonging to no one."""
+        raw_events = [
+            {
+                "id": 1,
+                "title": "Math",
+                "startDateTime": "2026-03-01T08:00:00+01:00",
+                "endDateTime": "2026-03-01T09:00:00+01:00",
+                "belongsToProfiles": profiles,
+            }
+        ]
+        client._request_with_version_retry = AsyncMock(
+            return_value=HttpResponse(status_code=200, data={"data": raw_events})
+        )
+
+        events = await client.get_calendar_events([100], datetime(2026, 3, 1), datetime(2026, 3, 1))
+
+        assert len(events) == 1
+        assert events[0].belongs_to_profiles == []
+        assert events[0].belongs_to is None
+        assert events[0].event_type is None
+
+
+class TestGetCalendarEventsByChild:
+    """Tests for AulaApiClient.get_calendar_events_by_child."""
+
+    START = datetime(2026, 3, 2, 10, 30, tzinfo=UTC)
+    END = datetime(2026, 3, 6, 18, 0, tzinfo=UTC)
+
+    @staticmethod
+    def _row(event_id, title, profiles, event_type="lesson"):
+        return {
+            "id": event_id,
+            "title": title,
+            "type": event_type,
+            "startDateTime": "2026-03-02T08:00:00+01:00",
+            "endDateTime": "2026-03-02T09:00:00+01:00",
+            "belongsToProfiles": profiles,
+        }
+
+    @pytest.fixture
+    def client(self):
+        c = AulaApiClient(http_client=AsyncMock(), access_token="test_token")
+        c._request_with_version_retry = AsyncMock()
+        c.get_meeting_bookings = AsyncMock(return_value=[])
+        return c
+
+    def _answer(self, client, rows):
+        client._request_with_version_retry.return_value = HttpResponse(
+            status_code=200, data={"status": {"code": 0}, "data": rows}
+        )
+
+    @pytest.mark.asyncio
+    async def test_shared_event_is_listed_under_every_child_it_names(self, client):
+        """Twins in one class both get the shared lesson."""
+        self._answer(
+            client,
+            [
+                self._row(1, "Math", [100, 200]),
+                self._row(2, "Music", [200]),
+                self._row(3, "Other family", [300]),
+            ],
+        )
+
+        calendars = await client.get_calendar_events_by_child([100, 200], self.START, self.END)
+
+        assert {child: [e.id for e in events] for child, events in calendars.items()} == {
+            100: [1],
+            200: [1, 2],
+        }
+        # One calendar request covers both children.
+        client._request_with_version_retry.assert_awaited_once()
+        assert client._request_with_version_retry.call_args.kwargs["json"]["instProfileIds"] == [
+            100,
+            200,
+        ]
+
+    @pytest.mark.asyncio
+    async def test_every_requested_child_has_a_list(self, client):
+        self._answer(client, [])
+
+        assert await client.get_calendar_events_by_child([100, 200], self.START, self.END) == {
+            100: [],
+            200: [],
+        }
+
+    @pytest.mark.asyncio
+    async def test_no_meeting_in_range_makes_no_booking_requests(self, client):
+        self._answer(client, [self._row(1, "Math", [100])])
+
+        await client.get_calendar_events_by_child([100, 200], self.START, self.END)
+
+        client.get_meeting_bookings.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    async def test_meeting_reads_each_childs_bookings_over_the_same_whole_days(self, client):
+        self._answer(client, [self._row(42, "Samtale", [100], "school_home_meeting")])
+
+        await client.get_calendar_events_by_child([100, 200], self.START, self.END)
+
+        calls = client.get_meeting_bookings.await_args_list
+        assert [call.args[0] for call in calls] == [100, 200]
+        _, start, end = calls[0].args
+        assert start == datetime(2026, 3, 2, tzinfo=UTC)
+        assert end == datetime(2026, 3, 7, tzinfo=UTC)
+
+    @pytest.mark.asyncio
+    async def test_failed_booking_read_keeps_that_childs_calendar(self, client, caplog):
+        meeting = self._row(42, "Samtale", [100], "school_home_meeting")
+        self._answer(client, [meeting])
+        client.get_meeting_bookings.side_effect = AulaServerError("Server error", 500)
+
+        with caplog.at_level(logging.WARNING, logger="aula.api_client"):
+            calendars = await client.get_calendar_events_by_child([100], self.START, self.END)
+
+        assert [(e.id, e.event_type) for e in calendars[100]] == [(42, "school_home_meeting")]
+        assert "Could not fetch booked meetings for child 100" in caplog.text
+
+    @pytest.mark.asyncio
+    async def test_auth_error_on_booking_read_raises(self, client):
+        self._answer(client, [self._row(42, "Samtale", [100], "school_home_meeting")])
+        client.get_meeting_bookings.side_effect = AulaSessionExpiredError("expired", 401)
+
+        with pytest.raises(AulaSessionExpiredError):
+            await client.get_calendar_events_by_child([100], self.START, self.END)
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        ("start", "end"),
+        [
+            (datetime(2026, 3, 2), END),
+            (START, datetime(2026, 3, 6)),
+            (END, START),
+        ],
+        ids=["naive-start", "naive-end", "reversed"],
+    )
+    async def test_invalid_bounds_make_no_requests(self, client, start, end):
+        with pytest.raises(ValueError):
+            await client.get_calendar_events_by_child([100], start, end)
+        client._request_with_version_retry.assert_not_awaited()
 
 
 class TestGetPosts:
