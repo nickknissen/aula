@@ -39,6 +39,7 @@ class HttpxHttpClient:
         headers: dict[str, str] | None = None,
         params: dict[str, Any] | None = None,
         json: Any | None = None,
+        data: Any | None = None,
     ) -> HttpResponse:
         response = await self._client.request(
             method,
@@ -46,6 +47,7 @@ class HttpxHttpClient:
             headers=headers,
             params=params,
             json=json,
+            data=data,
         )
         try:
             data = response.json()
@@ -55,6 +57,8 @@ class HttpxHttpClient:
             status_code=response.status_code,
             data=data,
             headers=dict(response.headers),
+            text=response.text,
+            url=str(response.url),
         )
 
     async def download_bytes(self, url: str) -> bytes:

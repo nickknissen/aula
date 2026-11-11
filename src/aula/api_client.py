@@ -237,6 +237,10 @@ class AulaApiClient:
         if sub_code == self._SUBCODE_SESSION_EXPIRED:
             raise AulaSessionExpiredError(f"Session expired{method_info}", status_code=401)
 
+    def get_cookie(self, name: str) -> str | None:
+        """Return a cookie from the underlying authenticated HTTP session."""
+        return self._client.get_cookie(name)
+
     async def _request_with_version_retry(
         self,
         method: str,
@@ -245,6 +249,7 @@ class AulaApiClient:
         headers: dict[str, str] | None = None,
         params: dict[str, Any] | None = None,
         json: object | None = None,
+        data: object | None = None,
     ) -> HttpResponse:
         """Make an HTTP request with automatic API version bump on 410 Gone.
 
@@ -261,7 +266,14 @@ class AulaApiClient:
         (if provided), re-inits the session, and retries the request.
         """
         observed_generation = self._auth_generation
-        response = await self._do_request(method, url, headers=headers, params=params, json=json)
+        response = await self._do_request(
+            method,
+            url,
+            headers=headers,
+            params=params,
+            json=json,
+            data=data,
+        )
 
         # Check for auth failures that can be recovered via token refresh.
         # Only attempt once to avoid infinite loops.
@@ -281,7 +293,12 @@ class AulaApiClient:
                 )
                 if await self._refresh_authentication(observed_generation):
                     response = await self._do_request(
-                        method, url, headers=headers, params=params, json=json
+                        method,
+                        url,
+                        headers=headers,
+                        params=params,
+                        json=json,
+                        data=data,
                     )
 
         # After retry (or no retry), check for sub-code errors on the final response.
@@ -360,6 +377,7 @@ class AulaApiClient:
         headers: dict[str, str] | None = None,
         params: dict[str, Any] | None = None,
         json: object | None = None,
+        data: object | None = None,
     ) -> HttpResponse:
         """Execute an HTTP request with version retry on 410 Gone.
 
@@ -393,7 +411,12 @@ class AulaApiClient:
             api_method = _extract_api_method(url, params)
             start = time.monotonic()
             response = await self._client.request(
-                method, url, headers=headers, params=params, json=json
+                method,
+                url,
+                headers=headers,
+                params=params,
+                json=json,
+                data=data,
             )
             elapsed = time.monotonic() - start
 
