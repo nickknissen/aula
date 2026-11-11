@@ -216,11 +216,11 @@ def _resolve_week(week: str | None) -> str:
 
     Accepts None (current week), a bare number like '8', or full 'YYYY-Wn'.
     """
-    now = datetime.datetime.now(ZoneInfo("Europe/Copenhagen"))
+    today = aula_today().isocalendar()
     if week is None:
-        return f"{now.year}-W{now.isocalendar()[1]}"
+        return f"{today.year}-W{today.week}"
     if week.isdigit():
-        return f"{now.year}-W{int(week)}"
+        return f"{today.year}-W{int(week)}"
     return week
 
 
