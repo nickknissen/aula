@@ -16,7 +16,7 @@ wheels = [
 
 [[package]]
 name = "aula"
-version = "1.16.0"
+version = "1.17.0b1"
 source = { editable = "." }
 dependencies = [
     { name = "beautifulsoup4" },
