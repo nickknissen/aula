@@ -636,6 +636,7 @@ class AulaApiClient:
         template_id: int | None = None,
         repeat_pattern: str = "Never",
         expires_at: str | None = None,
+        self_decider_end_time: str | None = None,
     ) -> bool:
         """Create or update a presence template (planned entry/exit times).
 
@@ -643,7 +644,8 @@ class AulaApiClient:
             institution_profile_id: Child's institution profile ID.
             by_date: The date for the template.
             entry_time: Arrival time in HH:mm format (e.g., "08:00").
-            exit_time: Departure time in HH:mm format (e.g., "16:30").
+            exit_time: Departure time in HH:mm format (e.g., "16:30"). For
+                SELF_DECIDER, the earliest time the child may leave on their own.
             activity_type: How the child leaves at the end of the day. Prefer an
                 ``ActivityType`` member; raw ints are accepted for compatibility.
             exit_with: Name of person picking up, including relation suffix
@@ -653,9 +655,16 @@ class AulaApiClient:
             repeat_pattern: "Never", "Weekly", or "Every2Weeks".
             expires_at: Expiration datetime in ISO format (e.g., "2026-06-26T00:00:00+00:00").
                 If None, defaults to June 30 of the current school year.
+            self_decider_end_time: The latest time a SELF_DECIDER child may leave,
+                in HH:mm format, making a window from ``exit_time``. Defaults to
+                ``exit_time``.
 
         Returns:
             True if the update was successful.
+
+        Raises:
+            ValueError: If ``self_decider_end_time`` is given for another
+                activity type, which has no window to put it in.
         """
         # The Aula backend expects camelCase keys (CamelCasePropertyNamesContractResolver)
         # and enums: ActivityType as int, RepeatPattern as lowercase string.
@@ -678,6 +687,8 @@ class AulaApiClient:
         activity_value = (
             activity_type.value if isinstance(activity_type, ActivityType) else activity_type
         )
+        if self_decider_end_time is not None and activity_value != ActivityType.SELF_DECIDER.value:
+            raise ValueError("self_decider_end_time is only used with ActivityType.SELF_DECIDER")
 
         # Build the activity sub-object based on activity_type
         activity: dict[str, Any] = {"activityType": activity_value}
@@ -691,7 +702,7 @@ class AulaApiClient:
             activity["selfDecider"] = {
                 "entryTime": entry_time,
                 "exitStartTime": exit_time,
-                "exitEndTime": exit_time,
+                "exitEndTime": self_decider_end_time or exit_time,
             }
         elif activity_value == ActivityType.SEND_HOME.value:
             activity["sendHome"] = {

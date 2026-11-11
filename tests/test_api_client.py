@@ -3705,6 +3705,42 @@ class TestUpdatePresenceTemplate:
         }
 
     @pytest.mark.asyncio
+    async def test_self_decider_leaves_within_a_window(self, mock_client):
+        """A self-decider may leave between exit_time and self_decider_end_time."""
+        from aula.models.presence import ActivityType
+
+        await mock_client.update_presence_template(
+            institution_profile_id=10,
+            by_date=date(2026, 2, 25),
+            entry_time="08:00",
+            exit_time="14:00",
+            activity_type=ActivityType.SELF_DECIDER,
+            self_decider_end_time="16:00",
+        )
+
+        activity = self._payload(mock_client)["presenceActivity"]
+        assert activity["selfDecider"] == {
+            "entryTime": "08:00",
+            "exitStartTime": "14:00",
+            "exitEndTime": "16:00",
+        }
+
+    @pytest.mark.asyncio
+    async def test_self_decider_end_time_needs_self_decider(self, mock_client):
+        """Any other activity type would drop the end time, so it is refused."""
+        with pytest.raises(ValueError, match="self_decider_end_time"):
+            await mock_client.update_presence_template(
+                institution_profile_id=10,
+                by_date=date(2026, 2, 25),
+                entry_time="08:00",
+                exit_time="14:00",
+                exit_with="Mor",
+                self_decider_end_time="16:00",
+            )
+
+        mock_client._request_with_version_retry.assert_not_awaited()
+
+    @pytest.mark.asyncio
     async def test_defaults_to_picked_up_by(self, mock_client):
         """Omitting activity_type keeps the previous default of 0."""
         await mock_client.update_presence_template(
