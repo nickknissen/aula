@@ -28,6 +28,7 @@ from aula.const import (
 )
 from aula.http import AulaNotFoundError, HttpResponse
 from aula.widgets import EasyIQChildNotInPortal, EasyIQWrongChildSession
+from aula.widgets.client import _EasyIQContext
 
 EASYIQ_CALENDAR_URL = f"{EASYIQ_PORTAL}{EASYIQ_CALENDAR_PATH}"
 EASYIQ_HOMEWORK_URL = f"{EASYIQ_PORTAL}{EASYIQ_HOMEWORK_PATH}"
@@ -1468,20 +1469,61 @@ class TestEasyiqProtocolCorrectIdentifier:
 
     @pytest.mark.asyncio
     async def test_switch_child_posts_the_easyiq_id_as_login_id(self, client):
-        client._request_with_version_retry = AsyncMock(
-            side_effect=[_token_response("token-switch"), _calendar_response(None)]
-        )
+        client._request_with_version_retry = AsyncMock(return_value=_calendar_response(None))
 
         await client.widgets.switch_easyiq_child(
-            "9001", ["inst-1"], "guardian-1", ["astr8360", "kris37r9"], "astr8360"
+            "9001",
+            _EasyIQContext(
+                token="Bearer token-switch",
+                institution_filter=("inst-1",),
+                guardian_login="guardian-1",
+                child_user_ids=("astr8360", "kris37r9"),
+                child_user_id="astr8360",
+            ),
         )
 
         calls = client._request_with_version_retry.await_args_list
-        assert calls[1].args == ("post", f"{EASYIQ_PORTAL}{EASYIQ_SWITCHCHILD_PATH}")
+        assert calls[0].args == ("post", f"{EASYIQ_PORTAL}{EASYIQ_SWITCHCHILD_PATH}")
         # loginId is the Id GetChildren gave for this child -- not its Login,
         # and not Aula's own userId.
-        assert calls[1].kwargs["params"] == {"loginId": "9001"}
-        assert calls[1].kwargs["headers"]["x-child"] == "astr8360"
+        assert calls[0].kwargs["params"] == {"loginId": "9001"}
+        assert calls[0].kwargs["headers"]["x-child"] == "astr8360"
+        assert client._request_with_version_retry.await_count == 1
+
+    def test_easyiq_headers_come_from_the_context(self, client):
+        """Every portal call sends these, so their shape is the protocol."""
+        headers = client.widgets.easyiq_headers(
+            _EasyIQContext(
+                token="Bearer token-easy",
+                institution_filter=("inst-1", "inst-2"),
+                guardian_login="Guardian-1",
+                child_user_ids=("barn0001", "barn0002"),
+                child_user_id="barn0002",
+            )
+        )
+
+        assert headers == {
+            "Authorization": "Bearer token-easy",
+            "Accept": "application/json",
+            "x-institutionfilter": "inst-1,inst-2",
+            "x-userprofile": "guardian",
+            "x-login": "Guardian-1",
+            "x-child": "barn0002",
+            "x-childfilter": "barn0001,barn0002",
+            "x-requested-with": "XMLHttpRequest",
+            "Referer": f"{EASYIQ_PORTAL}/UgeplanWidget",
+        }
+
+    def test_a_context_without_a_selected_child_sends_the_first_child(self, client):
+        """The bootstrap selects no child, but the portal needs x-child on every call."""
+        context = _EasyIQContext(
+            token="Bearer token-boot",
+            institution_filter=("inst-1",),
+            guardian_login="guardian-1",
+            child_user_ids=("barn0001", "barn0002"),
+        )
+
+        assert client.widgets.easyiq_headers(context)["x-child"] == "barn0001"
 
     @staticmethod
     def _bootstrapped(client, children):
@@ -1587,8 +1629,9 @@ class TestEasyiqProtocolCorrectIdentifier:
         every = "751052,751056,G20365"
         assert calls[1].kwargs["headers"]["x-institutionfilter"] == every
         assert calls[2].kwargs["headers"]["x-institutionfilter"] == every
-        # The read itself still goes out under the child's own institution.
-        assert calls[6].kwargs["headers"]["x-institutionfilter"] == "751052"
+        # Switch, confirmation and read still go out under the child's own institution.
+        for step in calls[4:7]:
+            assert step.kwargs["headers"]["x-institutionfilter"] == "751052"
 
     @pytest.mark.asyncio
     async def test_the_session_falls_back_to_the_childs_institution(self, client):
@@ -1683,6 +1726,55 @@ class TestEasyiqProtocolCorrectIdentifier:
         assert sorted(pairs) == [
             ("switch:9001", "read:astr8360"),
             ("switch:9002", "read:kris37r9"),
+        ]
+
+    @pytest.mark.asyncio
+    async def test_concurrent_reads_keep_their_own_child_and_institution(self, client):
+        """A sibling read in flight must not change who this read's requests are for."""
+        self._bootstrapped(
+            client,
+            [{"Id": "9001", "Login": "barn0001"}, {"Id": "9002", "Login": "barn0002"}],
+        )
+        seen: list[tuple[str, str, str]] = []
+
+        async def _dispatch(method, url, **kwargs):
+            await asyncio.sleep(0)
+            if "getAulaToken" in url:
+                return _token_response("token-easy")
+            headers = kwargs["headers"]
+            if url.endswith(EASYIQ_SWITCHCHILD_PATH):
+                step, response = "switch", _calendar_response(None)
+            elif url.endswith(EASYIQ_AUTHENTICATE_PATH):
+                step, response = "confirm", _calendar_response({"child": headers["x-child"]})
+            else:
+                step = "read"
+                response = _calendar_response([{"ItemType": 9, "Title": headers["x-child"]}])
+            seen.append((step, headers["x-child"], headers["x-institutionfilter"]))
+            return response
+
+        client._request_with_version_retry = AsyncMock(side_effect=_dispatch)
+
+        async def _read(child_user_id, child_profile_id, institution):
+            return await client.widgets.get_easyiq_calendar_events(
+                week="2026-W09",
+                institution_filter=[institution],
+                child_profile_id=child_profile_id,
+                child_user_id=child_user_id,
+                all_child_user_ids=["barn0001", "barn0002"],
+                guardian_login="guardian-1",
+            )
+
+        first, second = await asyncio.gather(
+            _read("barn0001", "4242", "SKOLE-1"),
+            _read("barn0002", "4343", "SKOLE-2"),
+        )
+
+        assert [event.title for event in first] == ["barn0001"]
+        assert [event.title for event in second] == ["barn0002"]
+        steps = sorted(tuple(seen[i : i + 3]) for i in range(0, len(seen), 3))
+        assert steps == [
+            tuple((step, "barn0001", "SKOLE-1") for step in ("switch", "confirm", "read")),
+            tuple((step, "barn0002", "SKOLE-2") for step in ("switch", "confirm", "read")),
         ]
 
     @pytest.mark.asyncio

@@ -624,6 +624,11 @@ def _with_child(row: dict, child: Child) -> dict:
     return {**row, "child_id": child.id, "child_name": child.name}
 
 
+def _child_institution_filter(child: Child, fallback: list[str]) -> list[str]:
+    """The child's own institution, or ``fallback`` when Aula names none."""
+    return [child.institution_code] if child.institution_code else list(fallback)
+
+
 def _docendo_plans_for_child(
     plans: list[DocendoWeekPlan], child: Child, *, only_child: bool
 ) -> list[DocendoWeekPlan]:
@@ -2216,14 +2221,11 @@ async def easyiq_ugeplan(ctx, week):
                 if not child.user_id:
                     continue
                 child_id = child.user_id
-                c_institutions: list[str] = []
-                if child.institution_code:
-                    c_institutions.append(child.institution_code)
                 try:
                     appointments = await client.widgets.get_easyiq_weekplan(
                         week,
                         session_uuid,
-                        c_institutions or institution_filter,
+                        _child_institution_filter(child, institution_filter),
                         child_id,
                         child_profile_id=str(child.id),
                         all_child_user_ids=all_child_user_ids,
@@ -2247,15 +2249,12 @@ async def easyiq_ugeplan(ctx, week):
             if not child.user_id:
                 continue
             child_id = child.user_id
-            c_institutions = []
-            if child.institution_code:
-                c_institutions.append(child.institution_code)
 
             try:
                 appointments = await client.widgets.get_easyiq_weekplan(
                     week,
                     session_uuid,
-                    c_institutions or institution_filter,
+                    _child_institution_filter(child, institution_filter),
                     child_id,
                     child_profile_id=str(child.id),
                     all_child_user_ids=all_child_user_ids,
@@ -2336,14 +2335,11 @@ async def easyiq_homework(ctx, week):
                 if not child.user_id:
                     continue
                 child_id = child.user_id
-                c_institutions: list[str] = []
-                if child.institution_code:
-                    c_institutions.append(child.institution_code)
                 try:
                     homework = await client.widgets.get_easyiq_homework(
                         week,
                         session_uuid,
-                        c_institutions or institution_filter,
+                        _child_institution_filter(child, institution_filter),
                         child_id,
                         child_profile_id=str(child.id),
                         all_child_user_ids=all_child_user_ids,
@@ -2366,15 +2362,12 @@ async def easyiq_homework(ctx, week):
             if not child.user_id:
                 continue
             child_id = child.user_id
-            c_institutions = []
-            if child.institution_code:
-                c_institutions.append(child.institution_code)
 
             try:
                 homework = await client.widgets.get_easyiq_homework(
                     week,
                     session_uuid,
-                    c_institutions or institution_filter,
+                    _child_institution_filter(child, institution_filter),
                     child_id,
                     child_profile_id=str(child.id),
                     all_child_user_ids=all_child_user_ids,
@@ -3290,15 +3283,12 @@ async def weekly_summary(ctx, child, week, providers):
                 if not c.user_id:
                     continue
                 c_user_id = c.user_id
-                c_institutions: list[str] = []
-                if c.institution_code:
-                    c_institutions.append(c.institution_code)
 
                 try:
                     appointments = await client.widgets.get_easyiq_weekplan(
                         week,
                         session_uuid,
-                        c_institutions or institution_filter,
+                        _child_institution_filter(c, institution_filter),
                         c_user_id,
                         child_profile_id=str(c.id),
                         all_child_user_ids=all_child_user_ids,
@@ -3351,15 +3341,12 @@ async def weekly_summary(ctx, child, week, providers):
                 if not c.user_id:
                     continue
                 c_user_id = c.user_id
-                c_institutions: list[str] = []
-                if c.institution_code:
-                    c_institutions.append(c.institution_code)
 
                 try:
                     homework = await client.widgets.get_easyiq_homework(
                         week,
                         session_uuid,
-                        c_institutions or institution_filter,
+                        _child_institution_filter(c, institution_filter),
                         c_user_id,
                         child_profile_id=str(c.id),
                         all_child_user_ids=all_child_user_ids,

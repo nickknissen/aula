@@ -15,6 +15,7 @@ from aula.cli import (
     _WIDGET_ID_CACHE,
     CONTACTS_PAGE_SIZE,
     MAX_CONTACT_PAGES,
+    _child_institution_filter,
     _fetch_contact_pages,
     _first_available_widget,
     _has_widget,
@@ -275,6 +276,53 @@ class TestWithChild:
         row = dict(EasyIQHomework(id="hw-1", title="Dansk"))
         _with_child(row, self._child())
         assert "child_id" not in row
+
+
+class TestChildInstitutionFilter:
+    """A per-child provider read is scoped to that child's own institution."""
+
+    FAMILY = ["SKOLE-1", "SKOLE-2"]
+
+    @staticmethod
+    def _child(**fields) -> Child:
+        return Child.from_dict({"id": 1, "profileId": 2, "name": "Barn Et", **fields})
+
+    def test_uses_the_childs_own_institution(self):
+        child = self._child(institutionProfile={"institutionCode": "SKOLE-2"})
+        assert _child_institution_filter(child, self.FAMILY) == ["SKOLE-2"]
+
+    def test_stringifies_a_numeric_institution_code(self):
+        """Aula sometimes sends the code as a number; widget filters take strings."""
+        child = self._child(institutionProfile={"institutionCode": 280001})
+        assert _child_institution_filter(child, self.FAMILY) == ["280001"]
+
+    def test_falls_back_for_a_child_built_without_raw_data(self):
+        child = Child(id=1, profile_id=2, name="Barn Et", institution_name="", profile_picture="")
+        assert _child_institution_filter(child, self.FAMILY) == self.FAMILY
+
+    @pytest.mark.parametrize(
+        "fields",
+        [{}, {"institutionProfile": None}, {"institutionProfile": {"institutionName": "Skole"}}],
+        ids=["no-institution-profile", "null-institution-profile", "no-institution-code"],
+    )
+    def test_falls_back_without_institution_data(self, fields):
+        assert _child_institution_filter(self._child(**fields), self.FAMILY) == self.FAMILY
+
+    def test_falls_back_on_an_empty_institution_code(self):
+        child = self._child(institutionProfile={"institutionCode": ""})
+        assert _child_institution_filter(child, self.FAMILY) == self.FAMILY
+
+    def test_mutates_neither_the_child_nor_the_fallback(self):
+        """The fallback is the family-wide list, shared by every child's read."""
+        raw = {"id": 1, "profileId": 2, "name": "Barn To", "institutionProfile": {}}
+        child = Child.from_dict(raw)
+        fallback = list(self.FAMILY)
+
+        _child_institution_filter(child, fallback).append("SKOLE-3")
+
+        assert fallback == self.FAMILY
+        assert raw == {"id": 1, "profileId": 2, "name": "Barn To", "institutionProfile": {}}
+        assert child.institution_code is None
 
 
 class TestFetchContactPages:
@@ -914,6 +962,37 @@ class TestEasyiqPerChildInstitutionScoping:
         calls = client.widgets.get_easyiq_homework.await_args_list
         assert calls[0].args[2] == ["SCH-1"]
         assert calls[1].args[2] == ["SCH-1"]
+
+    @pytest.mark.parametrize(
+        ("command", "args", "reader", "output_format"),
+        [
+            (easyiq_ugeplan, [], "get_easyiq_weekplan", "json"),
+            (easyiq_homework, [], "get_easyiq_homework", "json"),
+            (weekly_summary, ["--provider", "easyiq"], "get_easyiq_weekplan", "text"),
+            (weekly_summary, ["--provider", "easyiq_homework"], "get_easyiq_homework", "text"),
+        ],
+        ids=["ugeplan-json", "homework-json", "summary-weekplan", "summary-homework"],
+    )
+    def test_every_per_child_read_scopes_its_institution(
+        self, monkeypatch, command, args, reader, output_format
+    ):
+        """The JSON and weekly-summary paths read per child just like the text paths."""
+        children = [
+            self._child(1, "u-school", "SCH-1"),
+            self._child(2, "u-daycare", "DAY-2"),
+            self._child(3, "u-none", ""),
+        ]
+        client = self._client(children)
+        client.get_calendar_events = AsyncMock(return_value=[])
+        client.get_message_threads = AsyncMock(return_value=[])
+
+        result = self._run(command, client, monkeypatch, *args, output_format=output_format)
+
+        assert result.exit_code == 0
+        calls = getattr(client.widgets, reader).await_args_list
+        assert [call_.args[2] for call_ in calls] == [["SCH-1"], ["DAY-2"], ["SCH-1", "DAY-2"]]
+        for call_ in calls:
+            assert call_.kwargs["all_institution_filter"] == ["SCH-1", "DAY-2"]
 
 
 def _make_task(
