@@ -57,19 +57,33 @@ _SECURITY_CHECK_MESSAGE = (
     "Details: https://github.com/nickknissen/aula/issues/43"
 )
 
+# UniLogin's post-broker-login form has a hidden field that the page's script fills
+# when the user picks a role. A user with more than one role, such as a parent who
+# also works at a school, is refused with 400 when it is posted empty. KONTAKT is
+# the guardian role, the one a parent logs in to Aula with.
+_ROLE_FIELD = "selected-aktoer"
+_GUARDIAN_ROLE = "KONTAKT"
+
+_PRIVATE_ORGANISATION_MESSAGE = (
+    "UniLogin refused this MitID identity because it is linked to a private "
+    'organisation. It only accepts it through "MitID for privat organisation" under '
+    '"Lokalt login", which this client does not support.'
+)
+
 
 def _page_message(soup: BeautifulSoup) -> str:
-    """Best-effort user-visible text from a NemLog-in page, for error reporting."""
+    """Best-effort user-visible text from a NemLog-in or UniLogin page, for error reporting."""
     for selector in (
         ".validation-summary-errors",
         ".alert",
         ".error-message",
         "[role=alert]",
+        "#kc-error-message",
         "h1",
     ):
         element = soup.select_one(selector)
         if element:
-            text = element.get_text(" ", strip=True)
+            text = " ".join(element.get_text(" ").split())
             if text:
                 return text
     return ""
@@ -84,7 +98,15 @@ def _extract_form_data(soup: BeautifulSoup) -> tuple[str, dict[str, str]]:
     form = soup.find("form")
     if not isinstance(form, Tag):
         raise SAMLError("No form found in page")
+    return _form_data(form)
 
+
+def _form_data(form: Tag) -> tuple[str, dict[str, str]]:
+    """Extract the action URL and input values from a form.
+
+    Raises:
+        SAMLError: If the form has no action attribute.
+    """
     action = form.get("action", "")
     if not action:
         raise SAMLError("Form has no action attribute")
@@ -98,6 +120,19 @@ def _extract_form_data(soup: BeautifulSoup) -> tuple[str, dict[str, str]]:
             data[name] = str(inp.get("value", ""))
 
     return str(action), data
+
+
+def _broker_page_error(soup: BeautifulSoup, response: httpx.Response) -> SAMLError:
+    """Describe a UniLogin broker page that has no form to continue with."""
+    message = _page_message(soup)
+    detail = f' Page says: "{message}".' if message else ""
+    page_text = " ".join(soup.get_text(" ").split()).casefold()
+    if "privat organisation" in page_text:
+        return SAMLError(f"{_PRIVATE_ORGANISATION_MESSAGE}{detail}")
+    return SAMLError(
+        f"No form on the UniLogin broker page (landed on {response.url.path}, "
+        f"HTTP {response.status_code}).{detail}"
+    )
 
 
 class MitIDAuthClient:
@@ -595,13 +630,31 @@ class MitIDAuthClient:
         _LOGGER.debug("Processing broker response from URL: %s", diagnostic_url(response.url))
 
         soup = BeautifulSoup(response.text, "html.parser")
-        action, form_data = _extract_form_data(soup)
+        form = soup.find("form")
+        if not isinstance(form, Tag):
+            raise _broker_page_error(soup, response)
+
+        action, form_data = _form_data(form)
+        action = urljoin(str(response.url), action)
+        if _ROLE_FIELD in form_data:
+            form_data[_ROLE_FIELD] = _GUARDIAN_ROLE
+        _LOGGER.debug(
+            "Posting broker form to %s with fields: %s",
+            diagnostic_url(action),
+            ", ".join(sorted(form_data)),
+        )
 
         post_broker_response = await self._client.post(action, data=form_data)
 
+        if post_broker_response.status_code == httpx.codes.OK:
+            post_broker_response = await self._submit_confirmation(post_broker_response)
+
         if not post_broker_response.is_redirect:
+            message = _page_message(BeautifulSoup(post_broker_response.text, "html.parser"))
+            detail = f' Page says: "{message}".' if message else ""
             raise SAMLError(
-                f"No redirect from post-broker-login (status: {post_broker_response.status_code})"
+                f"No redirect from post-broker-login (status: {post_broker_response.status_code})."
+                f"{detail}"
             )
 
         after_url = post_broker_response.headers["Location"]
@@ -628,6 +681,22 @@ class MitIDAuthClient:
             ),
             "form_action": str(saml_form.get("action", "")),
         }
+
+    async def _submit_confirmation(self, response: httpx.Response) -> httpx.Response:
+        """Submit UniLogin's confirmation page, which some users get before the redirect.
+
+        Returns the response unchanged when it is not the confirmation page.
+        """
+        soup = BeautifulSoup(response.text, "html.parser")
+        button = soup.find("button", id="confirmation-button")
+        form = button.find_parent("form") if isinstance(button, Tag) else None
+        if not isinstance(form, Tag):
+            return response
+
+        action, form_data = _form_data(form)
+        action = urljoin(str(response.url), action)
+        _LOGGER.debug("Submitting broker confirmation page to %s", diagnostic_url(action))
+        return await self._client.post(action, data=form_data)
 
     async def _step6_complete_aula_login(self, saml_data: dict[str, str]) -> str:
         """Step 6: Complete Aula login with SAML response."""
