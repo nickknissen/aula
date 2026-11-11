@@ -5,7 +5,13 @@ from typing import Any
 import httpx
 
 from .const import USER_AGENT
-from .http import HttpResponse
+from .http import AulaConnectionError, HttpResponse
+
+
+def _connection_error(url: str, err: httpx.TransportError) -> AulaConnectionError:
+    return AulaConnectionError(
+        f"Could not reach {httpx.URL(url).host}: {str(err) or type(err).__name__}"
+    )
 
 
 class HttpxHttpClient:
@@ -40,13 +46,16 @@ class HttpxHttpClient:
         params: dict[str, Any] | None = None,
         json: Any | None = None,
     ) -> HttpResponse:
-        response = await self._client.request(
-            method,
-            url,
-            headers=headers,
-            params=params,
-            json=json,
-        )
+        try:
+            response = await self._client.request(
+                method,
+                url,
+                headers=headers,
+                params=params,
+                json=json,
+            )
+        except httpx.TransportError as err:
+            raise _connection_error(url, err) from err
         try:
             data = response.json()
         except ValueError, UnicodeDecodeError:
@@ -58,7 +67,10 @@ class HttpxHttpClient:
         )
 
     async def download_bytes(self, url: str) -> bytes:
-        response = await self._client.get(url, timeout=httpx.Timeout(30.0, read=120.0))
+        try:
+            response = await self._client.get(url, timeout=httpx.Timeout(30.0, read=120.0))
+        except httpx.TransportError as err:
+            raise _connection_error(url, err) from err
         response.raise_for_status()
         return response.content
 
