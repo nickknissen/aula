@@ -282,6 +282,23 @@ every child it names. Booked parent meetings show at each child's booked slot.
 | `aula presence-templates` | Planned entry/exit times |
 | `aula update-presence` | Update pickup/drop-off times |
 | `aula report-sick` | Report a child sick today, or take it back (`--undo`) |
+| `aula register-absence` | Register a planned absence (ferie/fri) from `--from` to `--to` |
+
+`aula register-absence --from 2026-12-21 --to 2026-12-23 --comment Ferie` registers
+a planned absence for every child, or for the ones given with `--child` (repeatable).
+Dates follow the guardian portal's rules: the start is today or later in Denmark, the
+end is on or after the start and at most one calendar year later, and the comment is
+at most 250 characters. A child is skipped with a reason when Aula says absence
+registration is not editable for guardians, or that you have neither custody of nor
+extended access to the child. When the presence configuration cannot be read, or has
+no entry for a child, this is logged (shown with `-v`) and the absence is sent, so Aula
+decides; `report-sick` works the same way. The command asks before it writes; `-y`
+skips the question and `--output json` requires it. It exits 1 when nothing was
+registered.
+
+The Python API is `await client.add_vacation(child_ids, start, end, comment)`, with
+`Child.id` values and `date` bounds. It checks the dates and comment, not
+permissions, and returns True once Aula accepts the absence.
 
 ### Content
 

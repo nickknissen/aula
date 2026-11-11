@@ -1,7 +1,9 @@
 """Tests for aula.cli helpers."""
 
 import asyncio
+import datetime
 import json
+import logging
 import platform
 from unittest.mock import AsyncMock, MagicMock
 
@@ -32,7 +34,9 @@ from aula.cli import (
     easyiq_ugeplan,
     logout,
     print_mu_task_tables,
+    register_absence,
     report_sick,
+    vacations,
     weekly_summary,
 )
 from aula.const import (
@@ -42,6 +46,7 @@ from aula.const import (
     WIDGET_EASYIQ_LEGACY,
     WIDGET_EASYIQ_WEEKPLAN,
 )
+from aula.http import AulaRejectedError
 from aula.models import (
     Child,
     CommonFile,
@@ -722,6 +727,337 @@ class TestReportSick:
         result = run("-y")
 
         assert "updating presence status" in result.output
+
+
+class TestRegisterAbsence:
+    """The planned-absence write: which children, which dates, and only after consent."""
+
+    TODAY = datetime.date(2026, 11, 11)
+    DATES = ("--from", "2026-11-16", "--to", "2026-11-20")
+
+    @staticmethod
+    def _child(child_id: int, name: str, custody: bool | None = None) -> Child:
+        raw = {} if custody is None else {"hasCustodyOrExtendedAccess": custody}
+        return Child(
+            id=child_id,
+            profile_id=child_id + 1000,
+            name=name,
+            institution_name="Test Institution",
+            profile_picture="",
+            _raw=raw,
+        )
+
+    @staticmethod
+    def _config(child_id: int, permission: str) -> PresenceConfiguration:
+        return PresenceConfiguration.from_dict(
+            {
+                "uniStudentId": child_id,
+                "presenceConfiguration": {
+                    "dashboardModuleSettings": [
+                        {
+                            "presenceDashboardContext": "guardian_dashboard",
+                            "presenceModules": [
+                                {"moduleType": "vacation", "permission": permission}
+                            ],
+                        }
+                    ]
+                },
+            }
+        )
+
+    @pytest.fixture
+    def fake_client(self):
+        """A client recording absence writes, with two editable children by default."""
+        client = MagicMock()
+        client.get_profile = AsyncMock(
+            return_value=Profile(
+                profile_id=1,
+                display_name="Guardian",
+                children=[self._child(201, "Barn Et"), self._child(202, "Barn To")],
+            )
+        )
+        client.get_presence_configuration = AsyncMock(
+            return_value=[self._config(201, "editable"), self._config(202, "editable")]
+        )
+        client.add_vacation = AsyncMock(return_value=True)
+        client.__aenter__ = AsyncMock(return_value=client)
+        client.__aexit__ = AsyncMock(return_value=False)
+        return client
+
+    @pytest.fixture
+    def run(self, fake_client, monkeypatch):
+        """Invoke register-absence against the fake client, on a fixed today."""
+        monkeypatch.setattr("aula.cli._get_client", AsyncMock(return_value=fake_client))
+        monkeypatch.setattr("aula.cli.aula_today", lambda: self.TODAY)
+
+        def invoke(*args, output_format="text", input=None):
+            return CliRunner().invoke(
+                register_absence,
+                list(args),
+                obj={"OUTPUT_FORMAT": output_format},
+                input=input,
+            )
+
+        return invoke
+
+    def test_registers_every_child_by_default(self, run, fake_client):
+        result = run(*self.DATES, "-y")
+
+        assert result.exit_code == 0
+        fake_client.add_vacation.assert_awaited_once_with(
+            [201, 202], datetime.date(2026, 11, 16), datetime.date(2026, 11, 20), ""
+        )
+
+    def test_child_option_limits_the_write(self, run, fake_client):
+        run("--child", "202", *self.DATES, "-y")
+
+        assert fake_client.add_vacation.await_args.args[0] == [202]
+
+    def test_child_option_can_be_repeated(self, run, fake_client):
+        fake_client.get_profile.return_value.children.append(self._child(203, "Barn Tre"))
+
+        run("--child", "201", "--child", "203", *self.DATES, "-y")
+
+        assert fake_client.add_vacation.await_args.args[0] == [201, 203]
+
+    def test_comment_is_sent_unchanged(self, run, fake_client):
+        run(*self.DATES, "--comment", "Familietur til Bornholm", "-y")
+
+        assert fake_client.add_vacation.await_args.args[3] == "Familietur til Bornholm"
+
+    def test_single_day_starting_today_is_accepted(self, run, fake_client):
+        """Today is the earliest start the portal allows, and one day is a valid range."""
+        result = run("--from", "2026-11-11", "--to", "2026-11-11", "-y")
+
+        assert result.exit_code == 0
+        fake_client.add_vacation.assert_awaited_once()
+
+    def test_end_one_calendar_year_after_start_is_accepted(self, run, fake_client):
+        result = run("--from", "2026-11-16", "--to", "2027-11-16", "-y")
+
+        assert result.exit_code == 0
+        fake_client.add_vacation.assert_awaited_once()
+
+    @pytest.mark.parametrize(
+        ("args", "message"),
+        [
+            (("--from", "2026-11-10", "--to", "2026-11-12"), "in the past"),
+            (("--from", "2026-11-20", "--to", "2026-11-16"), "before start date"),
+            (("--from", "2026-11-16", "--to", "2027-11-17"), "more than a year"),
+            (("--from", "2028-02-29", "--to", "2029-03-01"), "latest 2029-02-28"),
+            (("--from", "2026-11-16", "--to", "2026-11-16", "--comment", "x" * 251), "251"),
+        ],
+        ids=["past start", "reversed", "over a year", "leap day", "long comment"],
+    )
+    def test_invalid_absence_is_rejected_before_logging_in(
+        self, run, fake_client, monkeypatch, args, message
+    ):
+        """Nothing about a refused absence should reach Aula, not even the login."""
+        get_client = AsyncMock(return_value=fake_client)
+        monkeypatch.setattr("aula.cli._get_client", get_client)
+
+        result = run(*args, "-y")
+
+        assert result.exit_code == 1
+        assert message in result.output
+        get_client.assert_not_awaited()
+        fake_client.add_vacation.assert_not_awaited()
+
+    def test_250_character_comment_is_accepted(self, run, fake_client):
+        result = run(*self.DATES, "--comment", "x" * 250, "-y")
+
+        assert result.exit_code == 0
+        fake_client.add_vacation.assert_awaited_once()
+
+    def test_impossible_calendar_date_is_rejected(self, run, fake_client):
+        result = run("--from", "2027-02-30", "--to", "2027-03-02", "-y")
+
+        assert result.exit_code == 2
+        fake_client.add_vacation.assert_not_awaited()
+
+    def test_dates_are_required(self, run, fake_client):
+        result = run("--from", "2026-11-16", "-y")
+
+        assert result.exit_code == 2
+        assert "--to" in result.output
+        fake_client.add_vacation.assert_not_awaited()
+
+    def test_unknown_child_id_writes_nothing(self, run, fake_client):
+        """A mistyped ID must not quietly shrink the write to the IDs that matched."""
+        result = run("--child", "201", "--child", "999", *self.DATES, "-y")
+
+        assert result.exit_code == 1
+        assert "999" in result.output
+        fake_client.add_vacation.assert_not_awaited()
+
+    def test_no_children_writes_nothing(self, run, fake_client):
+        fake_client.get_profile = AsyncMock(
+            return_value=Profile(profile_id=1, display_name="Guardian", children=[])
+        )
+
+        result = run(*self.DATES, "-y")
+
+        assert result.exit_code == 1
+        fake_client.add_vacation.assert_not_awaited()
+
+    def test_child_without_vacation_permission_is_skipped(self, run, fake_client):
+        """Only the eligible child is sent, so Aula does not reject the whole call."""
+        fake_client.get_presence_configuration = AsyncMock(
+            return_value=[self._config(201, "editable"), self._config(202, "deactivated")]
+        )
+
+        result = run(*self.DATES, "-y")
+
+        assert fake_client.add_vacation.await_args.args[0] == [201]
+        assert "Barn To" in result.output
+        assert "not enabled absence registration" in result.output
+
+    def test_read_only_permission_names_the_reason(self, run, fake_client):
+        fake_client.get_presence_configuration = AsyncMock(
+            return_value=[self._config(201, "editable"), self._config(202, "readable")]
+        )
+
+        result = run(*self.DATES, "-y")
+
+        assert fake_client.add_vacation.await_args.args[0] == [201]
+        assert "read-only" in result.output
+
+    def test_child_without_custody_is_skipped(self, run, fake_client):
+        """The portal hides children the guardian has neither custody of nor extended access to."""
+        fake_client.get_profile.return_value.children[1] = self._child(202, "Barn To", False)
+
+        result = run(*self.DATES, "-y")
+
+        assert fake_client.add_vacation.await_args.args[0] == [201]
+        assert "no custody" in result.output
+
+    def test_custody_flag_true_or_missing_is_not_a_denial(self, run, fake_client):
+        fake_client.get_profile.return_value.children[0] = self._child(201, "Barn Et", True)
+
+        run(*self.DATES, "-y")
+
+        assert fake_client.add_vacation.await_args.args[0] == [201, 202]
+
+    def test_all_children_blocked_writes_nothing(self, run, fake_client):
+        fake_client.get_profile.return_value.children[0] = self._child(201, "Barn Et", False)
+        fake_client.get_presence_configuration = AsyncMock(
+            return_value=[self._config(202, "deactivated")]
+        )
+
+        result = run(*self.DATES, "-y")
+
+        assert result.exit_code == 1
+        fake_client.add_vacation.assert_not_awaited()
+
+    def test_unreadable_configuration_leaves_the_decision_to_aula(self, run, fake_client, caplog):
+        """Not being able to check permission is not the same as being denied."""
+        fake_client.get_presence_configuration = AsyncMock(side_effect=RuntimeError("boom"))
+
+        with caplog.at_level(logging.WARNING, logger="aula.cli"):
+            result = run(*self.DATES, "-y")
+
+        fake_client.add_vacation.assert_awaited_once()
+        assert fake_client.add_vacation.await_args.args[0] == [201, 202]
+        assert "skipped" not in result.output
+        assert "Could not fetch presence configuration" in caplog.text
+
+    def test_child_missing_from_configuration_is_sent_with_a_warning(
+        self, run, fake_client, caplog
+    ):
+        fake_client.get_presence_configuration = AsyncMock(
+            return_value=[self._config(201, "editable")]
+        )
+
+        with caplog.at_level(logging.WARNING, logger="aula.cli"):
+            result = run(*self.DATES, "-y")
+
+        assert fake_client.add_vacation.await_args.args[0] == [201, 202]
+        assert "skipped" not in result.output
+        assert "No presence configuration for child 202" in caplog.text
+
+    def test_confirmation_shows_children_dates_and_comment(self, run, fake_client):
+        result = run(*self.DATES, "--comment", "Familietur", input="y\n")
+
+        assert result.exit_code == 0
+        for expected in ("Barn Et", "Barn To", "2026-11-16", "2026-11-20", "Familietur"):
+            assert expected in result.output
+        fake_client.add_vacation.assert_awaited_once()
+
+    def test_declining_the_confirmation_writes_nothing(self, run, fake_client):
+        result = run(*self.DATES, input="n\n")
+
+        assert result.exit_code == 0
+        assert "Cancelled." in result.output
+        fake_client.add_vacation.assert_not_awaited()
+
+    def test_json_output_requires_yes(self, run, fake_client):
+        """A scripted write must be explicit, since JSON mode cannot prompt."""
+        result = run(*self.DATES, output_format="json")
+
+        assert result.exit_code == 1
+        assert "requires --yes" in result.stderr
+        assert result.stdout == ""
+        fake_client.add_vacation.assert_not_awaited()
+
+    def test_json_output_reports_registered_and_skipped(self, run, fake_client):
+        fake_client.get_presence_configuration = AsyncMock(
+            return_value=[self._config(201, "editable"), self._config(202, "deactivated")]
+        )
+
+        result = run(*self.DATES, "--comment", "Familietur", "-y", output_format="json")
+
+        assert result.exit_code == 0
+        payload = json.loads(result.stdout)
+        assert payload["start_date"] == "2026-11-16"
+        assert payload["end_date"] == "2026-11-20"
+        assert payload["comment"] == "Familietur"
+        assert payload["registered"] == [{"id": 201, "name": "Barn Et"}]
+        assert [s["id"] for s in payload["skipped"]] == [202]
+        assert payload["skipped"][0]["reason"]
+
+    def test_json_output_stays_parseable_when_all_are_blocked(self, run, fake_client):
+        fake_client.get_presence_configuration = AsyncMock(
+            return_value=[self._config(201, "readable"), self._config(202, "deactivated")]
+        )
+
+        result = run(*self.DATES, "-y", output_format="json")
+
+        assert result.exit_code == 1
+        payload = json.loads(result.stdout)
+        assert payload["registered"] == []
+        assert [s["id"] for s in payload["skipped"]] == [201, 202]
+        fake_client.add_vacation.assert_not_awaited()
+
+    def test_write_failure_is_reported_as_failure(self, run, fake_client):
+        fake_client.add_vacation = AsyncMock(
+            side_effect=AulaRejectedError("Aula rejected calendar.addVacation", 200, code=10)
+        )
+
+        result = run(*self.DATES, "-y")
+
+        assert result.exit_code == 1
+        assert "registering absence" in result.output
+        assert "✓" not in result.output
+
+    def test_write_failure_in_json_mode_keeps_stdout_clean(self, run, fake_client):
+        fake_client.add_vacation = AsyncMock(side_effect=RuntimeError("HTTP 500"))
+
+        result = run(*self.DATES, "-y", output_format="json")
+
+        assert result.exit_code == 1
+        assert result.stdout == ""
+        assert "registering absence" in result.stderr
+
+    def test_vacations_reader_does_not_write(self, fake_client, monkeypatch):
+        """The existing reader keeps reading institution registrations only."""
+        fake_client.get_vacation_registrations = AsyncMock(return_value=[])
+        monkeypatch.setattr("aula.cli._get_client", AsyncMock(return_value=fake_client))
+
+        result = CliRunner().invoke(vacations, [], obj={"OUTPUT_FORMAT": "text"})
+
+        assert result.exit_code == 0
+        fake_client.get_vacation_registrations.assert_awaited_once_with([201, 202])
+        fake_client.add_vacation.assert_not_awaited()
 
 
 class TestEasyiqPerChildInstitutionScoping:

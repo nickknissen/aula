@@ -39,6 +39,15 @@ class Child(AulaDataClass):
             institution_code=_optional_str(get_in(data, "institutionProfile.institutionCode")),
         )
 
+    @property
+    def has_custody_or_extended_access(self) -> bool | None:
+        """Whether Aula says you have custody of or extended access to this child.
+
+        None when Aula did not say, which is not the same as no.
+        """
+        value = (self._raw or {}).get("hasCustodyOrExtendedAccess")
+        return value if isinstance(value, bool) else None
+
 
 def _optional_str(value: Any) -> str | None:
     return None if value is None else str(value)
