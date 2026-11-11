@@ -551,7 +551,7 @@ class TestAuthenticateAndCreateClient:
             None,
             None,
         )
-        assert "force_login" not in mock_authenticate.await_args_list[0].kwargs
+        assert mock_authenticate.await_args_list[0].kwargs["force_login"] is False
         assert mock_authenticate.await_args_list[1].args == (
             "user",
             token_storage,

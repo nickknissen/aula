@@ -9,6 +9,7 @@ import platform
 import sys
 from collections import defaultdict
 from collections.abc import Awaitable, Callable, Iterable, Sequence
+from pathlib import Path
 from zoneinfo import ZoneInfo
 
 import click
@@ -167,6 +168,19 @@ def get_mitid_username(ctx: click.Context) -> str:
     envvar="AULA_OUTPUT",
     help="Output format: 'text' (human-readable) or 'json' (machine-readable).",
 )
+@click.option(
+    "--token-file",
+    type=click.Path(dir_okay=False, path_type=Path),
+    envvar="AULA_TOKEN_FILE",
+    help=f"Where the session is saved (or AULA_TOKEN_FILE env var). Default: {DEFAULT_TOKEN_FILE}",
+)
+@click.option(
+    "--identity",
+    type=click.IntRange(min=1),
+    envvar="AULA_MITID_IDENTITY",
+    help="Which MitID identity to log in as when there are several, 1 being the first "
+    "(or AULA_MITID_IDENTITY env var). Asked for when omitted.",
+)
 @click.pass_context
 def cli(
     ctx,
@@ -176,6 +190,8 @@ def cli(
     password: str | None,
     token_code: str | None,
     output_format: str,
+    token_file: Path | None,
+    identity: int | None,
 ):
     """CLI for interacting with Aula API"""
     # Configure logging based on verbosity
@@ -206,6 +222,8 @@ def cli(
     ctx.obj["OUTPUT_FORMAT"] = output_format
     ctx.obj["MITID_PASSWORD"] = password
     ctx.obj["MITID_TOKEN_CODE"] = token_code
+    ctx.obj["TOKEN_FILE"] = token_file
+    ctx.obj["MITID_IDENTITY"] = identity
 
     if username:
         ctx.obj["MITID_USERNAME"] = username
@@ -243,6 +261,24 @@ async def _select_identity(identities: list[str]) -> int:
     return choice - 1
 
 
+def _identity_selector(ctx: click.Context) -> Callable[[list[str]], Awaitable[int]]:
+    """Pick the MitID identity from --identity/env, falling back to a prompt."""
+
+    async def select(identities: list[str]) -> int:
+        number = ctx.obj.get("MITID_IDENTITY")
+        if number is None:
+            number = await _select_identity(identities) + 1
+        elif number > len(identities):
+            raise click.BadParameter(
+                f"{number} is out of range, there are {len(identities)} MitID identities.",
+                param_hint="'--identity'",
+            )
+        ctx.obj["CHOSEN_IDENTITY"] = number
+        return number - 1
+
+    return select
+
+
 def _print_otp_code(code: str) -> None:
     """Show the code the user types into the MitID app in place of scanning."""
     click.echo("=" * 60)
@@ -274,10 +310,14 @@ def _password_provider(ctx: click.Context) -> Callable[[], Awaitable[str]]:
     return provide
 
 
-async def _get_client(ctx: click.Context) -> AulaApiClient:
+def _token_file(ctx: click.Context) -> Path:
+    return ctx.obj.get("TOKEN_FILE") or DEFAULT_TOKEN_FILE
+
+
+async def _get_client(ctx: click.Context, *, force_login: bool = False) -> AulaApiClient:
     """Create an authenticated AulaApiClient."""
     username = get_mitid_username(ctx)
-    token_storage = FileTokenStorage(DEFAULT_TOKEN_FILE)
+    token_storage = FileTokenStorage(_token_file(ctx))
     qr_display = TerminalQRDisplay()
     try:
         return await authenticate_and_create_client(
@@ -287,11 +327,20 @@ async def _get_client(ctx: click.Context) -> AulaApiClient:
             on_qr_done=qr_display.done,
             on_otp_code=_print_otp_code,
             on_login_required=_on_login_required,
-            on_identity_selected=_select_identity,
+            on_identity_selected=_identity_selector(ctx),
             auth_method=ctx.obj.get("AUTH_METHOD", "app"),
             on_token_digits=_token_digits_provider(ctx),
             on_password=_password_provider(ctx),
+            force_login=force_login,
         )
+    except RuntimeError as err:
+        # The auth flow wraps what our callbacks raise, so dig a usage error back out.
+        cause = err.__cause__
+        while cause is not None:
+            if isinstance(cause, click.ClickException):
+                raise cause from None
+            cause = cause.__cause__
+        raise
     finally:
         qr_display.stop()
 
@@ -545,24 +594,31 @@ _TerminalQRDisplay = TerminalQRDisplay
 @async_cmd
 async def logout(ctx):
     """Forget the cached session, so the next command logs in through MitID again"""
-    removed = await FileTokenStorage(DEFAULT_TOKEN_FILE).clear()
-    if output_json(ctx, {"status": "ok", "removed": removed, "path": str(DEFAULT_TOKEN_FILE)}):
+    token_file = _token_file(ctx)
+    removed = await FileTokenStorage(token_file).clear()
+    if output_json(ctx, {"status": "ok", "removed": removed, "path": str(token_file)}):
         return
     if removed:
-        click.echo(f"Logged out. Removed {DEFAULT_TOKEN_FILE}")
+        click.echo(f"Logged out. Removed {token_file}")
     else:
-        click.echo(f"No stored session at {DEFAULT_TOKEN_FILE}")
+        click.echo(f"No stored session at {token_file}")
 
 
 @cli.command()
+@click.option("--force", is_flag=True, help="Log in through MitID even if the saved session works.")
 @click.pass_context
 @async_cmd
-async def login(ctx):
+async def login(ctx, force: bool):
     """Authenticate and initialize session"""
-    async with await _get_client(ctx) as client:
-        if output_json(ctx, {"status": "ok", "api_url": client.api_url}):
+    async with await _get_client(ctx, force_login=force) as client:
+        identity = ctx.obj.get("CHOSEN_IDENTITY")
+        result: dict[str, str | int] = {"status": "ok", "api_url": client.api_url}
+        if identity:
+            result["identity"] = identity
+        if output_json(ctx, result):
             return
-        click.echo(f"Logged in. API URL: {client.api_url}")
+        as_identity = f" as MitID identity {identity}" if identity else ""
+        click.echo(f"Logged in{as_identity}. API URL: {client.api_url}")
 
 
 @cli.command()
