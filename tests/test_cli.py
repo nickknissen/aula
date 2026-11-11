@@ -25,6 +25,7 @@ from aula.cli import (
     _print_otp_code,
     _require_any_widget,
     _require_widget,
+    _resolve_week,
     _token_digits_provider,
     _with_child,
     easyiq_homework,
@@ -324,6 +325,25 @@ class TestChildInstitutionFilter:
         assert fallback == self.FAMILY
         assert raw == {"id": 1, "profileId": 2, "name": "Barn To", "institutionProfile": {}}
         assert child.institution_code is None
+
+
+class TestResolveWeek:
+    """Around New Year the ISO week belongs to a different year than the date."""
+
+    @pytest.mark.parametrize(
+        ("today", "week", "expected"),
+        [
+            (datetime.date(2026, 3, 4), None, "2026-W10"),
+            (datetime.date(2027, 1, 1), None, "2026-W53"),
+            (datetime.date(2025, 12, 29), None, "2026-W1"),
+            (datetime.date(2027, 1, 2), "53", "2026-W53"),
+            (datetime.date(2027, 1, 2), "2027-W1", "2027-W1"),
+        ],
+        ids=["mid-year", "new-year-in-last-week", "december-in-first-week", "bare-number", "full"],
+    )
+    def test_uses_the_iso_week_year(self, monkeypatch, today, week, expected):
+        monkeypatch.setattr("aula.cli.aula_today", lambda: today)
+        assert _resolve_week(week) == expected
 
 
 class TestFetchContactPages:
