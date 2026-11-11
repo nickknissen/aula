@@ -2,6 +2,7 @@ import asyncio
 import base64
 import json
 import logging
+from dataclasses import dataclass
 from typing import Any, Protocol
 
 from ..const import (
@@ -65,6 +66,17 @@ class EasyIQChildNotInPortal(Exception):
     (issue #68), so this is raised instead and callers report it as the
     absence it is.
     """
+
+
+@dataclass(frozen=True)
+class _EasyIQContext:
+    """Who one EasyIQ portal call is for. Built per call, never kept on the client."""
+
+    token: str
+    institution_filter: tuple[str, ...]
+    guardian_login: str
+    child_user_ids: tuple[str, ...]
+    child_user_id: str = ""
 
 
 # Enough of an unreadable body to identify it, not enough to fill a log file.
@@ -298,14 +310,7 @@ class AulaWidgetsClient:
         resp.raise_for_status()
         return [MUWeeklyPerson.from_dict(p) for p in resp.json().get("personer", [])]
 
-    def easyiq_headers(
-        self,
-        token: str,
-        institution_filter: list[str],
-        guardian_login: str,
-        child_user_ids: list[str],
-        child_user_id: str = "",
-    ) -> dict[str, str]:
+    def easyiq_headers(self, context: _EasyIQContext) -> dict[str, str]:
         """Headers the EasyIQ portal expects from its embedded widgets.
 
         Mirrors the widget's own ``GetAulaHeaders`` (``/ts/Code/Util.js``).
@@ -316,13 +321,14 @@ class AulaWidgetsClient:
         200 with an empty list, which reads as "no children" rather than as
         a malformed request.
         """
+        child_user_ids = context.child_user_ids
         return {
-            "Authorization": token,
+            "Authorization": context.token,
             "Accept": "application/json",
-            "x-institutionfilter": ",".join(institution_filter),
+            "x-institutionfilter": ",".join(context.institution_filter),
             "x-userprofile": "guardian",
-            "x-login": guardian_login,
-            "x-child": child_user_id or (child_user_ids[0] if child_user_ids else ""),
+            "x-login": context.guardian_login,
+            "x-child": context.child_user_id or (child_user_ids[0] if child_user_ids else ""),
             "x-childfilter": ",".join(child_user_ids),
             "x-requested-with": "XMLHttpRequest",
             # EasyIQ only serves these controllers to callers that look like
@@ -365,15 +371,7 @@ class AulaWidgetsClient:
                 institution_filter, guardian_login, child_user_ids, widget_id
             )
 
-    async def authenticate_easyiq_session(
-        self,
-        institution_filter: list[str],
-        guardian_login: str,
-        child_user_ids: list[str],
-        child_user_id: str = "",
-        token: str | None = None,
-        widget_id: str = WIDGET_EASYIQ_HOMEWORK,
-    ) -> dict[str, Any]:
+    async def authenticate_easyiq_session(self, context: _EasyIQContext) -> dict[str, Any]:
         """``POST /Aula/AuthenticateAulaUser``, returning its body key-folded.
 
         The portal answers ``{loginId, loginTypeId, child, childName,
@@ -386,12 +384,10 @@ class AulaWidgetsClient:
         raising, since every caller can carry on without it. Transport
         failures do raise.
         """
-        token = token or await self._get_bearer_token(widget_id)
-        headers = self.easyiq_headers(
-            token, institution_filter, guardian_login, child_user_ids, child_user_id
-        )
         resp = await self._api_client._request_with_version_retry(
-            "post", f"{EASYIQ_PORTAL}{EASYIQ_AUTHENTICATE_PATH}", headers=headers
+            "post",
+            f"{EASYIQ_PORTAL}{EASYIQ_AUTHENTICATE_PATH}",
+            headers=self.easyiq_headers(context),
         )
         resp.raise_for_status()
         try:
@@ -411,12 +407,14 @@ class AulaWidgetsClient:
         widget_id: str,
     ) -> None:
         """Make the portal session and read its child IDs. Holds the lock."""
-        token = await self._get_bearer_token(widget_id)
-        headers = self.easyiq_headers(token, institution_filter, guardian_login, child_user_ids)
+        session = _EasyIQContext(
+            token=await self._get_bearer_token(widget_id),
+            institution_filter=tuple(institution_filter),
+            guardian_login=guardian_login,
+            child_user_ids=tuple(child_user_ids),
+        )
         try:
-            body = await self.authenticate_easyiq_session(
-                institution_filter, guardian_login, child_user_ids, token=token
-            )
+            body = await self.authenticate_easyiq_session(session)
         except Exception as e:
             _LOGGER.info("EasyIQ session bootstrap failed (%s); falling back to guessing", e)
             return
@@ -430,7 +428,9 @@ class AulaWidgetsClient:
 
         try:
             resp = await self._api_client._request_with_version_retry(
-                "get", f"{EASYIQ_PORTAL}{EASYIQ_CHILDREN_PATH}", headers=headers
+                "get",
+                f"{EASYIQ_PORTAL}{EASYIQ_CHILDREN_PATH}",
+                headers=self.easyiq_headers(session),
             )
             resp.raise_for_status()
             payload = resp.json()
@@ -508,15 +508,7 @@ class AulaWidgetsClient:
             ]
         )
 
-    async def switch_easyiq_child(
-        self,
-        child_easyiq_id: str,
-        institution_filter: list[str],
-        guardian_login: str,
-        child_user_ids: list[str],
-        child_user_id: str = "",
-        token: str | None = None,
-    ) -> None:
+    async def switch_easyiq_child(self, child_easyiq_id: str, context: _EasyIQContext) -> None:
         """``POST /Aula/SwitchChild``, the portal's own child-selection call.
 
         The real client always calls this before reading a child's data, and
@@ -532,29 +524,18 @@ class AulaWidgetsClient:
 
         ``child_easyiq_id`` must be the child's ``Id`` from ``GetChildren``
         (:meth:`resolve_easyiq_child_id`) -- not their ``Login`` string, and
-        not Aula's own user ID. Pass ``token`` to reuse a bearer token the
-        caller already holds rather than fetching a second one.
+        not Aula's own user ID.
         """
-        token = token or await self._get_bearer_token(WIDGET_EASYIQ_HOMEWORK)
-        headers = self.easyiq_headers(
-            token, institution_filter, guardian_login, child_user_ids, child_user_id
-        )
         resp = await self._api_client._request_with_version_retry(
             "post",
             f"{EASYIQ_PORTAL}{EASYIQ_SWITCHCHILD_PATH}",
             params={"loginId": child_easyiq_id},
-            headers=headers,
+            headers=self.easyiq_headers(context),
         )
         resp.raise_for_status()
 
     async def confirm_easyiq_session_child(
-        self,
-        expected_child_login: str,
-        institution_filter: list[str],
-        guardian_login: str,
-        child_user_ids: list[str],
-        child_user_id: str,
-        token: str | None = None,
+        self, expected_child_login: str, context: _EasyIQContext
     ) -> str:
         """Check the portal session really is on the child we asked for.
 
@@ -566,9 +547,7 @@ class AulaWidgetsClient:
         Silence is not treated as disagreement: institutions whose answer
         omits ``child`` leave us no worse off than before this check existed.
         """
-        body = await self.authenticate_easyiq_session(
-            institution_filter, guardian_login, child_user_ids, child_user_id, token
-        )
+        body = await self.authenticate_easyiq_session(context)
         actual = str(body.get("child") or "")
         if not actual:
             _LOGGER.info(
@@ -642,57 +621,43 @@ class AulaWidgetsClient:
                 "cannot safely read data for an account with multiple children"
             )
 
-        token = await self._get_bearer_token(widget_id)
+        context = _EasyIQContext(
+            token=await self._get_bearer_token(widget_id),
+            institution_filter=tuple(institution_filter),
+            guardian_login=guardian_login,
+            child_user_ids=tuple(all_child_user_ids),
+            child_user_id=child_user_id,
+        )
 
         async with self._easyiq_child_lock:
             if easyiq_child_id is not None:
-                await self.switch_easyiq_child(
-                    easyiq_child_id,
-                    institution_filter,
-                    guardian_login,
-                    all_child_user_ids,
-                    child_user_id,
-                    token=token,
-                )
+                await self.switch_easyiq_child(easyiq_child_id, context)
                 # SwitchChild answering 200 is not proof it moved the session.
                 # Confirm before reading, so a wrong child is an error rather
                 # than plausible-looking data.
                 await self.confirm_easyiq_session_child(
-                    self.resolve_easyiq_child_login(child_user_id) or "",
-                    institution_filter,
-                    guardian_login,
-                    all_child_user_ids,
-                    child_user_id,
-                    token,
+                    self.resolve_easyiq_child_login(child_user_id) or "", context
                 )
             return await self._read_easyiq_week(
+                context,
                 path=path,
                 extra_params=extra_params,
                 week=week,
-                institution_filter=institution_filter,
                 child_profile_id=child_profile_id,
-                child_user_id=child_user_id,
-                all_child_user_ids=all_child_user_ids,
-                guardian_login=guardian_login,
                 widget_id=widget_id,
                 easyiq_child_id=easyiq_child_id,
-                token=token,
             )
 
     async def _read_easyiq_week(
         self,
+        context: _EasyIQContext,
         *,
         path: str,
         extra_params: dict[str, str],
         week: str,
-        institution_filter: list[str],
         child_profile_id: str,
-        child_user_id: str,
-        all_child_user_ids: list[str],
-        guardian_login: str,
         widget_id: str,
         easyiq_child_id: str | None,
-        token: str,
     ) -> list[EasyIQCalendarEvent]:
         """Issue the week read itself, for the child the session is on.
 
@@ -703,9 +668,8 @@ class AulaWidgetsClient:
         the one that returns rows is remembered. A remembered pair that stops
         working costs one wasted request before the rest are tried again.
         """
-        base_headers = self.easyiq_headers(
-            token, institution_filter, guardian_login, all_child_user_ids, child_user_id
-        )
+        child_user_id = context.child_user_id
+        base_headers = self.easyiq_headers(context)
         params = {"date": monday_of_week(week), **extra_params}
 
         first_empty: list[EasyIQCalendarEvent] | None = None
@@ -715,7 +679,7 @@ class AulaWidgetsClient:
         for login_id, child_header in self.easyiq_identifier_variants(
             child_profile_id,
             child_user_id,
-            guardian_login,
+            context.guardian_login,
             easyiq_child_id,
         ):
             # x-childfilter stays the full list; only x-child varies per try.
