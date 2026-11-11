@@ -1,7 +1,13 @@
-"""Helpers for reading dates and times out of API responses."""
+"""Helpers for the dates and times Aula reads and writes."""
 
 import datetime
 from typing import Any
+from zoneinfo import ZoneInfo
+
+
+def aula_today() -> datetime.date:
+    """Today's date in Denmark, the date Aula's date-only fields are counted in."""
+    return datetime.datetime.now(ZoneInfo("Europe/Copenhagen")).date()
 
 
 def parse_api_datetime(value: Any) -> datetime.datetime | None:

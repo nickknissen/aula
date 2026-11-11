@@ -70,6 +70,7 @@ from .models import (
 )
 from .models.meeting_booking import MEETING_TYPES, meeting_bookings, replace_booked_meetings
 from .models.pagination import PaginationResult
+from .utils.dates import aula_today
 from .utils.diagnostics import credential_logger, redact_credentials
 from .utils.mapping import get_in
 from .utils.pagination import PaginationState
@@ -132,6 +133,37 @@ def _profile_ids(value: object) -> list[int]:
     if not isinstance(value, list):
         return []
     return [p for p in value if type(p) is int]
+
+
+VACATION_COMMENT_MAX_LENGTH = 250
+
+
+def validate_vacation(start_date: date, end_date: date, comment: str, *, today: date) -> None:
+    """Raise ValueError for an absence the guardian portal would not let you create.
+
+    These are the portal's own form rules; the limits the server enforces are untested.
+    """
+    if start_date < today:
+        raise ValueError(f"the absence cannot start in the past ({start_date} is before {today})")
+    if end_date < start_date:
+        raise ValueError(f"end date {end_date} is before start date {start_date}")
+    latest_end = _one_year_after(start_date)
+    if end_date > latest_end:
+        raise ValueError(
+            f"end date {end_date} is more than a year after start date {start_date} "
+            f"(latest {latest_end})"
+        )
+    if len(comment) > VACATION_COMMENT_MAX_LENGTH:
+        raise ValueError(
+            f"comment is {len(comment)} characters; Aula allows at most "
+            f"{VACATION_COMMENT_MAX_LENGTH}"
+        )
+
+
+def _one_year_after(day: date) -> date:
+    if (day.month, day.day) == (2, 29):
+        return date(day.year + 1, 2, 28)
+    return day.replace(year=day.year + 1)
 
 
 # Message types Aula's web client accepts as the target of a read marker.
@@ -750,8 +782,8 @@ class AulaApiClient:
         The institution sees the change immediately.
 
         Aula has no future-dated sick report; this always applies to today. For a
-        planned absence use :meth:`update_presence_template` or a vacation
-        registration instead.
+        planned absence use :meth:`add_vacation` or :meth:`update_presence_template`
+        instead.
 
         An institution can withhold this from guardians, in which case Aula
         rejects the call. :meth:`get_presence_configuration` reports that up
@@ -792,6 +824,54 @@ class AulaApiClient:
         # responses omit it, so absence is not treated as failure.
         data = resp.json().get("data")
         return data if isinstance(data, bool) else True
+
+    async def add_vacation(
+        self,
+        child_ids: list[int],
+        start_date: date,
+        end_date: date,
+        comment: str = "",
+    ) -> bool:
+        """Register a planned absence ("ferie/fri") for children, as a guardian.
+
+        The portal only offers this for children where
+        ``PresenceConfiguration.can_edit(PresenceModule.VACATION)`` holds and
+        ``Child.has_custody_or_extended_access`` is not False. This method checks
+        neither; that is left to the caller.
+
+        Args:
+            child_ids: Children's institution profile IDs, i.e. ``Child.id``.
+            start_date: First day of the absence, today or later in Denmark.
+            end_date: End of the absence, sent to Aula as given. The same day as
+                ``start_date`` for a single day, at most a calendar year later.
+            comment: Note to the institution, at most 250 characters.
+
+        Returns:
+            True once Aula has accepted the absence. Aula's reply carries no
+            documented ID for it.
+
+        Raises:
+            ValueError: If no child IDs are given or :func:`validate_vacation`
+                rejects the dates or comment. Nothing is sent then.
+        """
+        if not child_ids:
+            raise ValueError("add_vacation requires at least one child ID")
+        validate_vacation(start_date, end_date, comment, today=aula_today())
+
+        payload: dict[str, Any] = {
+            "childIds": child_ids,
+            "intervals": [
+                {"startDate": start_date.isoformat(), "endDate": end_date.isoformat()},
+            ],
+            "comment": comment,
+        }
+        resp = await self._request_with_version_retry(
+            "post",
+            f"{self.api_url}?method=calendar.addVacation",
+            json=payload,
+        )
+        resp.raise_for_status()
+        return True
 
     async def get_pickup_responsibles(
         self,

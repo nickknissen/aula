@@ -8,11 +8,12 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from aula.api_client import AulaApiClient, ThreadScanLimitError
+from aula.api_client import AulaApiClient, ThreadScanLimitError, validate_vacation
 from aula.const import API_URL, API_VERSION, CSRF_TOKEN_HEADER
 from aula.http import (
     AulaAuthenticationError,
     AulaConnectionError,
+    AulaRejectedError,
     AulaServerError,
     AulaSessionExpiredError,
     HttpRequestError,
@@ -3874,6 +3875,150 @@ class TestUpdatePresenceStatus:
             await mock_client.update_presence_status([], PresenceState.SICK)
 
         mock_client._request_with_version_retry.assert_not_awaited()
+
+
+class TestValidateVacation:
+    """The portal's own form rules, checked before an absence is sent."""
+
+    TODAY = date(2026, 11, 2)
+
+    def _validate(self, start, end, comment=""):
+        validate_vacation(start, end, comment, today=self.TODAY)
+
+    def test_same_day_absence_is_valid(self):
+        """A single day is the commonest absence, so start may equal end."""
+        self._validate(self.TODAY, self.TODAY)
+
+    def test_start_in_the_past_is_rejected(self):
+        """The portal does not let a guardian register an absence after the fact."""
+        with pytest.raises(ValueError, match="past"):
+            self._validate(date(2026, 11, 1), date(2026, 11, 3))
+
+    def test_reversed_dates_are_rejected(self):
+        """An end before the start is a typo, not an empty absence."""
+        with pytest.raises(ValueError, match="before start date"):
+            self._validate(date(2026, 11, 6), date(2026, 11, 5))
+
+    def test_end_exactly_one_calendar_year_after_start_is_valid(self):
+        """The portal's limit is inclusive of the same date next year."""
+        self._validate(date(2026, 11, 2), date(2027, 11, 2))
+
+    def test_end_past_one_calendar_year_is_rejected(self):
+        """One day past the portal's limit is refused before any write."""
+        with pytest.raises(ValueError, match="more than a year"):
+            self._validate(date(2026, 11, 2), date(2027, 11, 3))
+
+    def test_year_spanning_a_leap_day_allows_366_days(self):
+        """The limit is a calendar year, not a fixed 365 days."""
+        validate_vacation(date(2027, 3, 1), date(2028, 3, 1), "", today=date(2027, 3, 1))
+
+    def test_leap_day_start_ends_on_28_february_next_year(self):
+        """29 February has no anniversary, so the year ends on the 28th."""
+        today = date(2028, 2, 29)
+        validate_vacation(today, date(2029, 2, 28), "", today=today)
+        with pytest.raises(ValueError, match="latest 2029-02-28"):
+            validate_vacation(today, date(2029, 3, 1), "", today=today)
+
+    def test_comment_of_250_characters_is_valid(self):
+        """The portal caps the comment at exactly 250 characters."""
+        self._validate(self.TODAY, self.TODAY, "x" * 250)
+
+    def test_comment_of_251_characters_is_rejected(self):
+        """A longer comment would be cut or refused, so it is stopped here."""
+        with pytest.raises(ValueError, match="251 characters"):
+            self._validate(self.TODAY, self.TODAY, "x" * 251)
+
+
+class TestAddVacation:
+    """Tests for AulaApiClient.add_vacation, the planned-absence write."""
+
+    TODAY = date(2026, 11, 2)
+
+    @pytest.fixture(autouse=True)
+    def _fixed_today(self, monkeypatch):
+        monkeypatch.setattr("aula.api_client.aula_today", lambda: self.TODAY)
+
+    @staticmethod
+    def _client(*responses):
+        """A client whose transport answers with ``responses`` in turn."""
+        http = AsyncMock()
+        http.request.side_effect = list(responses)
+        http.get_cookie = MagicMock(return_value=None)
+        return AulaApiClient(http_client=http), http
+
+    @pytest.mark.asyncio
+    async def test_posts_the_portal_payload_to_add_vacation(self):
+        """The body must match what the guardian portal sends, key for key."""
+        client, http = self._client(HttpResponse(200, {"status": {"code": 0}, "data": None}))
+
+        result = await client.add_vacation(
+            [201, 202], date(2026, 11, 2), date(2026, 11, 6), "Familietur"
+        )
+
+        method, url = http.request.await_args.args
+        assert method == "post"
+        assert url == f"{API_URL}{API_VERSION}?method=calendar.addVacation"
+        assert http.request.await_args.kwargs["json"] == {
+            "childIds": [201, 202],
+            "intervals": [{"startDate": "2026-11-02", "endDate": "2026-11-06"}],
+            "comment": "Familietur",
+        }
+        assert result is True
+
+    @pytest.mark.asyncio
+    async def test_omitted_comment_is_sent_as_empty_string(self):
+        """The portal sends an empty string, not null or a missing key."""
+        client, http = self._client(HttpResponse(200, {"status": {"code": 0}}))
+
+        await client.add_vacation([201], self.TODAY, self.TODAY)
+
+        assert http.request.await_args.kwargs["json"]["comment"] == ""
+
+    @pytest.mark.asyncio
+    async def test_empty_child_ids_raise_before_the_request(self):
+        """An empty list would write nothing, so it is a caller error."""
+        client, http = self._client()
+
+        with pytest.raises(ValueError, match="at least one child ID"):
+            await client.add_vacation([], self.TODAY, self.TODAY)
+
+        http.request.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        ("start", "end", "comment"),
+        [
+            (date(2026, 11, 1), date(2026, 11, 2), ""),
+            (date(2026, 11, 6), date(2026, 11, 2), ""),
+            (date(2026, 11, 2), date(2027, 11, 3), ""),
+            (date(2026, 11, 2), date(2026, 11, 2), "x" * 251),
+        ],
+        ids=["past start", "reversed", "over a year", "long comment"],
+    )
+    async def test_invalid_absence_raises_before_the_request(self, start, end, comment):
+        """A library caller gets the same checks as the CLI, before anything is written."""
+        client, http = self._client()
+
+        with pytest.raises(ValueError):
+            await client.add_vacation([201], start, end, comment)
+
+        http.request.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    async def test_aula_rejection_raises(self):
+        """An error envelope on HTTP 200 must not read as a registered absence."""
+        client, _ = self._client(HttpResponse(200, {"status": {"code": 10, "subCode": 33}}))
+
+        with pytest.raises(AulaRejectedError, match="calendar.addVacation"):
+            await client.add_vacation([201], self.TODAY, self.TODAY)
+
+    @pytest.mark.asyncio
+    async def test_http_failure_raises(self):
+        """A server error must not read as a registered absence."""
+        client, _ = self._client(HttpResponse(500, {"status": {"code": 0}}))
+
+        with pytest.raises(AulaServerError):
+            await client.add_vacation([201], self.TODAY, self.TODAY)
 
 
 class TestMarkThreadRead:

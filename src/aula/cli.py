@@ -16,7 +16,7 @@ import click
 import qrcode
 
 from . import __version__
-from .api_client import AulaApiClient
+from .api_client import VACATION_COMMENT_MAX_LENGTH, AulaApiClient, validate_vacation
 from .auth_flow import authenticate_and_create_client
 from .config import CONFIG_FILE, DEFAULT_TOKEN_FILE, load_config, save_config
 from .const import (
@@ -44,6 +44,7 @@ from .models import (
     Profile,
 )
 from .token_storage import FileTokenStorage
+from .utils.dates import aula_today
 from .utils.json import to_json
 from .utils.mapping import get_in
 from .utils.output import (
@@ -3891,8 +3892,8 @@ async def report_sick(ctx, child_ids, undo, present, yes):
     """Report a child sick for today, or take the report back.
 
     Writes to Aula and notifies the institution. Applies to today only; Aula has
-    no future-dated sick report, so use `update-presence` or a vacation
-    registration for a planned absence.
+    no future-dated sick report, so use `register-absence` or `update-presence`
+    for a planned absence.
 
     An institution can withhold this from guardians. When it has, the child is
     skipped with a note rather than sent to a call Aula would reject.
@@ -4022,6 +4023,179 @@ async def report_sick(ctx, child_ids, undo, present, yes):
             click.echo(f"  ✓ {c.name}")
         click.echo()
         click.echo(f"Set {len(targets)} child(ren) to {new_status.display_name}.")
+
+
+async def _vacation_denials(client: AulaApiClient, children: list[Child]) -> dict[int, str]:
+    """Map each child Aula is known to refuse an absence for to the reason.
+
+    A child Aula has not said either way about is left out, so Aula decides.
+    """
+    _log = logging.getLogger(__name__)
+    denials = {
+        c.id: "you have no custody of or extended access to this child; "
+        "a guardian with custody must register it"
+        for c in children
+        if c.has_custody_or_extended_access is False
+    }
+    candidates = [c for c in children if c.id not in denials]
+    if not candidates:
+        return denials
+
+    try:
+        configs = await client.get_presence_configuration([c.id for c in candidates])
+    except Exception as e:
+        _log.warning("Could not fetch presence configuration, leaving it to Aula: %s", e)
+        return denials
+
+    by_child = {c.child_id: c for c in configs if c.child_id is not None}
+    for child in candidates:
+        config = by_child.get(child.id)
+        if config is None:
+            _log.warning("No presence configuration for child %s, leaving it to Aula", child.id)
+        elif not config.can_edit(PresenceModule.VACATION):
+            denials[child.id] = (
+                "absence registration is read-only for guardians; contact the institution"
+                if config.permission(PresenceModule.VACATION) is PresenceModulePermission.READABLE
+                else "the institution has not enabled absence registration for guardians; "
+                "contact the institution"
+            )
+    return denials
+
+
+@cli.command("register-absence")
+@click.option(
+    "--child",
+    "child_ids",
+    type=int,
+    multiple=True,
+    help="Child institution profile ID; repeat for several. Omit to register all children.",
+)
+@click.option(
+    "--from",
+    "start_date",
+    type=click.DateTime(formats=["%Y-%m-%d"]),
+    required=True,
+    help="First day of the absence (YYYY-MM-DD), today or later.",
+)
+@click.option(
+    "--to",
+    "end_date",
+    type=click.DateTime(formats=["%Y-%m-%d"]),
+    required=True,
+    help="End date (YYYY-MM-DD), at most a year after --from. Use the --from date for one day.",
+)
+@click.option(
+    "--comment",
+    default="",
+    help=f"Note to the institution, at most {VACATION_COMMENT_MAX_LENGTH} characters.",
+)
+@click.option(
+    "--yes",
+    "-y",
+    is_flag=True,
+    default=False,
+    help="Skip confirmation prompt.",
+)
+@click.pass_context
+@async_cmd
+async def register_absence(ctx, child_ids, start_date, end_date, comment, yes):
+    """Register a planned absence (ferie/fri) for children.
+
+    Writes to Aula. For illness today use `report-sick` instead; `vacations`
+    lists the institution's vacation requests, which are a separate thing.
+
+    A child is skipped with the reason when Aula says you may not register an
+    absence for them. When Aula does not say, because the presence configuration
+    cannot be read or has no entry for the child, the absence is sent and Aula
+    decides; run with -v to see when that happens.
+
+    Exits non-zero when nothing was registered, unless you cancelled.
+
+    Examples:
+
+      aula register-absence --from 2026-12-21 --to 2026-12-23
+
+      aula register-absence --child 123456 --from 2026-11-16 --to 2026-11-16 -y
+
+      aula register-absence --from 2026-11-16 --to 2026-11-20 --comment Ferie
+    """
+    is_json = bool(ctx.obj) and ctx.obj.get("OUTPUT_FORMAT") == "json"
+    if is_json and not yes:
+        print_error("--output json requires --yes, since this command writes to Aula", err=True)
+        ctx.exit(1)
+
+    start, end = start_date.date(), end_date.date()
+    try:
+        validate_vacation(start, end, comment, today=aula_today())
+    except ValueError as e:
+        print_error(str(e), err=is_json)
+        ctx.exit(1)
+
+    async with await _get_client(ctx) as client:
+        try:
+            prof: Profile = await client.get_profile()
+        except Exception as e:
+            print_error(f"fetching profile: {e}", err=is_json)
+            ctx.exit(1)
+
+        children = prof.children
+        if child_ids:
+            unknown = sorted(set(child_ids) - {c.id for c in children})
+            if unknown:
+                print_error(f"no children found with IDs: {unknown}", err=is_json)
+                ctx.exit(1)
+            children = [c for c in children if c.id in child_ids]
+        if not children:
+            print_error("no children on this profile to register an absence for", err=is_json)
+            ctx.exit(1)
+
+        denials = await _vacation_denials(client, children)
+        targets = [c for c in children if c.id not in denials]
+        result = {
+            "start_date": start.isoformat(),
+            "end_date": end.isoformat(),
+            "comment": comment,
+            "registered": [{"id": c.id, "name": c.name} for c in targets],
+            "skipped": [
+                {"id": c.id, "name": c.name, "reason": denials[c.id]}
+                for c in children
+                if c.id in denials
+            ],
+        }
+
+        if not is_json:
+            print_heading("Register absence")
+            click.echo()
+            click.echo(f"  From:     {start.isoformat()}")
+            click.echo(f"  To:       {end.isoformat()}")
+            click.echo(f"  Comment:  {comment or '(none)'}")
+            click.echo()
+            for c in children:
+                note = f"skipped: {denials[c.id]}" if c.id in denials else ""
+                click.echo(f"  {c.name:<30s}  {note}".rstrip())
+            click.echo()
+
+        if not targets:
+            if not output_json(ctx, result):
+                print_empty("children this can be applied to")
+            ctx.exit(1)
+
+        if not yes and not click.confirm("Register this absence in Aula now?"):
+            click.echo("Cancelled.")
+            return
+
+        try:
+            await client.add_vacation([c.id for c in targets], start, end, comment)
+        except Exception as e:
+            print_error(f"registering absence: {e}", err=is_json)
+            ctx.exit(1)
+
+    if output_json(ctx, result):
+        return
+    for c in targets:
+        click.echo(f"  ✓ {c.name}")
+    click.echo()
+    click.echo(f"Registered an absence from {start} to {end} for {len(targets)} child(ren).")
 
 
 @cli.command("presence-templates")

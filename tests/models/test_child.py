@@ -94,3 +94,24 @@ def test_child_from_dict_numeric_identifiers_become_strings():
     child = Child.from_dict(data)
     assert child.user_id == "123456"
     assert child.institution_code == "999999"
+
+
+def test_custody_flag_is_read_from_aula():
+    """The portal only lets a guardian with custody or extended access register an absence."""
+    data = {"id": 7, "profileId": 700, "name": "Barn Et"}
+    assert Child.from_dict(
+        {**data, "hasCustodyOrExtendedAccess": True}
+    ).has_custody_or_extended_access
+    assert (
+        Child.from_dict(
+            {**data, "hasCustodyOrExtendedAccess": False}
+        ).has_custody_or_extended_access
+        is False
+    )
+
+
+def test_missing_custody_flag_is_unknown_rather_than_denied():
+    """A profile without the field must not read as a guardian without custody."""
+    child = Child.from_dict({"id": 8, "profileId": 800, "name": "Barn To"})
+    assert child.has_custody_or_extended_access is None
+    assert Child(1, 2, "Barn To", "", "").has_custody_or_extended_access is None
