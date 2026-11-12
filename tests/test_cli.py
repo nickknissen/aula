@@ -254,9 +254,9 @@ class TestWithChild:
 
     def _child(self):
         return Child(
-            id=4727534,
-            profile_id=2044021,
-            name="Astrid",
+            id=1000001,
+            profile_id=2000001,
+            name="Barn Et",
             institution_name="Skole",
             profile_picture="",
         )
@@ -264,8 +264,8 @@ class TestWithChild:
     def test_tags_a_row_with_the_child_it_was_fetched_for(self):
         row = dict(EasyIQHomework(id="hw-1", title="Dansk", subject="Dansk"))
         tagged = _with_child(row, self._child())
-        assert tagged["child_id"] == 4727534
-        assert tagged["child_name"] == "Astrid"
+        assert tagged["child_id"] == 1000001
+        assert tagged["child_name"] == "Barn Et"
 
     def test_keeps_the_row_intact(self):
         row = dict(EasyIQHomework(id="hw-1", title="Dansk", subject="Dansk", activities="7-9F"))

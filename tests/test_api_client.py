@@ -1901,12 +1901,12 @@ class TestGetNotificationsForActiveProfile:
 
         await client.get_notifications_for_active_profile(
             children_ids=[111, 222],
-            institution_codes=["G19736", "603004"],
+            institution_codes=["G19736", "900001"],
         )
 
         _, kwargs = client._request_with_version_retry.call_args
         assert kwargs["params"]["activeChildrenIds[]"] == [111, 222]
-        assert kwargs["params"]["activeInstitutionCodes[]"] == ["G19736", "603004"]
+        assert kwargs["params"]["activeInstitutionCodes[]"] == ["G19736", "900001"]
 
     @pytest.mark.asyncio
     async def test_module_filter_is_forwarded(self, client):
@@ -2769,7 +2769,7 @@ class TestGetGroups:
                 data={
                     "data": [
                         {
-                            "profileId": 2043929,
+                            "profileId": 2000002,
                             "displayName": "Parent Name",
                             "groups": [
                                 {

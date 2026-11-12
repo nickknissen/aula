@@ -35,7 +35,7 @@ class TestNotificationFromDict:
             "notificationEventType": "PostSharedWithMe",
             "notificationArea": "Posts",
             "notificationType": "Badge",
-            "institutionCode": "603004",
+            "institutionCode": "900001",
             "triggered": "2026-01-19T10:14:29+00:00",
         }
 
