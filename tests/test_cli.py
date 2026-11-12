@@ -484,6 +484,197 @@ class TestLogout:
         assert config_file.exists()
 
 
+class FakeMitID:
+    """Stands in for ``aula.auth_flow.authenticate``, the MitID boundary."""
+
+    def __init__(self, identities: list[str] | None = None):
+        self.identities = identities or ["Parent"]
+        self.logins = 0
+        self.chosen_index: int | None = None
+
+    async def __call__(
+        self,
+        username,
+        token_storage,
+        on_qr_codes=None,
+        on_login_required=None,
+        *_args,
+        force_login=False,
+        on_identity_selected=None,
+        **_kwargs,
+    ):
+        saved = None if force_login else await token_storage.load()
+        if saved:
+            return saved
+        self.logins += 1
+        if on_login_required:
+            on_login_required()
+        if len(self.identities) > 1:
+            assert on_identity_selected is not None
+            self.chosen_index = await on_identity_selected(self.identities)
+        token_data = {"tokens": {"access_token": "fresh"}, "cookies": {}}
+        await token_storage.save(token_data)
+        return token_data
+
+
+class FakeAulaClient:
+    api_url = "https://www.aula.dk/api/v25"
+
+    async def __aenter__(self):
+        return self
+
+    async def __aexit__(self, *exc_info):
+        return None
+
+
+class TestLoginDrivenByAnotherProgram:
+    """A program that leaves MitID to `aula login` picks the file, identity and timing."""
+
+    @pytest.fixture
+    def default_token_file(self, tmp_path, monkeypatch):
+        path = tmp_path / "default" / "tokens.json"
+        monkeypatch.setattr(cli, "DEFAULT_TOKEN_FILE", path)
+        return path
+
+    @pytest.fixture
+    def run(self, monkeypatch, default_token_file):
+        def run(*args, mitid: FakeMitID | None = None, env: dict[str, str] | None = None):
+            monkeypatch.setattr("aula.auth_flow.authenticate", mitid or FakeMitID())
+            monkeypatch.setattr(
+                "aula.auth_flow.create_client", AsyncMock(return_value=FakeAulaClient())
+            )
+            clean_env = {"AULA_TOKEN_FILE": None, "AULA_MITID_IDENTITY": None, "AULA_OUTPUT": None}
+            # The cli group reconfigures logging for the whole process, which
+            # would silence the log assertions of tests that run after this one.
+            root = logging.getLogger()
+            level, handlers = root.level, root.handlers[:]
+            try:
+                return CliRunner().invoke(
+                    cli.cli, ["--username", "tester", *args], env={**clean_env, **(env or {})}
+                )
+            finally:
+                root.setLevel(level)
+                root.handlers[:] = handlers
+
+        return run
+
+    def test_login_writes_only_the_given_token_file(self, run, tmp_path, default_token_file):
+        token_file = tmp_path / "t.json"
+
+        result = run("--token-file", str(token_file), "login")
+
+        assert result.exit_code == 0, result.output
+        assert token_file.exists()
+        assert not default_token_file.exists()
+
+    def test_logout_removes_the_given_token_file(self, run, tmp_path, default_token_file):
+        token_file = tmp_path / "t.json"
+        token_file.write_text('{"tokens": {"access_token": "abc123"}}')
+        default_token_file.parent.mkdir()
+        default_token_file.write_text('{"tokens": {"access_token": "other"}}')
+
+        result = run("--token-file", str(token_file), "logout")
+
+        assert result.exit_code == 0, result.output
+        assert not token_file.exists()
+        assert default_token_file.exists()
+        assert str(token_file) in result.output
+
+    def test_identity_is_picked_without_a_prompt(self, run, monkeypatch):
+        monkeypatch.setattr(click, "prompt", MagicMock(side_effect=AssertionError("prompted")))
+        mitid = FakeMitID(identities=["Parent (Privat)", "Parent (Firma ApS)"])
+
+        result = run("--identity", "2", "login", mitid=mitid)
+
+        assert result.exit_code == 0, result.output
+        assert mitid.chosen_index == 1
+
+    def test_identity_beyond_the_last_one_is_an_error(self, run, tmp_path):
+        """Falling back to another identity would log in as the wrong person or company."""
+        token_file = tmp_path / "t.json"
+        mitid = FakeMitID(identities=["Parent (Privat)", "Parent (Firma ApS)"])
+
+        result = run("--token-file", str(token_file), "--identity", "5", "login", mitid=mitid)
+
+        assert result.exit_code == 2, result.output
+        assert "Invalid value for '--identity'" in result.output
+        assert "2 MitID identities" in result.output
+        assert not token_file.exists()
+
+    def test_force_logs_in_through_mitid_despite_a_saved_session(self, run, tmp_path):
+        token_file = tmp_path / "t.json"
+        token_file.write_text('{"tokens": {"access_token": "saved"}, "cookies": {}}')
+        mitid = FakeMitID()
+
+        result = run("--token-file", str(token_file), "login", "--force", mitid=mitid)
+
+        assert result.exit_code == 0, result.output
+        assert mitid.logins == 1
+        assert json.loads(token_file.read_text())["tokens"]["access_token"] == "fresh"
+
+    @staticmethod
+    def _login_json(result) -> dict:
+        # The MitID login notice shares stdout, so the JSON is the last line.
+        return json.loads(result.stdout.splitlines()[-1])
+
+    def test_json_output_names_the_chosen_identity(self, run):
+        mitid = FakeMitID(identities=["Parent (Privat)", "Parent (Firma ApS)"])
+
+        result = run("--output", "json", "--identity", "2", "login", mitid=mitid)
+
+        assert result.exit_code == 0, result.output
+        assert self._login_json(result) == {
+            "status": "ok",
+            "api_url": "https://www.aula.dk/api/v25",
+            "identity": 2,
+        }
+
+    def test_json_output_leaves_identity_out_when_there_was_no_choice(self, run):
+        result = run("--output", "json", "login")
+
+        assert result.exit_code == 0, result.output
+        assert "identity" not in self._login_json(result)
+
+    def test_identity_beyond_a_single_identity_logs_in_with_a_warning(self, run):
+        """MitID shows no choice for one identity, so the request could not be honoured."""
+        result = run("--output", "json", "--identity", "2", "login")
+
+        assert result.exit_code == 0, result.output
+        assert "--identity 2" in result.stderr
+        assert "identity" not in self._login_json(result)
+
+    def test_identity_is_not_warned_about_when_a_saved_session_is_reused(self, run, tmp_path):
+        token_file = tmp_path / "t.json"
+        token_file.write_text('{"tokens": {"access_token": "saved"}, "cookies": {}}')
+
+        result = run("--token-file", str(token_file), "--identity", "2", "login")
+
+        assert result.exit_code == 0, result.output
+        assert result.stderr == ""
+
+    def test_text_output_names_the_chosen_identity(self, run):
+        mitid = FakeMitID(identities=["Parent (Privat)", "Parent (Firma ApS)"])
+
+        result = run("--identity", "2", "login", mitid=mitid)
+
+        assert result.exit_code == 0, result.output
+        assert "MitID identity 2" in result.output
+
+    def test_environment_variables_stand_in_for_the_flags(self, run, tmp_path):
+        token_file = tmp_path / "t.json"
+        mitid = FakeMitID(identities=["Parent (Privat)", "Parent (Firma ApS)"])
+
+        result = run(
+            "login",
+            mitid=mitid,
+            env={"AULA_TOKEN_FILE": str(token_file), "AULA_MITID_IDENTITY": "2"},
+        )
+
+        assert result.exit_code == 0, result.output
+        assert token_file.exists()
+        assert mitid.chosen_index == 1
+
+
 class TestVersionFlag:
     def test_reports_the_version_and_the_python_it_runs_on(self):
         """Bug reports are read from a traceback, and both numbers are needed."""

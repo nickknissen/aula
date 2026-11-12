@@ -153,6 +153,15 @@ If your app asks for a code to type instead of a scan, that code is printed inst
 
 Tokens are saved to the storage file and reused on subsequent runs — no authenticator interaction needed until they expire. `aula logout` removes them and forces a fresh MitID login; the saved MitID username is kept.
 
+Another program can run `aula login` and then use the saved session:
+
+```bash
+aula --token-file ./tokens.json --identity 2 --output json login --force
+# {"status": "ok", "api_url": "...", "identity": 2}
+```
+
+`--token-file` (or `AULA_TOKEN_FILE`) sets where the session is saved, for every command including `logout`. `--identity` (or `AULA_MITID_IDENTITY`) picks one of several MitID identities without asking, 1 being the first. A number beyond the last identity is an error. If MitID offers only one identity, the login goes ahead with a warning. `login --force` logs in through MitID even when the saved session still works. A saved session is reused as it is, so add `--force` to switch identity. The JSON output names the identity only when there was one to choose.
+
 For the kodeviser method you can skip the prompts:
 
 ```bash
@@ -213,7 +222,7 @@ The username can also be set via the `AULA_MITID_USERNAME` environment variable 
 
 | Command | Description |
 |---|---|
-| `aula login` | Verify credentials |
+| `aula login` | Verify credentials (`--force` to log in through MitID again) |
 | `aula logout` | Forget the cached session and log in through MitID again |
 | `aula profile` | Show profile and children |
 | `aula profile-details` | Extended profile info (email, phone, address) |
@@ -360,6 +369,8 @@ downloaded beside them because its identity cannot be established from its name.
 | `--auth-method app\|token` | MitID auth method (or `AULA_AUTH_METHOD` env var) |
 | `--password` | MitID password for `--auth-method token` (or `AULA_MITID_PASSWORD` env var) |
 | `--token-code` | 6 digits from your MitID kodeviser (or `AULA_MITID_TOKEN_CODE` env var) |
+| `--token-file` | Where the session is saved (or `AULA_TOKEN_FILE` env var), default `~/.config/aula/tokens.json` |
+| `--identity` | Which MitID identity to use when there are several, 1 being the first (or `AULA_MITID_IDENTITY` env var) |
 | `-v` / `-vv` / `-vvv` | Increase verbosity (warning / info / debug) |
 | `--version` | Print the installed version and the Python it runs on |
 

@@ -189,6 +189,9 @@ async def authenticate(
 
         force_login: When ``True``, bypass cached credentials and perform a
             fresh MitID login to restore a valid session cookie jar.
+
+    Errors raised by the callbacks reach the caller unchanged.
+
     Returns:
         Credential dict suitable for passing to :func:`create_client`.
         Contains ``tokens`` (with ``access_token`` used during init to
@@ -281,6 +284,7 @@ async def authenticate_and_create_client(
     on_password: Callable[[], Awaitable[str]] | None = None,
     on_otp_code: Callable[[str], None] | None = None,
     on_qr_done: Callable[[], None] | None = None,
+    force_login: bool = False,
 ) -> AulaApiClient:
     """Authenticate via MitID (or cached tokens) and return a ready-to-use client.
 
@@ -295,6 +299,8 @@ async def authenticate_and_create_client(
         on_login_required: Callback invoked when fresh login is needed.
         httpx_client: Optional ``httpx.AsyncClient`` for the auth flow.
         on_identity_selected: Callback for choosing between multiple identities.
+        force_login: When ``True``, log in through MitID even if the cached
+            session still works.
     """
     token_data = await authenticate(
         mitid_username,
@@ -302,6 +308,7 @@ async def authenticate_and_create_client(
         on_qr_codes,
         on_login_required,
         httpx_client,
+        force_login=force_login,
         on_identity_selected=on_identity_selected,
         auth_method=auth_method,
         on_token_digits=on_token_digits,

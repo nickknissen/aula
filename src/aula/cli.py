@@ -9,6 +9,7 @@ import platform
 import sys
 from collections import defaultdict
 from collections.abc import Awaitable, Callable, Iterable, Sequence
+from pathlib import Path
 from zoneinfo import ZoneInfo
 
 import click
@@ -167,6 +168,19 @@ def get_mitid_username(ctx: click.Context) -> str:
     envvar="AULA_OUTPUT",
     help="Output format: 'text' (human-readable) or 'json' (machine-readable).",
 )
+@click.option(
+    "--token-file",
+    type=click.Path(dir_okay=False, path_type=Path),
+    envvar="AULA_TOKEN_FILE",
+    help=f"Where the session is saved (or AULA_TOKEN_FILE env var). Default: {DEFAULT_TOKEN_FILE}",
+)
+@click.option(
+    "--identity",
+    type=click.IntRange(min=1),
+    envvar="AULA_MITID_IDENTITY",
+    help="Which MitID identity to log in as when there are several, 1 being the first "
+    "(or AULA_MITID_IDENTITY env var). Asked for when omitted.",
+)
 @click.pass_context
 def cli(
     ctx,
@@ -176,6 +190,8 @@ def cli(
     password: str | None,
     token_code: str | None,
     output_format: str,
+    token_file: Path | None,
+    identity: int | None,
 ):
     """CLI for interacting with Aula API"""
     # Configure logging based on verbosity
@@ -206,6 +222,8 @@ def cli(
     ctx.obj["OUTPUT_FORMAT"] = output_format
     ctx.obj["MITID_PASSWORD"] = password
     ctx.obj["MITID_TOKEN_CODE"] = token_code
+    ctx.obj["TOKEN_FILE"] = token_file
+    ctx.obj["MITID_IDENTITY"] = identity
 
     if username:
         ctx.obj["MITID_USERNAME"] = username
@@ -234,13 +252,43 @@ def _on_login_required():
     click.echo("Session expired or not found. Please open your MitID app to approve the login.")
 
 
-async def _select_identity(identities: list[str]) -> int:
-    """Prompt the user to choose between multiple MitID identities."""
+async def _prompt_for_identity(identities: list[str]) -> int:
+    """Ask which of several MitID identities to log in as, 1 being the first."""
     click.echo("\nMultiple identities found. Please select one:")
     for i, identity in enumerate(identities, 1):
         click.echo(f"  {i}. {identity}")
-    choice = click.prompt("Select identity", type=click.IntRange(1, len(identities)), default=1)
-    return choice - 1
+    return click.prompt("Select identity", type=click.IntRange(1, len(identities)), default=1)
+
+
+class _MitIDLogin:
+    """The CLI's side of one login: answers MitID's questions and notes what happened."""
+
+    def __init__(self, requested_identity: int | None) -> None:
+        self.requested_identity = requested_identity
+        self.identity: int | None = None
+        self.ran = False
+
+    def started(self) -> None:
+        self.ran = True
+        _on_login_required()
+
+    async def choose_identity(self, identities: list[str]) -> int:
+        number = self.requested_identity or await _prompt_for_identity(identities)
+        if number > len(identities):
+            raise click.BadParameter(
+                f"{number} is out of range, there are {len(identities)} MitID identities.",
+                param_hint="'--identity'",
+            )
+        self.identity = number
+        return number - 1
+
+    def warn_if_identity_went_unused(self) -> None:
+        if self.ran and self.identity is None and (self.requested_identity or 1) > 1:
+            click.echo(
+                f"Warning: --identity {self.requested_identity} was ignored, "
+                "because MitID offered only one identity.",
+                err=True,
+            )
 
 
 def _print_otp_code(code: str) -> None:
@@ -274,26 +322,42 @@ def _password_provider(ctx: click.Context) -> Callable[[], Awaitable[str]]:
     return provide
 
 
-async def _get_client(ctx: click.Context) -> AulaApiClient:
-    """Create an authenticated AulaApiClient."""
+def _token_file(ctx: click.Context) -> Path:
+    return ctx.obj.get("TOKEN_FILE") or DEFAULT_TOKEN_FILE
+
+
+async def _log_in(
+    ctx: click.Context, *, force_login: bool = False
+) -> tuple[AulaApiClient, int | None]:
+    """Log in, returning the client and the MitID identity chosen, if MitID asked."""
     username = get_mitid_username(ctx)
-    token_storage = FileTokenStorage(DEFAULT_TOKEN_FILE)
+    token_storage = FileTokenStorage(_token_file(ctx))
+    mitid = _MitIDLogin(ctx.obj.get("MITID_IDENTITY"))
     qr_display = TerminalQRDisplay()
     try:
-        return await authenticate_and_create_client(
+        client = await authenticate_and_create_client(
             username,
             token_storage,
             on_qr_codes=qr_display.show,
             on_qr_done=qr_display.done,
             on_otp_code=_print_otp_code,
-            on_login_required=_on_login_required,
-            on_identity_selected=_select_identity,
+            on_login_required=mitid.started,
+            on_identity_selected=mitid.choose_identity,
             auth_method=ctx.obj.get("AUTH_METHOD", "app"),
             on_token_digits=_token_digits_provider(ctx),
             on_password=_password_provider(ctx),
+            force_login=force_login,
         )
     finally:
         qr_display.stop()
+    mitid.warn_if_identity_went_unused()
+    return client, mitid.identity
+
+
+async def _get_client(ctx: click.Context) -> AulaApiClient:
+    """Create an authenticated AulaApiClient."""
+    client, _ = await _log_in(ctx)
+    return client
 
 
 async def _fetch_groups(client: AulaApiClient) -> list[Group] | None:
@@ -545,24 +609,31 @@ _TerminalQRDisplay = TerminalQRDisplay
 @async_cmd
 async def logout(ctx):
     """Forget the cached session, so the next command logs in through MitID again"""
-    removed = await FileTokenStorage(DEFAULT_TOKEN_FILE).clear()
-    if output_json(ctx, {"status": "ok", "removed": removed, "path": str(DEFAULT_TOKEN_FILE)}):
+    token_file = _token_file(ctx)
+    removed = await FileTokenStorage(token_file).clear()
+    if output_json(ctx, {"status": "ok", "removed": removed, "path": str(token_file)}):
         return
     if removed:
-        click.echo(f"Logged out. Removed {DEFAULT_TOKEN_FILE}")
+        click.echo(f"Logged out. Removed {token_file}")
     else:
-        click.echo(f"No stored session at {DEFAULT_TOKEN_FILE}")
+        click.echo(f"No stored session at {token_file}")
 
 
 @cli.command()
+@click.option("--force", is_flag=True, help="Log in through MitID even if the saved session works.")
 @click.pass_context
 @async_cmd
-async def login(ctx):
+async def login(ctx, force: bool):
     """Authenticate and initialize session"""
-    async with await _get_client(ctx) as client:
-        if output_json(ctx, {"status": "ok", "api_url": client.api_url}):
+    client, identity = await _log_in(ctx, force_login=force)
+    async with client:
+        result: dict[str, str | int] = {"status": "ok", "api_url": client.api_url}
+        if identity:
+            result["identity"] = identity
+        if output_json(ctx, result):
             return
-        click.echo(f"Logged in. API URL: {client.api_url}")
+        as_identity = f" as MitID identity {identity}" if identity else ""
+        click.echo(f"Logged in{as_identity}. API URL: {client.api_url}")
 
 
 @cli.command()
