@@ -189,6 +189,9 @@ async def authenticate(
 
         force_login: When ``True``, bypass cached credentials and perform a
             fresh MitID login to restore a valid session cookie jar.
+
+    Errors raised by the callbacks reach the caller unchanged.
+
     Returns:
         Credential dict suitable for passing to :func:`create_client`.
         Contains ``tokens`` (with ``access_token`` used during init to

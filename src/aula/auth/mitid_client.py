@@ -167,13 +167,14 @@ class MitIDAuthClient:
         self._client = httpx_client or httpx.AsyncClient(follow_redirects=False, timeout=timeout)
         self._mitid_username = mitid_username
         self._timeout = timeout
-        self._on_qr_codes = on_qr_codes
-        self._on_qr_done = on_qr_done
-        self._on_identity_selected = on_identity_selected
+        self._callback_error: Exception | None = None
+        self._on_qr_codes = self._pass_errors_through(on_qr_codes)
+        self._on_qr_done = self._pass_errors_through(on_qr_done)
+        self._on_identity_selected = self._pass_async_errors_through(on_identity_selected)
         self._auth_method = auth_method
-        self._on_token_digits = on_token_digits
-        self._on_password = on_password
-        self._on_otp_code = on_otp_code
+        self._on_token_digits = self._pass_async_errors_through(on_token_digits)
+        self._on_password = self._pass_async_errors_through(on_password)
+        self._on_otp_code = self._pass_errors_through(on_otp_code)
 
         # The real Android app just sends User-Agent: Android — the server
         # doesn't validate browser-style headers (sec-ch-ua, etc.).
@@ -185,6 +186,38 @@ class MitIDAuthClient:
         self._state: str | None = None
         self._tokens: dict[str, Any] | None = None
         self._mitid_client: BrowserClient | None = None
+
+    def _pass_errors_through[**P, R](
+        self, callback: Callable[P, R] | None
+    ) -> Callable[P, R] | None:
+        """Mark what the caller's callback raises, so authenticate() does not wrap it."""
+        if callback is None:
+            return None
+
+        def call(*args: P.args, **kwargs: P.kwargs) -> R:
+            try:
+                return callback(*args, **kwargs)
+            except Exception as e:
+                self._callback_error = e
+                raise
+
+        return call
+
+    def _pass_async_errors_through[**P, R](
+        self, callback: Callable[P, Awaitable[R]] | None
+    ) -> Callable[P, Awaitable[R]] | None:
+        """The same, for a callback that is awaited."""
+        if callback is None:
+            return None
+
+        async def call(*args: P.args, **kwargs: P.kwargs) -> R:
+            try:
+                return await callback(*args, **kwargs)
+            except Exception as e:
+                self._callback_error = e
+                raise
+
+        return call
 
     async def __aenter__(self) -> Self:
         return self
@@ -222,6 +255,8 @@ class MitIDAuthClient:
         except MitIDAuthError:
             raise
         except Exception as e:
+            if e is self._callback_error:
+                raise
             raise MitIDAuthError(f"Authentication failed: {e}") from e
 
     @property
