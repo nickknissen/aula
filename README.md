@@ -160,7 +160,7 @@ aula --token-file ./tokens.json --identity 2 --output json login --force
 # {"status": "ok", "api_url": "...", "identity": 2}
 ```
 
-`--token-file` (or `AULA_TOKEN_FILE`) sets where the session is saved, for every command including `logout`. `--identity` (or `AULA_MITID_IDENTITY`) picks one of several MitID identities without asking, 1 being the first. A number beyond the last identity is an error. `login --force` logs in through MitID even when the saved session still works. A saved session is reused as it is, so add `--force` to switch identity. The JSON output names the identity only when there was one to choose.
+`--token-file` (or `AULA_TOKEN_FILE`) sets where the session is saved, for every command including `logout`. `--identity` (or `AULA_MITID_IDENTITY`) picks one of several MitID identities without asking, 1 being the first. A number beyond the last identity is an error. If MitID offers only one identity, the login goes ahead with a warning. `login --force` logs in through MitID even when the saved session still works. A saved session is reused as it is, so add `--force` to switch identity. The JSON output names the identity only when there was one to choose.
 
 For the kodeviser method you can skip the prompts:
 

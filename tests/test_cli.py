@@ -485,11 +485,7 @@ class TestLogout:
 
 
 class FakeMitID:
-    """Stands in for ``aula.auth_flow.authenticate``, the MitID boundary.
-
-    The real flow hides what the identity callback raises behind its own
-    errors, so this one wraps it too.
-    """
+    """Stands in for ``aula.auth_flow.authenticate``, the MitID boundary."""
 
     def __init__(self, identities: list[str] | None = None):
         self.identities = identities or ["Parent"]
@@ -500,6 +496,8 @@ class FakeMitID:
         self,
         username,
         token_storage,
+        on_qr_codes=None,
+        on_login_required=None,
         *_args,
         force_login=False,
         on_identity_selected=None,
@@ -509,12 +507,11 @@ class FakeMitID:
         if saved:
             return saved
         self.logins += 1
+        if on_login_required:
+            on_login_required()
         if len(self.identities) > 1:
             assert on_identity_selected is not None
-            try:
-                self.chosen_index = await on_identity_selected(self.identities)
-            except Exception as e:
-                raise RuntimeError(f"MitID authentication failed: {e}") from e
+            self.chosen_index = await on_identity_selected(self.identities)
         token_data = {"tokens": {"access_token": "fresh"}, "cookies": {}}
         await token_storage.save(token_data)
         return token_data
@@ -615,23 +612,45 @@ class TestLoginDrivenByAnotherProgram:
         assert mitid.logins == 1
         assert json.loads(token_file.read_text())["tokens"]["access_token"] == "fresh"
 
+    @staticmethod
+    def _login_json(result) -> dict:
+        # The MitID login notice shares stdout, so the JSON is the last line.
+        return json.loads(result.stdout.splitlines()[-1])
+
     def test_json_output_names_the_chosen_identity(self, run):
         mitid = FakeMitID(identities=["Parent (Privat)", "Parent (Firma ApS)"])
 
         result = run("--output", "json", "--identity", "2", "login", mitid=mitid)
 
         assert result.exit_code == 0, result.output
-        assert json.loads(result.output) == {
+        assert self._login_json(result) == {
             "status": "ok",
             "api_url": "https://www.aula.dk/api/v25",
             "identity": 2,
         }
 
     def test_json_output_leaves_identity_out_when_there_was_no_choice(self, run):
+        result = run("--output", "json", "login")
+
+        assert result.exit_code == 0, result.output
+        assert "identity" not in self._login_json(result)
+
+    def test_identity_beyond_a_single_identity_logs_in_with_a_warning(self, run):
+        """MitID shows no choice for one identity, so the request could not be honoured."""
         result = run("--output", "json", "--identity", "2", "login")
 
         assert result.exit_code == 0, result.output
-        assert "identity" not in json.loads(result.output)
+        assert "--identity 2" in result.stderr
+        assert "identity" not in self._login_json(result)
+
+    def test_identity_is_not_warned_about_when_a_saved_session_is_reused(self, run, tmp_path):
+        token_file = tmp_path / "t.json"
+        token_file.write_text('{"tokens": {"access_token": "saved"}, "cookies": {}}')
+
+        result = run("--token-file", str(token_file), "--identity", "2", "login")
+
+        assert result.exit_code == 0, result.output
+        assert result.stderr == ""
 
     def test_text_output_names_the_chosen_identity(self, run):
         mitid = FakeMitID(identities=["Parent (Privat)", "Parent (Firma ApS)"])

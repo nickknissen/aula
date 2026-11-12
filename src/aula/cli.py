@@ -252,31 +252,43 @@ def _on_login_required():
     click.echo("Session expired or not found. Please open your MitID app to approve the login.")
 
 
-async def _select_identity(identities: list[str]) -> int:
-    """Prompt the user to choose between multiple MitID identities."""
+async def _prompt_for_identity(identities: list[str]) -> int:
+    """Ask which of several MitID identities to log in as, 1 being the first."""
     click.echo("\nMultiple identities found. Please select one:")
     for i, identity in enumerate(identities, 1):
         click.echo(f"  {i}. {identity}")
-    choice = click.prompt("Select identity", type=click.IntRange(1, len(identities)), default=1)
-    return choice - 1
+    return click.prompt("Select identity", type=click.IntRange(1, len(identities)), default=1)
 
 
-def _identity_selector(ctx: click.Context) -> Callable[[list[str]], Awaitable[int]]:
-    """Pick the MitID identity from --identity/env, falling back to a prompt."""
+class _MitIDLogin:
+    """The CLI's side of one login: answers MitID's questions and notes what happened."""
 
-    async def select(identities: list[str]) -> int:
-        number = ctx.obj.get("MITID_IDENTITY")
-        if number is None:
-            number = await _select_identity(identities) + 1
-        elif number > len(identities):
+    def __init__(self, requested_identity: int | None) -> None:
+        self.requested_identity = requested_identity
+        self.identity: int | None = None
+        self.ran = False
+
+    def started(self) -> None:
+        self.ran = True
+        _on_login_required()
+
+    async def choose_identity(self, identities: list[str]) -> int:
+        number = self.requested_identity or await _prompt_for_identity(identities)
+        if number > len(identities):
             raise click.BadParameter(
                 f"{number} is out of range, there are {len(identities)} MitID identities.",
                 param_hint="'--identity'",
             )
-        ctx.obj["CHOSEN_IDENTITY"] = number
+        self.identity = number
         return number - 1
 
-    return select
+    def warn_if_identity_went_unused(self) -> None:
+        if self.ran and self.identity is None and (self.requested_identity or 1) > 1:
+            click.echo(
+                f"Warning: --identity {self.requested_identity} was ignored, "
+                "because MitID offered only one identity.",
+                err=True,
+            )
 
 
 def _print_otp_code(code: str) -> None:
@@ -314,35 +326,38 @@ def _token_file(ctx: click.Context) -> Path:
     return ctx.obj.get("TOKEN_FILE") or DEFAULT_TOKEN_FILE
 
 
-async def _get_client(ctx: click.Context, *, force_login: bool = False) -> AulaApiClient:
-    """Create an authenticated AulaApiClient."""
+async def _log_in(
+    ctx: click.Context, *, force_login: bool = False
+) -> tuple[AulaApiClient, int | None]:
+    """Log in, returning the client and the MitID identity chosen, if MitID asked."""
     username = get_mitid_username(ctx)
     token_storage = FileTokenStorage(_token_file(ctx))
+    mitid = _MitIDLogin(ctx.obj.get("MITID_IDENTITY"))
     qr_display = TerminalQRDisplay()
     try:
-        return await authenticate_and_create_client(
+        client = await authenticate_and_create_client(
             username,
             token_storage,
             on_qr_codes=qr_display.show,
             on_qr_done=qr_display.done,
             on_otp_code=_print_otp_code,
-            on_login_required=_on_login_required,
-            on_identity_selected=_identity_selector(ctx),
+            on_login_required=mitid.started,
+            on_identity_selected=mitid.choose_identity,
             auth_method=ctx.obj.get("AUTH_METHOD", "app"),
             on_token_digits=_token_digits_provider(ctx),
             on_password=_password_provider(ctx),
             force_login=force_login,
         )
-    except RuntimeError as err:
-        # The auth flow wraps what our callbacks raise, so dig a usage error back out.
-        cause = err.__cause__
-        while cause is not None:
-            if isinstance(cause, click.ClickException):
-                raise cause from None
-            cause = cause.__cause__
-        raise
     finally:
         qr_display.stop()
+    mitid.warn_if_identity_went_unused()
+    return client, mitid.identity
+
+
+async def _get_client(ctx: click.Context) -> AulaApiClient:
+    """Create an authenticated AulaApiClient."""
+    client, _ = await _log_in(ctx)
+    return client
 
 
 async def _fetch_groups(client: AulaApiClient) -> list[Group] | None:
@@ -610,8 +625,8 @@ async def logout(ctx):
 @async_cmd
 async def login(ctx, force: bool):
     """Authenticate and initialize session"""
-    async with await _get_client(ctx, force_login=force) as client:
-        identity = ctx.obj.get("CHOSEN_IDENTITY")
+    client, identity = await _log_in(ctx, force_login=force)
+    async with client:
         result: dict[str, str | int] = {"status": "ok", "api_url": client.api_url}
         if identity:
             result["identity"] = identity
