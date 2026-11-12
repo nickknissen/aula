@@ -1,6 +1,7 @@
 """Credential redaction for diagnostic copies, without modifying wire data."""
 
 import logging
+import re
 from typing import Any
 from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
@@ -29,6 +30,8 @@ _SECRET_FIELDS = {
     "sessionuuid",
     "challenge",
 }
+
+_JWT = re.compile(r"eyJ[\w-]*\.[\w-]+\.[\w-]*")
 
 
 def diagnostic_url(url: object) -> str:
@@ -64,6 +67,8 @@ def redact_credentials(value: Any) -> Any:
         }
     if isinstance(value, (list, tuple)):
         return [redact_credentials(item) for item in value]
+    if isinstance(value, str) and _JWT.fullmatch(value):
+        return "[redacted]"
     if isinstance(value, str) and "://" in value:
         return diagnostic_url(value)
     return value
