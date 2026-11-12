@@ -19,6 +19,7 @@ from .http import (
     HttpClient,
     HttpRequestError,
     HttpResponse,
+    ProviderAuthenticationError,
 )
 from .http_httpx import HttpxHttpClient
 from .models import (
@@ -57,6 +58,7 @@ __all__ = [
     "HttpRequestError",
     "HttpResponse",
     "HttpxHttpClient",
+    "ProviderAuthenticationError",
     "TerminalQRDisplay",
     "TokenStorage",
     "Profile",

@@ -108,6 +108,18 @@ class AulaInvalidTokenError(AulaAuthenticationError):
     pass
 
 
+class ProviderAuthenticationError(HttpRequestError):
+    """Raised when a widget provider refuses the request (401 Unauthorized, 403 Forbidden).
+
+    The Aula session is unaffected: treat the widget as unavailable instead of
+    logging in again.
+    """
+
+    def __init__(self, message: str, status_code: int, *, widget_id: str) -> None:
+        super().__init__(message, status_code)
+        self.widget_id = widget_id
+
+
 class AulaConnectionError(HttpRequestError):
     """Raised when a network connection error occurs (timeout, network unreachable, etc).
 

@@ -1478,6 +1478,7 @@ class TestEasyiqProtocolCorrectIdentifier:
                 institution_filter=("inst-1",),
                 guardian_login="guardian-1",
                 child_user_ids=("barn0003", "barn0004"),
+                widget_id=WIDGET_EASYIQ_WEEKPLAN,
                 child_user_id="barn0003",
             ),
         )
@@ -1498,6 +1499,7 @@ class TestEasyiqProtocolCorrectIdentifier:
                 institution_filter=("inst-1", "inst-2"),
                 guardian_login="Guardian-1",
                 child_user_ids=("barn0001", "barn0002"),
+                widget_id=WIDGET_EASYIQ_WEEKPLAN,
                 child_user_id="barn0002",
             )
         )
@@ -1521,6 +1523,7 @@ class TestEasyiqProtocolCorrectIdentifier:
             institution_filter=("inst-1",),
             guardian_login="guardian-1",
             child_user_ids=("barn0001", "barn0002"),
+            widget_id=WIDGET_EASYIQ_WEEKPLAN,
         )
 
         assert client.widgets.easyiq_headers(context)["x-child"] == "barn0001"

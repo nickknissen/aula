@@ -24,7 +24,7 @@ from ..const import (
     WIDGET_HUSKELISTEN,
     WIDGET_MEEBOOK,
 )
-from ..http import HttpResponse
+from ..http import HttpResponse, ProviderAuthenticationError
 from ..models import (
     HOMEWORK_ITEM_TYPES,
     WEEKPLAN_ITEM_TYPES,
@@ -76,6 +76,7 @@ class _EasyIQContext:
     institution_filter: tuple[str, ...]
     guardian_login: str
     child_user_ids: tuple[str, ...]
+    widget_id: str
     child_user_id: str = ""
 
 
@@ -108,6 +109,16 @@ def _as_list(data: Any, provider: str) -> list[Any]:
             len(data) - len(items),
         )
     return items
+
+
+def _raise_for_provider_status(resp: HttpResponse, widget_id: str) -> None:
+    if resp.status_code in (401, 403):
+        raise ProviderAuthenticationError(
+            f"Provider refused widget {widget_id} (HTTP {resp.status_code})",
+            resp.status_code,
+            widget_id=widget_id,
+        )
+    resp.raise_for_status()
 
 
 def _is_meebook_jwt_expired(payload: Any) -> bool:
@@ -278,7 +289,7 @@ class AulaWidgetsClient:
             params=params,
             headers={"Authorization": token, "Accept": "application/json"},
         )
-        resp.raise_for_status()
+        _raise_for_provider_status(resp, widget_id)
         return [MUTask.from_dict(o) for o in resp.json().get("opgaver", [])]
 
     async def get_ugeplan(
@@ -307,7 +318,7 @@ class AulaWidgetsClient:
             params=params,
             headers={"Authorization": token, "Accept": "application/json"},
         )
-        resp.raise_for_status()
+        _raise_for_provider_status(resp, widget_id)
         return [MUWeeklyPerson.from_dict(p) for p in resp.json().get("personer", [])]
 
     def easyiq_headers(self, context: _EasyIQContext) -> dict[str, str]:
@@ -389,7 +400,7 @@ class AulaWidgetsClient:
             f"{EASYIQ_PORTAL}{EASYIQ_AUTHENTICATE_PATH}",
             headers=self.easyiq_headers(context),
         )
-        resp.raise_for_status()
+        _raise_for_provider_status(resp, context.widget_id)
         try:
             payload = resp.json()
         except Exception as e:
@@ -412,6 +423,7 @@ class AulaWidgetsClient:
             institution_filter=tuple(institution_filter),
             guardian_login=guardian_login,
             child_user_ids=tuple(child_user_ids),
+            widget_id=widget_id,
         )
         try:
             body = await self.authenticate_easyiq_session(session)
@@ -432,7 +444,7 @@ class AulaWidgetsClient:
                 f"{EASYIQ_PORTAL}{EASYIQ_CHILDREN_PATH}",
                 headers=self.easyiq_headers(session),
             )
-            resp.raise_for_status()
+            _raise_for_provider_status(resp, session.widget_id)
             payload = resp.json()
         except Exception as e:
             _LOGGER.info("EasyIQ GetChildren failed (%s); falling back to guessing", e)
@@ -532,7 +544,7 @@ class AulaWidgetsClient:
             params={"loginId": child_easyiq_id},
             headers=self.easyiq_headers(context),
         )
-        resp.raise_for_status()
+        _raise_for_provider_status(resp, context.widget_id)
 
     async def confirm_easyiq_session_child(
         self, expected_child_login: str, context: _EasyIQContext
@@ -626,6 +638,7 @@ class AulaWidgetsClient:
             institution_filter=tuple(institution_filter),
             guardian_login=guardian_login,
             child_user_ids=tuple(all_child_user_ids),
+            widget_id=widget_id,
             child_user_id=child_user_id,
         )
 
@@ -691,7 +704,7 @@ class AulaWidgetsClient:
                     params={**params, "loginId": login_id},
                     headers=headers,
                 )
-                resp.raise_for_status()
+                _raise_for_provider_status(resp, widget_id)
             except Exception as e:
                 last_error = e
                 _LOGGER.debug("EasyIQ %s rejected loginId=%s: %s", path, login_id, e)
@@ -837,7 +850,7 @@ class AulaWidgetsClient:
             resp = await self._api_client._request_with_version_retry(
                 "post", f"{EASYIQ_API}/weekplaninfo", json=payload, headers=headers
             )
-            resp.raise_for_status()
+            _raise_for_provider_status(resp, widget_id)
             data = resp.json()
             envelope = data.get("data") if isinstance(data, dict) else None
             if isinstance(envelope, dict):
@@ -961,7 +974,7 @@ class AulaWidgetsClient:
                 params=params,
                 headers=headers,
             )
-            resp.raise_for_status()
+            _raise_for_provider_status(resp, WIDGET_MEEBOOK)
             return resp.json()
 
         payload = await request_weekplan()
@@ -1001,7 +1014,7 @@ class AulaWidgetsClient:
             params={"currentWeekNumber": _zero_padded_week(week), "userProfile": "guardian"},
             headers=headers,
         )
-        resp.raise_for_status()
+        _raise_for_provider_status(resp, WIDGET_DOCENDO)
         payload = resp.json()
 
         data = payload.get("data") if isinstance(payload, dict) else None
@@ -1038,7 +1051,7 @@ class AulaWidgetsClient:
             params=params,
             headers={"Aula-Authorization": token},
         )
-        resp.raise_for_status()
+        _raise_for_provider_status(resp, WIDGET_HUSKELISTEN)
         courses = _as_list(resp.json(), "Huskelisten courses")
         return [MomoUserCourses.from_dict(u) for u in courses]
 
@@ -1068,7 +1081,7 @@ class AulaWidgetsClient:
             params=params,
             headers={"Aula-Authorization": token},
         )
-        resp.raise_for_status()
+        _raise_for_provider_status(resp, WIDGET_HUSKELISTEN)
         reminders = _as_list(resp.json(), "Huskelisten reminders")
         return [UserReminders.from_dict(u) for u in reminders]
 
@@ -1095,7 +1108,7 @@ class AulaWidgetsClient:
             params=params,
             headers={"Authorization": token, "Accept": "application/json"},
         )
-        resp.raise_for_status()
+        _raise_for_provider_status(resp, widget_id)
         data = resp.json()
         if not isinstance(data, dict):
             _LOGGER.warning(

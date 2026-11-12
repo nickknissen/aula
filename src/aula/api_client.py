@@ -298,14 +298,16 @@ class AulaApiClient:
 
         On HTTP 401 or API sub-code 9 (InvalidToken) or 23 (SessionExpired),
         attempts a single token refresh via the ``on_token_refresh`` callback
-        (if provided), re-inits the session, and retries the request.
+        (if provided), re-inits the session, and retries the request. Widget
+        provider URLs never trigger a refresh.
         """
+        is_aula_call = url.startswith(API_URL)
         observed_generation = self._auth_generation
         response = await self._do_request(method, url, headers=headers, params=params, json=json)
 
         # Check for auth failures that can be recovered via token refresh.
         # Only attempt once to avoid infinite loops.
-        if not self._auth_refresh_context.get() and self._on_token_refresh:
+        if is_aula_call and not self._auth_refresh_context.get() and self._on_token_refresh:
             needs_retry = response.status_code == 401
             if not needs_retry:
                 sub_code = self._extract_sub_code(response)
@@ -325,12 +327,12 @@ class AulaApiClient:
                     )
 
         # After retry (or no retry), check for sub-code errors on the final response.
-        sub_code = self._extract_sub_code(response)
+        sub_code = self._extract_sub_code(response) if is_aula_call else None
         if sub_code is not None:
             api_method = _extract_api_method(url, params)
             self._raise_for_sub_code(sub_code, api_method)
 
-        if url.startswith(API_URL):
+        if is_aula_call:
             body = response.json()
             status = body.get("status") if isinstance(body, dict) else None
             if isinstance(status, dict) and status.get("code") is not None:
@@ -453,7 +455,7 @@ class AulaApiClient:
                     _compact_payload_for_log(response.json()),
                 )
 
-            if response.status_code == 410:
+            if response.status_code == 410 and url.startswith(API_URL):
                 current_version = int(self.api_url.split("/v")[-1])
                 new_version = current_version + 1
 
