@@ -1,6 +1,8 @@
 """Configuration management for Aula CLI."""
 
+import contextlib
 import json
+import os
 from pathlib import Path
 from typing import Any
 
@@ -29,10 +31,14 @@ def load_config() -> dict[str, Any]:
 
 
 def save_config(config: dict[str, Any]) -> None:
-    """Save configuration to file."""
+    """Save configuration to a file only the owner can read."""
     ensure_config_dir()
     try:
-        with open(CONFIG_FILE, "w") as f:
+        fd = os.open(CONFIG_FILE, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+        with os.fdopen(fd, "w") as f:
+            # The mode given to os.open applies only when it creates the file.
+            with contextlib.suppress(OSError):
+                os.fchmod(fd, 0o600)
             json.dump(config, f, indent=2)
     except OSError as e:
         click.echo(f"Error saving configuration: {e}", err=True)
