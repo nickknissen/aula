@@ -20,7 +20,7 @@ from .api_client import AulaApiClient
 from .auth.exceptions import MitIDAuthError, OAuthError, SecurityCheckError
 from .auth.mitid_client import MitIDAuthClient
 from .const import AUTH_BASE_URL, CSRF_TOKEN_COOKIE, OAUTH_CLIENT_ID, OAUTH_TOKEN_PATH
-from .http import AulaAuthenticationError, HttpClient
+from .http import AulaAuthenticationError, AulaConnectionError, AulaServerError, HttpClient
 from .http_httpx import HttpxHttpClient
 from .token_storage import TokenStorage
 from .utils.diagnostics import credential_logger
@@ -41,6 +41,10 @@ async def _refresh_token_via_oidc(refresh_token: str) -> dict[str, Any] | None:
 
     Returns:
         Updated token dict with new access_token, or None if refresh fails.
+
+    Raises:
+        AulaConnectionError: If the token server cannot be reached.
+        AulaServerError: If the token server answers with a 5xx.
     """
     token_url = f"{AUTH_BASE_URL}{OAUTH_TOKEN_PATH}"
     try:
@@ -54,6 +58,11 @@ async def _refresh_token_via_oidc(refresh_token: str) -> dict[str, Any] | None:
                 },
                 headers={"Content-Type": "application/x-www-form-urlencoded"},
             )
+            if response.is_server_error:
+                raise AulaServerError(
+                    f"Token server unavailable: HTTP {response.status_code}",
+                    response.status_code,
+                )
             if response.status_code != 200:
                 _LOGGER.warning("Token refresh failed: HTTP %d", response.status_code)
                 return None
@@ -62,6 +71,12 @@ async def _refresh_token_via_oidc(refresh_token: str) -> dict[str, Any] | None:
             if expires_in is not None:
                 data["expires_at"] = time.time() + int(expires_in)
             return data
+    except AulaServerError:
+        raise
+    except httpx.TransportError as e:
+        raise AulaConnectionError(
+            f"Could not reach the token server: {str(e) or type(e).__name__}"
+        ) from e
     except Exception as e:
         _LOGGER.warning("Token refresh request failed: %s", e)
         return None

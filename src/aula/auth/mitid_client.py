@@ -856,7 +856,8 @@ class MitIDAuthClient:
             Updated token dict with new access_token and potentially rotated refresh_token.
 
         Raises:
-            OAuthError: If the refresh request fails (expired/revoked token, server error).
+            OAuthError: If the token server rejects the refresh token.
+            NetworkError: If the token server is unreachable or answers with a 5xx.
         """
         _LOGGER.info("Refreshing access token")
 
@@ -876,6 +877,8 @@ class MitIDAuthClient:
                 },
             )
 
+            if response.is_server_error:
+                raise NetworkError(f"Token server unavailable: HTTP {response.status_code}")
             if not response.is_success:
                 raise OAuthError(f"Token refresh failed: {response.status_code}")
 
