@@ -84,9 +84,9 @@ Add a single line in alphabetical position:
 from .<provider>_<type> import <Provider>TopModel as <Provider>TopModel
 ```
 
-## 4. api_client.py - API Method
+## 4. widgets/client.py - Provider Method
 
-Import the new constant and model, then add a method:
+Import the new constant and model, then add a method to `AulaWidgetsClient`. Mint the widget token with the public `get_widget_token` and send through `self._transport`, never through `AulaApiClient`'s private request pipeline:
 
 ```python
 async def get_<provider>_<endpoint>(
@@ -97,34 +97,36 @@ async def get_<provider>_<endpoint>(
     session_uuid: str,
 ) -> list[<Provider>StudentPlan]:
     """Fetch <Provider> <endpoint> for children."""
-    token = await self._get_bearer_token(WIDGET_<PROVIDER>)
-
-    params: list[tuple[str, str]] = [
-        ("currentWeekNumber", week),
-        ("userProfile", "guardian"),
-    ]
-    for child in child_filter:
-        params.append(("childFilter[]", child))
-    for inst in institution_filter:
-        params.append(("institutionFilter[]", inst))
-
+    token = await self._api_client.get_widget_token(WIDGET_<PROVIDER>)
+    params = {
+        "currentWeekNumber": week,
+        "userProfile": "guardian",
+        "childFilter[]": child_filter,
+        "institutionFilter[]": institution_filter,
+    }
     headers = {
-        "Authorization": token,
+        "Authorization": f"Bearer {token}",
         "Accept": "application/json",
         "sessionUUID": session_uuid,
     }
 
-    resp = await self._request_with_version_retry(
+    body = await self._transport.send(
+        WIDGET_<PROVIDER>,
         "get",
         f"{<PROVIDER>_API}/<endpoint_path>",
         params=params,
         headers=headers,
     )
-    return [<Provider>StudentPlan.from_dict(s) for s in resp.json()]
+    plans = _as_list(body, "<Provider> <endpoint>")
+    return [<Provider>StudentPlan.from_dict(s) for s in plans]
 ```
 
+`send` returns the parsed JSON body (`None` when there is none). It raises `ProviderAuthenticationError` on 401/403 and never retries or refreshes the Aula session (docs/adr/0001). Don't add a retry around it. A provider may reopen its own portal session once with a new widget token.
+
+Test it in `tests/test_widgets_client.py` with `tests/fakes.py::FakeHttpClient`: route the `aulaToken.getAulaToken` call and the provider URL, then assert on `http.requests_to(<PROVIDER>_API)`.
+
 Notes:
-- Header name varies: most use `Authorization` but some (e.g. MoMo/Systematic) use `Aula-Authorization`
+- `get_widget_token` returns the raw JWT. The provider decides where it goes: most use `Authorization: Bearer <token>`, MoMo/Systematic use `Aula-Authorization`, and Docendo uses its own misspelled `Baerer`
 - Some providers need extra headers (e.g. `X-Version`, `x-aula-institutionfilter`)
 - Some use POST instead of GET (e.g. EasyIQ)
 - Response structure varies: some return bare array, some nest under `.get("data", {})`

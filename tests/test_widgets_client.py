@@ -1,7 +1,7 @@
-"""Tests for widget token and provider endpoints."""
+"""Tests for widget provider endpoints."""
 
 import asyncio
-from unittest.mock import AsyncMock, Mock, call
+from unittest.mock import AsyncMock
 
 import pytest
 
@@ -23,79 +23,85 @@ from aula.const import (
     WIDGET_EASYIQ_LEGACY,
     WIDGET_EASYIQ_WEEKPLAN,
     WIDGET_HUSKELISTEN,
+    WIDGET_MEEBOOK,
     WIDGET_MIN_UDDANNELSE_TASKS,
     WIDGET_MIN_UDDANNELSE_UGEPLAN,
 )
-from aula.http import AulaNotFoundError, HttpResponse
+from aula.http import AulaNotFoundError, AulaServerError, HttpResponse
 from aula.widgets import EasyIQChildNotInPortal, EasyIQWrongChildSession
 from aula.widgets.client import _EasyIQContext
+from tests.fakes import FakeHttpClient
 
+EASYIQ_AUTHENTICATE_URL = f"{EASYIQ_PORTAL}{EASYIQ_AUTHENTICATE_PATH}"
+EASYIQ_CHILDREN_URL = f"{EASYIQ_PORTAL}{EASYIQ_CHILDREN_PATH}"
+EASYIQ_SWITCHCHILD_URL = f"{EASYIQ_PORTAL}{EASYIQ_SWITCHCHILD_PATH}"
 EASYIQ_CALENDAR_URL = f"{EASYIQ_PORTAL}{EASYIQ_CALENDAR_PATH}"
 EASYIQ_HOMEWORK_URL = f"{EASYIQ_PORTAL}{EASYIQ_HOMEWORK_PATH}"
+EASYIQ_WEEKPLANINFO_URL = f"{EASYIQ_API}/weekplaninfo"
+MEEBOOK_URL = f"{MEEBOOK_API}/relatedweekplan/all"
+
+WIDGET_TOKEN = "widget-token"
+AULA_OK = HttpResponse(200, {"status": {"code": 0}, "data": {}})
 
 
-def _token_response(token: str) -> Mock:
-    resp = Mock()
-    resp.raise_for_status = Mock()
-    resp.json = Mock(return_value={"data": token})
-    return resp
+def _token(value: str = WIDGET_TOKEN) -> HttpResponse:
+    return HttpResponse(200, {"status": {"code": 0}, "data": value})
 
 
-def _calendar_response(payload: object) -> Mock:
-    resp = Mock()
-    resp.raise_for_status = Mock()
-    resp.json = Mock(return_value=payload)
-    return resp
+def _token_prefix(client: AulaApiClient) -> str:
+    return f"{client.api_url}?method=aulaToken.getAulaToken"
+
+
+def _token_url(client: AulaApiClient, widget_id: str) -> str:
+    return f"{_token_prefix(client)}&widgetId={widget_id}"
+
+
+def _aula_client(
+    http: FakeHttpClient, *tokens: HttpResponse, on_token_refresh: AsyncMock | None = None
+) -> AulaApiClient:
+    client = AulaApiClient(http, on_token_refresh=on_token_refresh)
+    http.route(client.api_url, AULA_OK)
+    http.route(_token_prefix(client), *(tokens or (_token(),)))
+    return client
+
+
+def _sent(http: FakeHttpClient) -> list[tuple[str, str]]:
+    return [(request.method, request.url) for request in http.requests]
+
+
+class _InterleavingHttpClient(FakeHttpClient):
+    """Yields before every answer, so concurrent callers really do interleave."""
+
+    async def request(self, method, url, **kwargs):
+        await asyncio.sleep(0)
+        return await super().request(method, url, **kwargs)
+
+
+@pytest.fixture
+def http():
+    return FakeHttpClient()
 
 
 class TestWidgetsClient:
     @pytest.fixture
-    def client(self):
-        client = AulaApiClient(http_client=AsyncMock(), access_token="token")
+    def client(self, http):
+        client = _aula_client(http)
         # The EasyIQ portal session has its own tests below; marking it done
         # keeps the request-shape tests free of bootstrap plumbing.
         client.widgets._easyiq_session_ready = True
         return client
 
     @pytest.fixture
-    def unbootstrapped_client(self):
-        return AulaApiClient(http_client=AsyncMock(), access_token="token")
+    def unbootstrapped_client(self, http):
+        return _aula_client(http)
 
     @pytest.mark.asyncio
-    async def test_get_bearer_token_calls_raise_for_status_before_json(self, client):
-        token_response = Mock()
-        token_response.raise_for_status = Mock()
-        token_response.json = Mock(return_value={"data": "token-123"})
-        client._request_with_version_retry = AsyncMock(return_value=token_response)
-
-        token = await client.widgets._get_bearer_token("0030")
-
-        assert token == "Bearer token-123"
-        client._request_with_version_retry.assert_awaited_once_with(
-            "get", f"{client.api_url}?method=aulaToken.getAulaToken&widgetId=0030"
+    async def test_get_mu_tasks_uses_token_and_expected_request_shape(self, client, http):
+        tasks_url = f"{MIN_UDDANNELSE_API}/opgaveliste"
+        http.route(
+            tasks_url,
+            HttpResponse(200, {"opgaver": [{"id": "task-1", "title": "Task 1"}]}),
         )
-        assert token_response.method_calls == [call.raise_for_status(), call.json()]
-
-    @pytest.mark.asyncio
-    async def test_get_mu_tasks_uses_token_and_expected_request_shape(self, client):
-        token_response = Mock()
-        token_response.raise_for_status = Mock()
-        token_response.json = Mock(return_value={"data": "token-123"})
-
-        tasks_response = Mock()
-        tasks_response.raise_for_status = Mock()
-        tasks_response.json = Mock(
-            return_value={
-                "opgaver": [
-                    {
-                        "id": "task-1",
-                        "title": "Task 1",
-                    }
-                ]
-            }
-        )
-
-        client._request_with_version_retry = AsyncMock(side_effect=[token_response, tasks_response])
 
         tasks = await client.widgets.get_mu_tasks(
             widget_id=WIDGET_MIN_UDDANNELSE_TASKS,
@@ -106,11 +112,12 @@ class TestWidgetsClient:
         )
 
         assert [task.id for task in tasks] == ["task-1"]
-        assert client._request_with_version_retry.await_count == 2
-
-        calls = client._request_with_version_retry.await_args_list
-        assert calls[1].args == ("get", f"{MIN_UDDANNELSE_API}/opgaveliste")
-        assert calls[1].kwargs["params"] == {
+        assert _sent(http) == [
+            ("get", _token_url(client, WIDGET_MIN_UDDANNELSE_TASKS)),
+            ("get", tasks_url),
+        ]
+        [request] = http.requests_to(tasks_url)
+        assert request.params == {
             "placement": "narrow",
             "sessionUUID": "session-1",
             "userProfile": "guardian",
@@ -119,26 +126,17 @@ class TestWidgetsClient:
             "childFilter[]": ["child-1"],
             "institutionFilter[]": ["inst-1"],
         }
-        assert calls[1].kwargs["headers"] == {
-            "Authorization": "Bearer token-123",
+        assert request.headers == {
+            "Authorization": f"Bearer {WIDGET_TOKEN}",
             "Accept": "application/json",
         }
-        assert tasks_response.method_calls == [call.raise_for_status(), call.json()]
 
     @pytest.mark.asyncio
-    async def test_get_ugeplan_uses_token_and_expected_request_shape(self, client):
-        token_response = Mock()
-        token_response.raise_for_status = Mock()
-        token_response.json = Mock(return_value={"data": "token-abc"})
-
-        ugeplan_response = Mock()
-        ugeplan_response.raise_for_status = Mock()
-        ugeplan_response.json = Mock(
-            return_value={"personer": [{"id": 1, "navn": "Student", "uniLogin": "student1"}]}
-        )
-
-        client._request_with_version_retry = AsyncMock(
-            side_effect=[token_response, ugeplan_response]
+    async def test_get_ugeplan_uses_token_and_expected_request_shape(self, client, http):
+        ugeplan_url = f"{MIN_UDDANNELSE_API}/ugebrev"
+        http.route(
+            ugeplan_url,
+            HttpResponse(200, {"personer": [{"id": 1, "navn": "Student", "uniLogin": "student1"}]}),
         )
 
         persons = await client.widgets.get_ugeplan(
@@ -150,9 +148,12 @@ class TestWidgetsClient:
         )
 
         assert [person.id for person in persons] == [1]
-        calls = client._request_with_version_retry.await_args_list
-        assert calls[1].args == ("get", f"{MIN_UDDANNELSE_API}/ugebrev")
-        assert calls[1].kwargs["params"] == {
+        assert _sent(http) == [
+            ("get", _token_url(client, WIDGET_MIN_UDDANNELSE_UGEPLAN)),
+            ("get", ugeplan_url),
+        ]
+        [request] = http.requests_to(ugeplan_url)
+        assert request.params == {
             "assuranceLevel": "3",
             "childFilter": "child-1,child-2",
             "currentWeekNumber": "2026-W09",
@@ -162,42 +163,35 @@ class TestWidgetsClient:
             "sessionUUID": "session-1",
             "userProfile": "guardian",
         }
-        assert calls[1].kwargs["headers"] == {
-            "Authorization": "Bearer token-abc",
+        assert request.headers == {
+            "Authorization": f"Bearer {WIDGET_TOKEN}",
             "Accept": "application/json",
         }
-        assert ugeplan_response.method_calls == [call.raise_for_status(), call.json()]
 
     @pytest.mark.asyncio
-    async def test_get_easyiq_weekplan_uses_token_and_expected_request_shape(self, client):
-        token_response = Mock()
-        token_response.raise_for_status = Mock()
-        token_response.json = Mock(return_value={"data": "token-easy"})
-
-        easyiq_response = Mock()
-        easyiq_response.raise_for_status = Mock()
-        easyiq_response.json = Mock(
-            return_value={
-                "data": {
-                    "appointments": [
-                        {
-                            "appointmentId": "apt-1",
-                            "title": "Math",
-                            "start": "2026-02-24 08:00",
-                            "end": "2026-02-24 09:00",
-                            "description": "<p>Algebra</p>",
-                            "itemType": 9,
-                            "ownerName": "Ada Teacher",
-                            "isAllDay": "true",
-                            "isNotice": False,
-                        }
-                    ]
-                }
-            }
-        )
-
-        client._request_with_version_retry = AsyncMock(
-            side_effect=[token_response, easyiq_response]
+    async def test_get_easyiq_weekplan_uses_token_and_expected_request_shape(self, client, http):
+        http.route(
+            EASYIQ_WEEKPLANINFO_URL,
+            HttpResponse(
+                200,
+                {
+                    "data": {
+                        "appointments": [
+                            {
+                                "appointmentId": "apt-1",
+                                "title": "Math",
+                                "start": "2026-02-24 08:00",
+                                "end": "2026-02-24 09:00",
+                                "description": "<p>Algebra</p>",
+                                "itemType": 9,
+                                "ownerName": "Lærer Et",
+                                "isAllDay": "true",
+                                "isNotice": False,
+                            }
+                        ]
+                    }
+                },
+            ),
         )
 
         appointments = await client.widgets.get_easyiq_weekplan(
@@ -212,40 +206,43 @@ class TestWidgetsClient:
         assert appointments[0].end == "2026-02-24 09:00"
         assert appointments[0].description == "<p>Algebra</p>"
         assert appointments[0].item_type == 9
-        assert appointments[0].owner_name == "Ada Teacher"
+        assert appointments[0].owner_name == "Lærer Et"
         assert appointments[0].is_all_day is True
         assert appointments[0].is_notice is False
-        calls = client._request_with_version_retry.await_args_list
-        assert calls[1].args == ("post", f"{EASYIQ_API}/weekplaninfo")
-        assert calls[1].kwargs["headers"] == {
-            "Authorization": "Bearer token-easy",
+        assert _sent(http) == [
+            ("get", _token_url(client, WIDGET_EASYIQ_WEEKPLAN)),
+            ("post", EASYIQ_WEEKPLANINFO_URL),
+        ]
+        [request] = http.requests_to(EASYIQ_WEEKPLANINFO_URL)
+        assert request.headers == {
+            "Authorization": f"Bearer {WIDGET_TOKEN}",
             "x-aula-institutionfilter": "inst-1,inst-2",
         }
-        assert calls[1].kwargs["json"] == {
+        assert request.json == {
             "sessionId": "session-1",
             "currentWeekNr": "2026-W09",
             "userProfile": "guardian",
             "institutionFilter": ["inst-1", "inst-2"],
             "childFilter": ["child-1"],
         }
-        assert easyiq_response.method_calls == [call.raise_for_status(), call.json()]
 
     @pytest.mark.asyncio
-    async def test_get_easyiq_homework_reads_the_homework_controller(self, client):
+    async def test_get_easyiq_homework_reads_the_homework_controller(self, client, http):
         """The calendar controller never returns homework; this one does."""
-        homework_rows = _calendar_response(
-            [
-                {
-                    "ItemType": 4,
-                    "Start": "2026-02-28T00:00:00",
-                    "Courses": "Dansk",
-                    "Activities": "Læselektie",
-                    "Description": "<p>Pages 40-55</p>",
-                }
-            ]
-        )
-        client._request_with_version_retry = AsyncMock(
-            side_effect=[_token_response("token-easy-hw"), homework_rows]
+        http.route(
+            EASYIQ_HOMEWORK_URL,
+            HttpResponse(
+                200,
+                [
+                    {
+                        "ItemType": 4,
+                        "Start": "2026-02-28T00:00:00",
+                        "Courses": "Dansk",
+                        "Activities": "Læselektie",
+                        "Description": "<p>Pages 40-55</p>",
+                    }
+                ],
+            ),
         )
 
         homework = await client.widgets.get_easyiq_homework(
@@ -264,19 +261,18 @@ class TestWidgetsClient:
         assert homework[0].due_date == "2026-02-28T00:00:00"
         assert homework[0].is_completed is False
 
-        calls = client._request_with_version_retry.await_args_list
-        assert calls[0].args == (
-            "get",
-            f"{client.api_url}?method=aulaToken.getAulaToken&widgetId={WIDGET_EASYIQ_HOMEWORK}",
-        )
-        assert calls[1].args == ("get", EASYIQ_HOMEWORK_URL)
-        assert calls[1].kwargs["params"] == {
+        assert _sent(http) == [
+            ("get", _token_url(client, WIDGET_EASYIQ_HOMEWORK)),
+            ("get", EASYIQ_HOMEWORK_URL),
+        ]
+        [request] = http.requests_to(EASYIQ_HOMEWORK_URL)
+        assert request.params == {
             "date": "2026-02-23T00:00:00Z",
             "activityFilter": "",
             "loginId": "4242",
         }
-        assert calls[1].kwargs["headers"] == {
-            "Authorization": "Bearer token-easy-hw",
+        assert request.headers == {
+            "Authorization": f"Bearer {WIDGET_TOKEN}",
             "Accept": "application/json",
             "x-institutionfilter": "inst-1,inst-2",
             "x-userprofile": "guardian",
@@ -294,20 +290,20 @@ class TestWidgetsClient:
         ids=["dedicated", "legacy"],
     )
     async def test_calendar_bootstrap_uses_the_selected_widget(
-        self, unbootstrapped_client, widget_id
+        self, unbootstrapped_client, http, widget_id
     ):
         client = unbootstrapped_client
-        client._request_with_version_retry = AsyncMock(
-            side_effect=[
-                _token_response(f"{widget_id}-bootstrap"),
-                _calendar_response(None),
-                _calendar_response({"Children": [{"Id": "9001", "Login": "barn0003"}]}),
-                _token_response(f"{widget_id}-read"),
-                _calendar_response(None),
-                _calendar_response({"child": "barn0003"}),
-                _calendar_response([{"ItemType": 9, "Title": "Dansk"}]),
-            ]
+        http.route(
+            EASYIQ_AUTHENTICATE_URL,
+            HttpResponse(200, None),  # bootstrap
+            HttpResponse(200, {"child": "barn0003"}),  # confirmation
         )
+        http.route(
+            EASYIQ_CHILDREN_URL,
+            HttpResponse(200, {"Children": [{"Id": "9001", "Login": "barn0003"}]}),
+        )
+        http.route(EASYIQ_SWITCHCHILD_URL, HttpResponse(200, None))
+        http.route(EASYIQ_CALENDAR_URL, HttpResponse(200, [{"ItemType": 9, "Title": "Dansk"}]))
 
         events = await client.widgets.get_easyiq_calendar_events(
             week="2026-W09",
@@ -320,30 +316,27 @@ class TestWidgetsClient:
         )
 
         assert len(events) == 1
-        token_urls = [
-            call_.args[1]
-            for call_ in client._request_with_version_retry.await_args_list
-            if "getAulaToken" in call_.args[1]
-        ]
-        assert token_urls == [
-            f"{client.api_url}?method=aulaToken.getAulaToken&widgetId={widget_id}",
-            f"{client.api_url}?method=aulaToken.getAulaToken&widgetId={widget_id}",
-        ]
+        token_urls = [request.url for request in http.requests_to(_token_prefix(client))]
+        assert token_urls == [_token_url(client, widget_id)] * 2
 
     @pytest.mark.asyncio
-    async def test_portal_session_is_established_before_any_controller(self, unbootstrapped_client):
+    async def test_portal_session_is_established_before_any_controller(
+        self, unbootstrapped_client, http
+    ):
         """Without AuthenticateAulaUser the portal's controllers all 500."""
         client = unbootstrapped_client
-        client._request_with_version_retry = AsyncMock(
-            side_effect=[
-                _token_response("token-boot"),  # token for the bootstrap
-                _calendar_response(None),  # AuthenticateAulaUser
-                _calendar_response({"Children": [{"Id": "9001", "Login": "BARN0003"}]}),
-                _token_response("token-easy-hw"),  # token for the fetch
-                _calendar_response(None),  # SwitchChild
-                _calendar_response({"child": "BARN0003"}),  # confirmation
-                _calendar_response([{"ItemType": 4, "CoursesDisplay": "Dansk"}]),
-            ]
+        http.route(
+            EASYIQ_AUTHENTICATE_URL,
+            HttpResponse(200, None),  # bootstrap
+            HttpResponse(200, {"child": "BARN0003"}),  # confirmation
+        )
+        http.route(
+            EASYIQ_CHILDREN_URL,
+            HttpResponse(200, {"Children": [{"Id": "9001", "Login": "BARN0003"}]}),
+        )
+        http.route(EASYIQ_SWITCHCHILD_URL, HttpResponse(200, None))
+        http.route(
+            EASYIQ_HOMEWORK_URL, HttpResponse(200, [{"ItemType": 4, "CoursesDisplay": "Dansk"}])
         )
 
         homework = await client.widgets.get_easyiq_homework(
@@ -356,39 +349,39 @@ class TestWidgetsClient:
         )
 
         assert [hw.subject for hw in homework] == ["Dansk"]
-        calls = client._request_with_version_retry.await_args_list
-        token_urls = [call_.args[1] for call_ in calls if "getAulaToken" in call_.args[1]]
-        assert token_urls == [
-            f"{client.api_url}?method=aulaToken.getAulaToken&widgetId={WIDGET_EASYIQ_HOMEWORK}",
-            f"{client.api_url}?method=aulaToken.getAulaToken&widgetId={WIDGET_EASYIQ_HOMEWORK}",
+        assert _sent(http) == [
+            ("get", _token_url(client, WIDGET_EASYIQ_HOMEWORK)),
+            ("post", EASYIQ_AUTHENTICATE_URL),
+            ("get", EASYIQ_CHILDREN_URL),
+            ("get", _token_url(client, WIDGET_EASYIQ_HOMEWORK)),
+            ("post", EASYIQ_SWITCHCHILD_URL),
+            ("post", EASYIQ_AUTHENTICATE_URL),
+            ("get", EASYIQ_HOMEWORK_URL),
         ]
-        assert calls[1].args == ("post", f"{EASYIQ_PORTAL}{EASYIQ_AUTHENTICATE_PATH}")
-        assert calls[2].args == ("get", f"{EASYIQ_PORTAL}{EASYIQ_CHILDREN_PATH}")
         # EasyIQ's own ID is used as loginId, matched on Login not Name, and
         # x-childfilter carries every child while x-child carries this one.
-        assert calls[4].args == ("post", f"{EASYIQ_PORTAL}{EASYIQ_SWITCHCHILD_PATH}")
-        assert calls[5].args == ("post", f"{EASYIQ_PORTAL}{EASYIQ_AUTHENTICATE_PATH}")
-        assert calls[6].kwargs["params"]["loginId"] == "9001"
-        assert calls[6].kwargs["headers"]["x-child"] == "barn0003"
-        assert calls[6].kwargs["headers"]["x-childfilter"] == "barn0003,barn0004"
+        [read] = http.requests_to(EASYIQ_HOMEWORK_URL)
+        assert read.params["loginId"] == "9001"
+        assert read.headers["x-child"] == "barn0003"
+        assert read.headers["x-childfilter"] == "barn0003,barn0004"
 
     @pytest.mark.asyncio
-    async def test_portal_session_runs_once_across_calls(self, unbootstrapped_client):
+    async def test_portal_session_runs_once_across_calls(self, unbootstrapped_client, http):
         client = unbootstrapped_client
-        client._request_with_version_retry = AsyncMock(
-            side_effect=[
-                _token_response("token-boot"),
-                _calendar_response(None),
-                _calendar_response({"Children": [{"Id": "9001", "Login": "barn0003"}]}),
-                _token_response("token-easy-hw"),
-                _calendar_response(None),  # SwitchChild
-                _calendar_response({"child": "barn0003"}),  # confirmation
-                _calendar_response([{"ItemType": 4, "CoursesDisplay": "Dansk"}]),
-                _token_response("token-easy-hw"),
-                _calendar_response(None),  # SwitchChild
-                _calendar_response({"child": "barn0003"}),  # confirmation
-                _calendar_response([{"ItemType": 4, "CoursesDisplay": "Matematik"}]),
-            ]
+        http.route(
+            EASYIQ_AUTHENTICATE_URL,
+            HttpResponse(200, None),  # bootstrap
+            HttpResponse(200, {"child": "barn0003"}),  # every confirmation after it
+        )
+        http.route(
+            EASYIQ_CHILDREN_URL,
+            HttpResponse(200, {"Children": [{"Id": "9001", "Login": "barn0003"}]}),
+        )
+        http.route(EASYIQ_SWITCHCHILD_URL, HttpResponse(200, None))
+        http.route(
+            EASYIQ_HOMEWORK_URL,
+            HttpResponse(200, [{"ItemType": 4, "CoursesDisplay": "Dansk"}]),
+            HttpResponse(200, [{"ItemType": 4, "CoursesDisplay": "Matematik"}]),
         )
         kwargs = {
             "child_profile_id": "4242",
@@ -403,34 +396,24 @@ class TestWidgetsClient:
         )
 
         assert [hw.subject for hw in homework] == ["Matematik"]
-        assert client._request_with_version_retry.await_count == 11
+        assert len(http.requests_to(EASYIQ_CHILDREN_URL)) == 1
+        assert len(http.requests) == 11
 
     @pytest.mark.asyncio
-    async def test_portal_session_runs_once_under_concurrency(self, unbootstrapped_client):
+    async def test_portal_session_runs_once_under_concurrency(self):
         """Callers reading several children at once share the one bootstrap.
 
         The ready flag alone does not settle this: every caller sees it unset
         while the first is still awaiting the POST, so each would sign in
         again and the portal would be asked to open a session per child.
         """
-        client = unbootstrapped_client
-        authenticate_calls = 0
-
-        async def _dispatch(method, url, **kwargs):
-            nonlocal authenticate_calls
-            # Yield, so the callers really do interleave inside the bootstrap
-            # rather than each running start to finish.
-            await asyncio.sleep(0)
-            if "getAulaToken" in url:
-                return _token_response("token-boot")
-            if url.endswith(EASYIQ_AUTHENTICATE_PATH):
-                authenticate_calls += 1
-                return _calendar_response(None)
-            if url.endswith(EASYIQ_CHILDREN_PATH):
-                return _calendar_response({"Children": [{"Id": "9001", "Login": "barn0003"}]})
-            raise AssertionError(f"unexpected request: {url}")
-
-        client._request_with_version_retry = _dispatch
+        http = _InterleavingHttpClient()
+        client = _aula_client(http)
+        http.route(EASYIQ_AUTHENTICATE_URL, HttpResponse(200, None))
+        http.route(
+            EASYIQ_CHILDREN_URL,
+            HttpResponse(200, {"Children": [{"Id": "9001", "Login": "barn0003"}]}),
+        )
 
         await asyncio.gather(
             *(
@@ -444,22 +427,18 @@ class TestWidgetsClient:
             )
         )
 
-        assert authenticate_calls == 1
+        assert len(http.requests_to(EASYIQ_AUTHENTICATE_URL)) == 1
         assert client.widgets.resolve_easyiq_child_id("barn0003") == "9001"
 
     @pytest.mark.asyncio
-    async def test_a_failed_bootstrap_leaves_the_guessing_fallback(self, unbootstrapped_client):
+    async def test_a_failed_bootstrap_leaves_the_guessing_fallback(
+        self, unbootstrapped_client, http
+    ):
         """Institutions this flow does not suit must still get the old path."""
         client = unbootstrapped_client
-        failing = Mock()
-        failing.raise_for_status = Mock(side_effect=AulaNotFoundError("HTTP 404", 404))
-        client._request_with_version_retry = AsyncMock(
-            side_effect=[
-                _token_response("token-boot"),
-                failing,  # AuthenticateAulaUser
-                _token_response("token-easy-hw"),
-                _calendar_response([{"ItemType": 4, "CoursesDisplay": "Dansk"}]),
-            ]
+        http.route(EASYIQ_AUTHENTICATE_URL, HttpResponse(404))
+        http.route(
+            EASYIQ_HOMEWORK_URL, HttpResponse(200, [{"ItemType": 4, "CoursesDisplay": "Dansk"}])
         )
 
         homework = await client.widgets.get_easyiq_homework(
@@ -472,18 +451,18 @@ class TestWidgetsClient:
         )
 
         assert [hw.subject for hw in homework] == ["Dansk"]
-        calls = client._request_with_version_retry.await_args_list
-        assert calls[3].kwargs["params"]["loginId"] == "4242"
+        assert _sent(http) == [
+            ("get", _token_url(client, WIDGET_EASYIQ_HOMEWORK)),
+            ("post", EASYIQ_AUTHENTICATE_URL),
+            ("get", _token_url(client, WIDGET_EASYIQ_HOMEWORK)),
+            ("get", EASYIQ_HOMEWORK_URL),
+        ]
+        assert http.requests[-1].params["loginId"] == "4242"
 
     @pytest.mark.asyncio
-    async def test_get_easyiq_homework_keeps_rows_of_an_unfamiliar_item_type(self, client):
+    async def test_get_easyiq_homework_keeps_rows_of_an_unfamiliar_item_type(self, client, http):
         """The controller only serves homework, so never report nothing instead."""
-        client._request_with_version_retry = AsyncMock(
-            side_effect=[
-                _token_response("token-easy-hw"),
-                _calendar_response([{"ItemType": 11, "Courses": "Dansk"}]),
-            ]
-        )
+        http.route(EASYIQ_HOMEWORK_URL, HttpResponse(200, [{"ItemType": 11, "Courses": "Dansk"}]))
 
         homework = await client.widgets.get_easyiq_homework(
             week="2026-W09",
@@ -496,22 +475,22 @@ class TestWidgetsClient:
         assert [hw.subject for hw in homework] == ["Dansk"]
 
     @pytest.mark.asyncio
-    async def test_get_easyiq_weekplan_does_not_use_the_homework_controller(self, client):
-        client._request_with_version_retry = AsyncMock(
-            side_effect=[
-                _token_response("token-easy"),
-                _calendar_response({"data": {"appointments": []}}),
-                _token_response("token-easy"),
-                _calendar_response([{"itemType": 9, "courses": "Matematik"}]),
-            ]
+    async def test_get_easyiq_weekplan_does_not_use_the_homework_controller(self, client, http):
+        http.route(EASYIQ_WEEKPLANINFO_URL, HttpResponse(200, {"data": {"appointments": []}}))
+        http.route(
+            EASYIQ_CALENDAR_URL, HttpResponse(200, [{"itemType": 9, "courses": "Matematik"}])
         )
 
         await client.widgets.get_easyiq_weekplan(
             "2026-W09", "guardian-1", ["inst-1"], "child-user-1", child_profile_id="4242"
         )
 
-        calls = client._request_with_version_retry.await_args_list
-        assert calls[3].args == ("get", EASYIQ_CALENDAR_URL)
+        assert _sent(http) == [
+            ("get", _token_url(client, WIDGET_EASYIQ_WEEKPLAN)),
+            ("post", EASYIQ_WEEKPLANINFO_URL),
+            ("get", _token_url(client, WIDGET_EASYIQ_WEEKPLAN)),
+            ("get", EASYIQ_CALENDAR_URL),
+        ]
 
     @pytest.mark.asyncio
     @pytest.mark.parametrize(
@@ -523,10 +502,8 @@ class TestWidgetsClient:
         ],
         ids=["events", "week-plan", "nested-mixed-case"],
     )
-    async def test_easyiq_calendar_reads_observed_envelope_variants(self, client, envelope):
-        client._request_with_version_retry = AsyncMock(
-            side_effect=[_token_response("token-easy"), _calendar_response(envelope)]
-        )
+    async def test_easyiq_calendar_reads_observed_envelope_variants(self, client, http, envelope):
+        http.route(EASYIQ_CALENDAR_URL, HttpResponse(200, envelope))
 
         events = await client.widgets.get_easyiq_calendar_events(
             week="2026-W09",
@@ -540,14 +517,12 @@ class TestWidgetsClient:
         assert [event.event_id for event in events] == ["event-1"]
 
     @pytest.mark.asyncio
-    async def test_easyiq_calendar_falls_through_to_the_accepted_identifiers(self, client):
+    async def test_easyiq_calendar_falls_through_to_the_accepted_identifiers(self, client, http):
         """EasyIQ answers 200-with-nothing for identifiers it does not know."""
-        client._request_with_version_retry = AsyncMock(
-            side_effect=[
-                _token_response("token-easy"),
-                _calendar_response([]),  # profile login / user child
-                _calendar_response([{"itemType": 4, "courses": "Dansk"}]),  # user login
-            ]
+        http.route(
+            EASYIQ_HOMEWORK_URL,
+            HttpResponse(200, []),  # profile login / user child
+            HttpResponse(200, [{"itemType": 4, "courses": "Dansk"}]),  # user login
         )
 
         homework = await client.widgets.get_easyiq_homework(
@@ -559,20 +534,17 @@ class TestWidgetsClient:
         )
 
         assert [hw.subject for hw in homework] == ["Dansk"]
-        calls = client._request_with_version_retry.await_args_list
-        assert [c.kwargs["params"]["loginId"] for c in calls[1:]] == ["4242", "child-user-1"]
+        login_ids = [request.params["loginId"] for request in http.requests_to(EASYIQ_HOMEWORK_URL)]
+        assert login_ids == ["4242", "child-user-1"]
 
     @pytest.mark.asyncio
-    async def test_easyiq_calendar_reuses_the_identifiers_that_worked(self, client):
+    async def test_easyiq_calendar_reuses_the_identifiers_that_worked(self, client, http):
         """A second week must not re-probe every identifier combination."""
-        client._request_with_version_retry = AsyncMock(
-            side_effect=[
-                _token_response("token-easy"),
-                _calendar_response([]),
-                _calendar_response([{"itemType": 4, "courses": "Dansk"}]),
-                _token_response("token-easy"),
-                _calendar_response([{"itemType": 4, "courses": "Matematik"}]),
-            ]
+        http.route(
+            EASYIQ_HOMEWORK_URL,
+            HttpResponse(200, []),
+            HttpResponse(200, [{"itemType": 4, "courses": "Dansk"}]),
+            HttpResponse(200, [{"itemType": 4, "courses": "Matematik"}]),
         )
         kwargs = {
             "session_uuid": "guardian-1",
@@ -585,17 +557,12 @@ class TestWidgetsClient:
         homework = await client.widgets.get_easyiq_homework(week="2026-W10", **kwargs)
 
         assert [hw.subject for hw in homework] == ["Matematik"]
-        calls = client._request_with_version_retry.await_args_list
-        assert len(calls) == 5
-        assert calls[4].kwargs["params"]["loginId"] == "child-user-1"
+        login_ids = [request.params["loginId"] for request in http.requests_to(EASYIQ_HOMEWORK_URL)]
+        assert login_ids == ["4242", "child-user-1", "child-user-1"]
 
     @pytest.mark.asyncio
-    async def test_easyiq_calendar_raises_when_every_identifier_is_rejected(self, client):
-        rejected = Mock()
-        rejected.raise_for_status = Mock(side_effect=AulaNotFoundError("HTTP 404", 404))
-        client._request_with_version_retry = AsyncMock(
-            side_effect=[_token_response("token-easy"), rejected, rejected, rejected, rejected]
-        )
+    async def test_easyiq_calendar_raises_when_every_identifier_is_rejected(self, client, http):
+        http.route(EASYIQ_HOMEWORK_URL, HttpResponse(404))
 
         with pytest.raises(AulaNotFoundError):
             await client.widgets.get_easyiq_homework(
@@ -606,27 +573,27 @@ class TestWidgetsClient:
                 child_profile_id="4242",
             )
 
+        assert len(http.requests_to(EASYIQ_HOMEWORK_URL)) == 4
+
     @pytest.mark.asyncio
-    async def test_get_easyiq_weekplan_falls_back_to_the_portal_when_the_api_fails(self, client):
-        failing = Mock()
-        failing.raise_for_status = Mock(side_effect=AulaNotFoundError("HTTP 404", 404))
-        client._request_with_version_retry = AsyncMock(
-            side_effect=[
-                _token_response("token-easy"),
-                failing,
-                _token_response("token-easy"),
-                _calendar_response(
-                    [
-                        {
-                            "itemType": 9,
-                            "courses": "Matematik",
-                            "activitiesDisplay": "6A",
-                            "start": "2026-02-24T08:00:00",
-                        },
-                        {"itemType": 4, "courses": "Dansk"},
-                    ]
-                ),
-            ]
+    async def test_get_easyiq_weekplan_falls_back_to_the_portal_when_the_api_fails(
+        self, client, http
+    ):
+        http.route(EASYIQ_WEEKPLANINFO_URL, HttpResponse(404))
+        http.route(
+            EASYIQ_CALENDAR_URL,
+            HttpResponse(
+                200,
+                [
+                    {
+                        "itemType": 9,
+                        "courses": "Matematik",
+                        "activitiesDisplay": "6A",
+                        "start": "2026-02-24T08:00:00",
+                    },
+                    {"itemType": 4, "courses": "Dansk"},
+                ],
+            ),
         )
 
         appointments = await client.widgets.get_easyiq_weekplan(
@@ -642,30 +609,31 @@ class TestWidgetsClient:
         assert appointments[0].start == "2026-02-24T08:00:00"
         # The class survives the mapping to Appointment.
         assert appointments[0].activities == "6A"
-        calls = client._request_with_version_retry.await_args_list
-        assert calls[1].args == ("post", f"{EASYIQ_API}/weekplaninfo")
-        assert calls[3].args == ("get", EASYIQ_CALENDAR_URL)
+        assert _sent(http) == [
+            ("get", _token_url(client, WIDGET_EASYIQ_WEEKPLAN)),
+            ("post", EASYIQ_WEEKPLANINFO_URL),
+            ("get", _token_url(client, WIDGET_EASYIQ_WEEKPLAN)),
+            ("get", EASYIQ_CALENDAR_URL),
+        ]
 
     @pytest.mark.asyncio
-    async def test_easyiq_weekplan_fallback_preserves_notice_metadata(self, client):
-        client._request_with_version_retry = AsyncMock(
-            side_effect=[
-                _token_response("token-easy"),
-                _calendar_response({"data": {"appointments": []}}),
-                _token_response("token-easy"),
-                _calendar_response(
-                    {
-                        "Events": [
-                            {
-                                "Id": "notice-1",
-                                "ItemType": 8,
-                                "Title": "Sports day",
-                                "OwnerName": "Ada Teacher",
-                            }
-                        ]
-                    }
-                ),
-            ]
+    async def test_easyiq_weekplan_fallback_preserves_notice_metadata(self, client, http):
+        http.route(EASYIQ_WEEKPLANINFO_URL, HttpResponse(200, {"data": {"appointments": []}}))
+        http.route(
+            EASYIQ_CALENDAR_URL,
+            HttpResponse(
+                200,
+                {
+                    "Events": [
+                        {
+                            "Id": "notice-1",
+                            "ItemType": 8,
+                            "Title": "Sports day",
+                            "OwnerName": "Lærer Et",
+                        }
+                    ]
+                },
+            ),
         )
 
         appointments = await client.widgets.get_easyiq_weekplan(
@@ -679,24 +647,15 @@ class TestWidgetsClient:
         assert len(appointments) == 1
         assert appointments[0].appointment_id == "notice-1"
         assert appointments[0].title == "Sports day"
-        assert appointments[0].owner_name == "Ada Teacher"
+        assert appointments[0].owner_name == "Lærer Et"
         assert appointments[0].is_all_day is True
         assert appointments[0].is_notice is True
 
     @pytest.mark.asyncio
-    async def test_get_easyiq_weekplan_falls_back_when_the_api_returns_nothing(self, client):
+    async def test_get_easyiq_weekplan_falls_back_when_the_api_returns_nothing(self, client, http):
         """A 200 with an empty appointment list is the shape issue #45 reported."""
-        empty = Mock()
-        empty.raise_for_status = Mock()
-        empty.json = Mock(return_value={"data": {"appointments": []}})
-        client._request_with_version_retry = AsyncMock(
-            side_effect=[
-                _token_response("token-easy"),
-                empty,
-                _token_response("token-easy"),
-                _calendar_response([{"itemType": 8, "courses": "Idræt"}]),
-            ]
-        )
+        http.route(EASYIQ_WEEKPLANINFO_URL, HttpResponse(200, {"data": {"appointments": []}}))
+        http.route(EASYIQ_CALENDAR_URL, HttpResponse(200, [{"itemType": 8, "courses": "Idræt"}]))
 
         appointments = await client.widgets.get_easyiq_weekplan(
             "2026-W09",
@@ -709,15 +668,12 @@ class TestWidgetsClient:
         assert [a.title for a in appointments] == ["Idræt"]
 
     @pytest.mark.asyncio
-    async def test_easyiq_calendar_warns_when_the_body_carries_no_events(self, client, caplog):
+    async def test_easyiq_calendar_warns_when_the_body_carries_no_events(
+        self, client, http, caplog
+    ):
         """A licensing error arrives as 2xx with an error object; silence reads as an empty week."""
         envelope = {"ErrorCode": "1", "ErrorDescription": "No license for this school"}
-        client._request_with_version_retry = AsyncMock(
-            side_effect=[
-                _token_response("token-easy"),
-                *[_calendar_response(envelope)] * 4,
-            ]
-        )
+        http.route(EASYIQ_HOMEWORK_URL, HttpResponse(200, envelope))
 
         homework = await client.widgets.get_easyiq_homework(
             week="2026-W09",
@@ -736,13 +692,10 @@ class TestWidgetsClient:
         assert "week=2026-W09" in caplog.text
 
     @pytest.mark.asyncio
-    async def test_easyiq_calendar_stays_quiet_on_a_genuinely_empty_week(self, client, caplog):
-        client._request_with_version_retry = AsyncMock(
-            side_effect=[
-                _token_response("token-easy"),
-                *[_calendar_response({"Data": {"Events": []}})] * 4,
-            ]
-        )
+    async def test_easyiq_calendar_stays_quiet_on_a_genuinely_empty_week(
+        self, client, http, caplog
+    ):
+        http.route(EASYIQ_HOMEWORK_URL, HttpResponse(200, {"Data": {"Events": []}}))
 
         homework = await client.widgets.get_easyiq_homework(
             week="2026-W09",
@@ -756,13 +709,8 @@ class TestWidgetsClient:
         assert "no readable data" not in caplog.text
 
     @pytest.mark.asyncio
-    async def test_easyiq_calendar_truncates_a_long_body(self, client, caplog):
-        client._request_with_version_retry = AsyncMock(
-            side_effect=[
-                _token_response("token-easy"),
-                *[_calendar_response({"error": "x" * 5000})] * 4,
-            ]
-        )
+    async def test_easyiq_calendar_truncates_a_long_body(self, client, http, caplog):
+        http.route(EASYIQ_HOMEWORK_URL, HttpResponse(200, {"error": "x" * 5000}))
 
         await client.widgets.get_easyiq_homework(
             week="2026-W09",
@@ -776,17 +724,13 @@ class TestWidgetsClient:
         assert len(caplog.text) < 1000
 
     @pytest.mark.asyncio
-    async def test_weekplaninfo_warns_when_the_envelope_is_missing(self, client, caplog):
+    async def test_weekplaninfo_warns_when_the_envelope_is_missing(self, client, http, caplog):
         """weekplaninfo has the same hole: no data key, and the fallback hides why."""
-        envelope = _calendar_response({"ErrorCode": "1", "ErrorDescription": "Not licensed"})
-        client._request_with_version_retry = AsyncMock(
-            side_effect=[
-                _token_response("token-easy"),
-                envelope,
-                _token_response("token-easy"),
-                _calendar_response([{"itemType": 8, "courses": "Idræt"}]),
-            ]
+        http.route(
+            EASYIQ_WEEKPLANINFO_URL,
+            HttpResponse(200, {"ErrorCode": "1", "ErrorDescription": "Not licensed"}),
         )
+        http.route(EASYIQ_CALENDAR_URL, HttpResponse(200, [{"itemType": 8, "courses": "Idræt"}]))
 
         appointments = await client.widgets.get_easyiq_weekplan(
             "2026-W09",
@@ -802,16 +746,12 @@ class TestWidgetsClient:
         assert "Not licensed" in caplog.text
 
     @pytest.mark.asyncio
-    async def test_weekplaninfo_stays_quiet_on_an_explicit_null_envelope(self, client, caplog):
+    async def test_weekplaninfo_stays_quiet_on_an_explicit_null_envelope(
+        self, client, http, caplog
+    ):
         """A null under "data" is the API saying it has none, not a shape we cannot read."""
-        client._request_with_version_retry = AsyncMock(
-            side_effect=[
-                _token_response("token-easy"),
-                _calendar_response({"data": None}),
-                _token_response("token-easy"),
-                _calendar_response([{"itemType": 8, "courses": "Idræt"}]),
-            ]
-        )
+        http.route(EASYIQ_WEEKPLANINFO_URL, HttpResponse(200, {"data": None}))
+        http.route(EASYIQ_CALENDAR_URL, HttpResponse(200, [{"itemType": 8, "courses": "Idræt"}]))
 
         appointments = await client.widgets.get_easyiq_weekplan(
             "2026-W09",
@@ -825,12 +765,10 @@ class TestWidgetsClient:
         assert "no readable data" not in caplog.text
 
     @pytest.mark.asyncio
-    async def test_get_easyiq_weekplan_raises_when_no_profile_id_to_fall_back_with(self, client):
-        failing = Mock()
-        failing.raise_for_status = Mock(side_effect=AulaNotFoundError("HTTP 404", 404))
-        client._request_with_version_retry = AsyncMock(
-            side_effect=[_token_response("token-easy"), failing]
-        )
+    async def test_get_easyiq_weekplan_raises_when_no_profile_id_to_fall_back_with(
+        self, client, http
+    ):
+        http.route(EASYIQ_WEEKPLANINFO_URL, HttpResponse(404))
 
         with pytest.raises(AulaNotFoundError):
             await client.widgets.get_easyiq_weekplan(
@@ -838,39 +776,33 @@ class TestWidgetsClient:
             )
 
     @pytest.mark.asyncio
-    async def test_get_meebook_weekplan_uses_token_and_expected_request_shape(self, client):
-        token_response = Mock()
-        token_response.raise_for_status = Mock()
-        token_response.json = Mock(return_value={"data": "token-meebook"})
-
-        meebook_response = Mock()
-        meebook_response.raise_for_status = Mock()
-        meebook_response.json = Mock(
-            return_value=[
-                {
-                    "name": "Student",
-                    "unilogin": "student1",
-                    "weekPlan": [
-                        {
-                            "date": "2026-02-24",
-                            "tasks": [
-                                {
-                                    "id": 1,
-                                    "type": "task",
-                                    "title": "Read",
-                                    "content": "Chapter 1",
-                                    "pill": "Homework",
-                                    "link_text": "Open",
-                                }
-                            ],
-                        }
-                    ],
-                }
-            ]
-        )
-
-        client._request_with_version_retry = AsyncMock(
-            side_effect=[token_response, meebook_response]
+    async def test_get_meebook_weekplan_uses_token_and_expected_request_shape(self, client, http):
+        http.route(
+            MEEBOOK_URL,
+            HttpResponse(
+                200,
+                [
+                    {
+                        "name": "Student",
+                        "unilogin": "student1",
+                        "weekPlan": [
+                            {
+                                "date": "2026-02-24",
+                                "tasks": [
+                                    {
+                                        "id": 1,
+                                        "type": "task",
+                                        "title": "Read",
+                                        "content": "Chapter 1",
+                                        "pill": "Homework",
+                                        "link_text": "Open",
+                                    }
+                                ],
+                            }
+                        ],
+                    }
+                ],
+            ),
         )
 
         plans = await client.widgets.get_meebook_weekplan(
@@ -881,44 +813,47 @@ class TestWidgetsClient:
         )
 
         assert [plan.unilogin for plan in plans] == ["student1"]
-        calls = client._request_with_version_retry.await_args_list
-        assert calls[1].args == ("get", f"{MEEBOOK_API}/relatedweekplan/all")
-        assert calls[1].kwargs["params"] == {
+        assert _sent(http) == [
+            ("get", _token_url(client, WIDGET_MEEBOOK)),
+            ("get", MEEBOOK_URL),
+        ]
+        [request] = http.requests_to(MEEBOOK_URL)
+        assert request.params == {
             "currentWeekNumber": "2026-W09",
             "userProfile": "guardian",
             "childFilter[]": ["child-1"],
             "institutionFilter[]": ["inst-1"],
         }
-        assert calls[1].kwargs["headers"] == {
-            "Authorization": "Bearer token-meebook",
+        assert request.headers == {
+            "Authorization": f"Bearer {WIDGET_TOKEN}",
             "Accept": "application/json",
             "sessionUUID": "session-1",
             "X-Version": "1.0",
         }
-        assert meebook_response.method_calls == [call.raise_for_status(), call.json()]
 
     @pytest.mark.asyncio
-    async def test_get_docendo_weekplan_sends_widget_token_and_session_uuid(self, client):
+    async def test_get_docendo_weekplan_sends_widget_token_and_session_uuid(self, client, http):
         # header.payload.signature, where payload is {"sub": "session-1"}
         jwt = "eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiJzZXNzaW9uLTEifQ.sig"
-        docendo_response = _calendar_response(
-            {"data": {"weekPlans": [{"name": "4A", "note": "", "events": []}, "junk"]}}
-        )
-        client._request_with_version_retry = AsyncMock(
-            side_effect=[_token_response(jwt), docendo_response]
+        docendo_url = f"{DOCENDO_API}/weekplan"
+        http.route(_token_prefix(client), _token(jwt))
+        http.route(
+            docendo_url,
+            HttpResponse(
+                200, {"data": {"weekPlans": [{"name": "4A", "note": "", "events": []}, "junk"]}}
+            ),
         )
 
         plans = await client.widgets.get_docendo_weekplan("2026-W9")
 
         assert [plan.name for plan in plans] == ["4A"]
-        calls = client._request_with_version_retry.await_args_list
-        assert calls[0].args[1].endswith("widgetId=0057")
-        assert calls[1].args == ("get", f"{DOCENDO_API}/weekplan")
-        assert calls[1].kwargs["params"] == {
+        assert _sent(http) == [("get", _token_url(client, "0057")), ("get", docendo_url)]
+        [request] = http.requests_to(docendo_url)
+        assert request.params == {
             "currentWeekNumber": "2026-W09",
             "userProfile": "guardian",
         }
-        assert calls[1].kwargs["headers"] == {
+        assert request.headers == {
             "Accept": "application/json",
             "Authorization": f"Baerer {jwt}",
             "Origin": "https://www.aula.dk",
@@ -927,54 +862,46 @@ class TestWidgetsClient:
         }
 
     @pytest.mark.asyncio
-    async def test_get_docendo_weekplan_omits_session_uuid_for_opaque_token(self, client):
-        client._request_with_version_retry = AsyncMock(
-            side_effect=[_token_response("opaque"), _calendar_response({"data": {"weekPlans": []}})]
-        )
+    async def test_get_docendo_weekplan_omits_session_uuid_for_opaque_token(self, client, http):
+        docendo_url = f"{DOCENDO_API}/weekplan"
+        http.route(_token_prefix(client), _token("opaque"))
+        http.route(docendo_url, HttpResponse(200, {"data": {"weekPlans": []}}))
 
         assert await client.widgets.get_docendo_weekplan("2026-W09") == []
-        headers = client._request_with_version_retry.await_args_list[1].kwargs["headers"]
-        assert "aulasessionuuid" not in headers
+        [request] = http.requests_to(docendo_url)
+        assert "aulasessionuuid" not in request.headers
 
     @pytest.mark.asyncio
-    async def test_get_docendo_weekplan_unexpected_shape_is_empty(self, client, caplog):
-        client._request_with_version_retry = AsyncMock(
-            side_effect=[
-                _token_response("token"),
-                _calendar_response({"error": "Klasse 4A ikke fundet"}),
-            ]
-        )
+    async def test_get_docendo_weekplan_unexpected_shape_is_empty(self, client, http, caplog):
+        http.route(f"{DOCENDO_API}/weekplan", HttpResponse(200, {"error": "Klasse 4A ikke fundet"}))
 
         assert await client.widgets.get_docendo_weekplan("2026-W09") == []
         assert "keys ['error']" in caplog.text
         assert "Klasse 4A" not in caplog.text
 
     @pytest.mark.asyncio
-    async def test_get_momo_courses_uses_token_and_expected_request_shape(self, client):
-        token_response = Mock()
-        token_response.raise_for_status = Mock()
-        token_response.json = Mock(return_value={"data": "token-momo"})
-
-        momo_response = Mock()
-        momo_response.raise_for_status = Mock()
-        momo_response.json = Mock(
-            return_value=[
-                {
-                    "userId": "child-1",
-                    "name": "Student",
-                    "courses": [
-                        {
-                            "id": "course-1",
-                            "title": "Danish",
-                            "institutionId": "inst-1",
-                            "image": None,
-                        }
-                    ],
-                }
-            ]
+    async def test_get_momo_courses_uses_token_and_expected_request_shape(self, client, http):
+        courses_url = f"{SYSTEMATIC_API}/courses/v1"
+        http.route(
+            courses_url,
+            HttpResponse(
+                200,
+                [
+                    {
+                        "userId": "child-1",
+                        "name": "Student",
+                        "courses": [
+                            {
+                                "id": "course-1",
+                                "title": "Danish",
+                                "institutionId": "inst-1",
+                                "image": None,
+                            }
+                        ],
+                    }
+                ],
+            ),
         )
-
-        client._request_with_version_retry = AsyncMock(side_effect=[token_response, momo_response])
 
         courses = await client.widgets.get_momo_courses(
             children=["child-1"],
@@ -983,68 +910,65 @@ class TestWidgetsClient:
         )
 
         assert [course.user_id for course in courses] == ["child-1"]
-        calls = client._request_with_version_retry.await_args_list
-        assert calls[1].args == ("get", f"{SYSTEMATIC_API}/courses/v1")
-        assert calls[1].kwargs["params"] == {
+        assert _sent(http) == [
+            ("get", _token_url(client, WIDGET_HUSKELISTEN)),
+            ("get", courses_url),
+        ]
+        [request] = http.requests_to(courses_url)
+        assert request.params == {
             "widgetVersion": "1.3",
             "userProfile": "guardian",
             "sessionId": "session-1",
             "children": ["child-1"],
             "institutions": ["inst-1"],
         }
-        assert calls[1].kwargs["headers"] == {
-            "Aula-Authorization": "Bearer token-momo",
+        assert request.headers == {
+            "Aula-Authorization": f"Bearer {WIDGET_TOKEN}",
         }
-        assert momo_response.method_calls == [call.raise_for_status(), call.json()]
 
     @pytest.mark.asyncio
-    async def test_get_momo_reminders_uses_token_and_expected_request_shape(self, client):
-        token_response = Mock()
-        token_response.raise_for_status = Mock()
-        token_response.json = Mock(return_value={"data": "token-momo"})
-
-        reminders_response = Mock()
-        reminders_response.raise_for_status = Mock()
-        reminders_response.json = Mock(
-            return_value=[
-                {
-                    "userId": 164625,
-                    "userName": "Emilie Efternavn",
-                    "courseReminders": [],
-                    "assignmentReminders": [
-                        {
-                            "id": 1,
-                            "institutionName": "Holme Skole",
-                            "institutionId": 183,
-                            "dueDate": "2026-03-01T11:00:00Z",
-                            "courseId": 297469,
-                            "teamNames": ["5A"],
-                            "teamIds": [65271],
-                            "courseSubjects": [],
-                            "assignmentId": 5027904,
-                            "assignmentText": "Skriv en novelle",
-                        }
-                    ],
-                    "teamReminders": [
-                        {
-                            "id": 76169,
-                            "institutionName": "Holme Skole",
-                            "institutionId": 183,
-                            "dueDate": "2026-02-28T23:00:00Z",
-                            "teamId": 65240,
-                            "teamName": "2A",
-                            "reminderText": "Lektie: Matematikfessor",
-                            "createdBy": "Peter",
-                            "lastEditBy": "Peter",
-                            "subjectName": "Matematik",
-                        }
-                    ],
-                }
-            ]
-        )
-
-        client._request_with_version_retry = AsyncMock(
-            side_effect=[token_response, reminders_response]
+    async def test_get_momo_reminders_uses_token_and_expected_request_shape(self, client, http):
+        reminders_url = f"{SYSTEMATIC_API}/reminders/v1"
+        http.route(
+            reminders_url,
+            HttpResponse(
+                200,
+                [
+                    {
+                        "userId": 1000001,
+                        "userName": "Barn Et",
+                        "courseReminders": [],
+                        "assignmentReminders": [
+                            {
+                                "id": 1,
+                                "institutionName": "Skole Et",
+                                "institutionId": 183,
+                                "dueDate": "2026-03-01T11:00:00Z",
+                                "courseId": 5000001,
+                                "teamNames": ["5A"],
+                                "teamIds": [5000002],
+                                "courseSubjects": [],
+                                "assignmentId": 5000003,
+                                "assignmentText": "Skriv en novelle",
+                            }
+                        ],
+                        "teamReminders": [
+                            {
+                                "id": 5000004,
+                                "institutionName": "Skole Et",
+                                "institutionId": 183,
+                                "dueDate": "2026-02-28T23:00:00Z",
+                                "teamId": 5000005,
+                                "teamName": "2A",
+                                "reminderText": "Lektie: Matematikfessor",
+                                "createdBy": "Lærer Et",
+                                "lastEditBy": "Lærer Et",
+                                "subjectName": "Matematik",
+                            }
+                        ],
+                    }
+                ],
+            ),
         )
 
         users = await client.widgets.get_momo_reminders(
@@ -1056,15 +980,18 @@ class TestWidgetsClient:
         )
 
         assert len(users) == 1
-        assert users[0].user_name == "Emilie Efternavn"
+        assert users[0].user_name == "Barn Et"
         assert len(users[0].team_reminders) == 1
         assert users[0].team_reminders[0].subject_name == "Matematik"
         assert len(users[0].assignment_reminders) == 1
         assert users[0].assignment_reminders[0].assignment_text == "Skriv en novelle"
 
-        calls = client._request_with_version_retry.await_args_list
-        assert calls[1].args == ("get", f"{SYSTEMATIC_API}/reminders/v1")
-        assert calls[1].kwargs["params"] == {
+        assert _sent(http) == [
+            ("get", _token_url(client, WIDGET_HUSKELISTEN)),
+            ("get", reminders_url),
+        ]
+        [request] = http.requests_to(reminders_url)
+        assert request.params == {
             "widgetVersion": "1.10",
             "userProfile": "guardian",
             "sessionId": "session-1",
@@ -1073,39 +1000,33 @@ class TestWidgetsClient:
             "from": "2026-02-26",
             "dueNoLaterThan": "2026-03-05",
         }
-        assert calls[1].kwargs["headers"] == {
-            "Aula-Authorization": "Bearer token-momo",
+        assert request.headers == {
+            "Aula-Authorization": f"Bearer {WIDGET_TOKEN}",
         }
-        assert reminders_response.method_calls == [call.raise_for_status(), call.json()]
 
     @pytest.mark.asyncio
-    async def test_get_library_status_uses_token_and_expected_request_shape(self, client):
-        token_response = Mock()
-        token_response.raise_for_status = Mock()
-        token_response.json = Mock(return_value={"data": "token-library"})
-
-        library_response = Mock()
-        library_response.raise_for_status = Mock()
-        library_response.json = Mock(
-            return_value={
-                "loans": [
-                    {
-                        "id": 1,
-                        "title": "Book",
-                        "author": "Author",
-                        "patronDisplayName": "Student",
-                        "dueDate": "2026-03-01",
-                        "numberOfLoans": 1,
-                    }
-                ],
-                "longtermLoans": [],
-                "reservations": [],
-                "branchIds": ["branch-1"],
-            }
-        )
-
-        client._request_with_version_retry = AsyncMock(
-            side_effect=[token_response, library_response]
+    async def test_get_library_status_uses_token_and_expected_request_shape(self, client, http):
+        library_url = f"{CICERO_API}/library/status/v3"
+        http.route(
+            library_url,
+            HttpResponse(
+                200,
+                {
+                    "loans": [
+                        {
+                            "id": 1,
+                            "title": "Book",
+                            "author": "Author",
+                            "patronDisplayName": "Student",
+                            "dueDate": "2026-03-01",
+                            "numberOfLoans": 1,
+                        }
+                    ],
+                    "longtermLoans": [],
+                    "reservations": [],
+                    "branchIds": ["branch-1"],
+                },
+            ),
         )
 
         status = await client.widgets.get_library_status(
@@ -1116,9 +1037,12 @@ class TestWidgetsClient:
         )
 
         assert [loan.id for loan in status.loans] == [1]
-        calls = client._request_with_version_retry.await_args_list
-        assert calls[1].args == ("get", f"{CICERO_API}/library/status/v3")
-        assert calls[1].kwargs["params"] == {
+        assert _sent(http) == [
+            ("get", _token_url(client, WIDGET_HUSKELISTEN)),
+            ("get", library_url),
+        ]
+        [request] = http.requests_to(library_url)
+        assert request.params == {
             "coverImageHeight": "160",
             "widgetVersion": "1.6",
             "userProfile": "guardian",
@@ -1126,11 +1050,10 @@ class TestWidgetsClient:
             "institutions": ["inst-1"],
             "children": ["child-1"],
         }
-        assert calls[1].kwargs["headers"] == {
-            "Authorization": "Bearer token-library",
+        assert request.headers == {
+            "Authorization": f"Bearer {WIDGET_TOKEN}",
             "Accept": "application/json",
         }
-        assert library_response.method_calls == [call.raise_for_status(), call.json()]
 
 
 class TestWidgetsClientMalformedResponses:
@@ -1143,52 +1066,20 @@ class TestWidgetsClientMalformedResponses:
     JWT_EXPIRED = {"message": "JWT-Token expired, please renew."}
 
     @pytest.fixture
-    def client(self):
-        return AulaApiClient(http_client=AsyncMock(), access_token="token")
-
-    @staticmethod
-    def _responses(client, body):
-        token_response = Mock()
-        token_response.raise_for_status = Mock()
-        token_response.json = Mock(return_value={"data": "token-123"})
-
-        provider_response = Mock()
-        provider_response.raise_for_status = Mock()
-        provider_response.json = Mock(return_value=body)
-
-        client._request_with_version_retry = AsyncMock(
-            side_effect=[token_response, provider_response]
-        )
+    def client(self, http):
+        return _aula_client(http)
 
     @pytest.mark.asyncio
-    async def test_meebook_weekplan_refreshes_and_retries_on_jwt_expiry(self, client):
-        old_token_response = Mock()
-        old_token_response.raise_for_status = Mock()
-        old_token_response.json = Mock(return_value={"data": "token-old"})
-
-        expired_response = Mock()
-        expired_response.raise_for_status = Mock()
-        expired_response.json = Mock(return_value=self.JWT_EXPIRED)
-
-        new_token_response = Mock()
-        new_token_response.raise_for_status = Mock()
-        new_token_response.json = Mock(return_value={"data": "token-new"})
-
-        successful_response = Mock()
-        successful_response.raise_for_status = Mock()
-        successful_response.json = Mock(
-            return_value=[{"name": "Child", "unilogin": "child-1", "weekPlan": []}]
+    async def test_meebook_weekplan_refreshes_and_retries_on_jwt_expiry(self, http):
+        refresh = AsyncMock(return_value="new-access-token")
+        client = _aula_client(
+            http, _token("token-old"), _token("token-new"), on_token_refresh=refresh
         )
-
-        client._request_with_version_retry = AsyncMock(
-            side_effect=[
-                old_token_response,
-                expired_response,
-                new_token_response,
-                successful_response,
-            ]
+        http.route(
+            MEEBOOK_URL,
+            HttpResponse(200, self.JWT_EXPIRED),
+            HttpResponse(200, [{"name": "Child", "unilogin": "child-1", "weekPlan": []}]),
         )
-        client._refresh_authentication = AsyncMock(return_value=True)
 
         plans = await client.widgets.get_meebook_weekplan(
             child_filter=["child-1"],
@@ -1198,22 +1089,18 @@ class TestWidgetsClientMalformedResponses:
         )
 
         assert [plan.name for plan in plans] == ["Child"]
-        client._refresh_authentication.assert_awaited_once_with(force=True)
-        calls = client._request_with_version_retry.await_args_list
-        assert calls[1].kwargs["headers"]["Authorization"] == "Bearer token-old"
-        assert calls[3].kwargs["headers"]["Authorization"] == "Bearer token-new"
+        refresh.assert_awaited_once()
+        first, second = http.requests_to(MEEBOOK_URL)
+        assert first.headers["Authorization"] == "Bearer token-old"
+        assert second.headers["Authorization"] == "Bearer token-new"
 
     @pytest.mark.asyncio
     async def test_meebook_weekplan_returns_empty_when_jwt_refresh_is_unavailable(
-        self, client, caplog
+        self, http, caplog
     ):
-        client._request_with_version_retry = AsyncMock(
-            side_effect=[
-                _token_response("token-old"),
-                _calendar_response(self.JWT_EXPIRED),
-            ]
-        )
-        client._refresh_authentication = AsyncMock(return_value=False)
+        refresh = AsyncMock(return_value=None)
+        client = _aula_client(http, on_token_refresh=refresh)
+        http.route(MEEBOOK_URL, HttpResponse(200, self.JWT_EXPIRED))
 
         plans = await client.widgets.get_meebook_weekplan(
             child_filter=["child-1"],
@@ -1223,23 +1110,18 @@ class TestWidgetsClientMalformedResponses:
         )
 
         assert plans == []
-        client._refresh_authentication.assert_awaited_once_with(force=True)
-        calls = client._request_with_version_retry.await_args_list
-        assert sum("aulaToken.getAulaToken" in call_.args[1] for call_ in calls) == 1
-        assert sum(call_.args[1] == f"{MEEBOOK_API}/relatedweekplan/all" for call_ in calls) == 1
+        refresh.assert_awaited_once()
+        assert len(http.requests_to(_token_prefix(client))) == 1
+        assert len(http.requests_to(MEEBOOK_URL)) == 1
         assert "Meebook weekplan JWT expired and could not be renewed" in caplog.text
 
     @pytest.mark.asyncio
-    async def test_meebook_weekplan_retries_only_once_when_jwt_stays_expired(self, client, caplog):
-        client._request_with_version_retry = AsyncMock(
-            side_effect=[
-                _token_response("token-old"),
-                _calendar_response(self.JWT_EXPIRED),
-                _token_response("token-new"),
-                _calendar_response(self.JWT_EXPIRED),
-            ]
+    async def test_meebook_weekplan_retries_only_once_when_jwt_stays_expired(self, http, caplog):
+        refresh = AsyncMock(return_value="new-access-token")
+        client = _aula_client(
+            http, _token("token-old"), _token("token-new"), on_token_refresh=refresh
         )
-        client._refresh_authentication = AsyncMock(return_value=True)
+        http.route(MEEBOOK_URL, HttpResponse(200, self.JWT_EXPIRED))
 
         plans = await client.widgets.get_meebook_weekplan(
             child_filter=["child-1"],
@@ -1249,18 +1131,16 @@ class TestWidgetsClientMalformedResponses:
         )
 
         assert plans == []
-        client._refresh_authentication.assert_awaited_once_with(force=True)
-        calls = client._request_with_version_retry.await_args_list
-        assert sum("aulaToken.getAulaToken" in call_.args[1] for call_ in calls) == 2
-        assert sum(call_.args[1] == f"{MEEBOOK_API}/relatedweekplan/all" for call_ in calls) == 2
+        refresh.assert_awaited_once()
+        assert len(http.requests_to(_token_prefix(client))) == 2
+        assert len(http.requests_to(MEEBOOK_URL)) == 2
         assert "Meebook weekplan JWT expired and could not be renewed" in caplog.text
 
     @pytest.mark.asyncio
-    async def test_meebook_weekplan_does_not_refresh_for_unrelated_error_object(
-        self, client, caplog
-    ):
-        self._responses(client, {"message": "Service temporarily unavailable"})
-        client._refresh_authentication = AsyncMock(return_value=True)
+    async def test_meebook_weekplan_does_not_refresh_for_unrelated_error_object(self, http, caplog):
+        refresh = AsyncMock(return_value="new-access-token")
+        client = _aula_client(http, on_token_refresh=refresh)
+        http.route(MEEBOOK_URL, HttpResponse(200, {"message": "Service temporarily unavailable"}))
 
         plans = await client.widgets.get_meebook_weekplan(
             child_filter=["child-1"],
@@ -1270,12 +1150,14 @@ class TestWidgetsClientMalformedResponses:
         )
 
         assert plans == []
-        client._refresh_authentication.assert_not_awaited()
+        refresh.assert_not_awaited()
         assert "Meebook weekplan returned dict instead of a list" in caplog.text
 
     @pytest.mark.asyncio
-    async def test_meebook_weekplan_skips_non_dict_items(self, client, caplog):
-        self._responses(client, [{"name": "Child", "unilogin": "abc123"}, "junk", None])
+    async def test_meebook_weekplan_skips_non_dict_items(self, client, http, caplog):
+        http.route(
+            MEEBOOK_URL, HttpResponse(200, [{"name": "Child", "unilogin": "abc123"}, "junk", None])
+        )
 
         plans = await client.widgets.get_meebook_weekplan(
             child_filter=["child-1"],
@@ -1288,9 +1170,9 @@ class TestWidgetsClientMalformedResponses:
         assert "Meebook weekplan returned 2 non-dict item(s)" in caplog.text
 
     @pytest.mark.asyncio
-    async def test_meebook_weekplan_returns_empty_on_unparseable_body(self, client):
+    async def test_meebook_weekplan_returns_empty_on_unparseable_body(self, client, http):
         # http_httpx sets data to None when the body is not valid JSON.
-        self._responses(client, None)
+        http.route(MEEBOOK_URL, HttpResponse(200, None))
 
         plans = await client.widgets.get_meebook_weekplan(
             child_filter=["child-1"],
@@ -1302,8 +1184,8 @@ class TestWidgetsClientMalformedResponses:
         assert plans == []
 
     @pytest.mark.asyncio
-    async def test_momo_courses_returns_empty_on_error_object(self, client, caplog):
-        self._responses(client, self.JWT_EXPIRED)
+    async def test_momo_courses_returns_empty_on_error_object(self, client, http, caplog):
+        http.route(f"{SYSTEMATIC_API}/courses/v1", HttpResponse(200, self.JWT_EXPIRED))
 
         courses = await client.widgets.get_momo_courses(
             children=["child-1"],
@@ -1315,8 +1197,8 @@ class TestWidgetsClientMalformedResponses:
         assert "Huskelisten courses returned dict instead of a list" in caplog.text
 
     @pytest.mark.asyncio
-    async def test_momo_reminders_returns_empty_on_error_object(self, client, caplog):
-        self._responses(client, self.JWT_EXPIRED)
+    async def test_momo_reminders_returns_empty_on_error_object(self, client, http, caplog):
+        http.route(f"{SYSTEMATIC_API}/reminders/v1", HttpResponse(200, self.JWT_EXPIRED))
 
         reminders = await client.widgets.get_momo_reminders(
             children=["child-1"],
@@ -1330,8 +1212,8 @@ class TestWidgetsClientMalformedResponses:
         assert "Huskelisten reminders returned dict instead of a list" in caplog.text
 
     @pytest.mark.asyncio
-    async def test_library_status_returns_empty_on_list_body(self, client, caplog):
-        self._responses(client, ["unexpected"])
+    async def test_library_status_returns_empty_on_list_body(self, client, http, caplog):
+        http.route(f"{CICERO_API}/library/status/v3", HttpResponse(200, ["unexpected"]))
 
         status = await client.widgets.get_library_status(
             widget_id=WIDGET_HUSKELISTEN,
@@ -1354,18 +1236,16 @@ class TestEasyiqProtocolCorrectIdentifier:
     """
 
     @pytest.fixture
-    def client(self):
-        return AulaApiClient(http_client=AsyncMock(), access_token="token")
+    def client(self, http):
+        return _aula_client(http)
 
     @pytest.mark.asyncio
-    async def test_authenticate_response_populates_the_parent_login_id(self, client):
-        client._request_with_version_retry = AsyncMock(
-            side_effect=[
-                _token_response("token-boot"),
-                _calendar_response({"loginId": "parent-42", "child": "1", "schoolId": "9"}),
-                _calendar_response({"Children": []}),
-            ]
+    async def test_authenticate_response_populates_the_parent_login_id(self, client, http):
+        http.route(
+            EASYIQ_AUTHENTICATE_URL,
+            HttpResponse(200, {"loginId": "parent-42", "child": "1", "schoolId": "9"}),
         )
+        http.route(EASYIQ_CHILDREN_URL, HttpResponse(200, {"Children": []}))
 
         await client.widgets.ensure_easyiq_session(
             ["inst-1"], "guardian-1", ["barn0003"], WIDGET_EASYIQ_HOMEWORK
@@ -1374,14 +1254,9 @@ class TestEasyiqProtocolCorrectIdentifier:
         assert client.widgets._easyiq_parent_login_id == "parent-42"
 
     @pytest.mark.asyncio
-    async def test_authenticate_response_missing_login_id_does_not_raise(self, client):
-        client._request_with_version_retry = AsyncMock(
-            side_effect=[
-                _token_response("token-boot"),
-                _calendar_response({"loginTypeId": "1"}),  # no loginId at all
-                _calendar_response({"Children": []}),
-            ]
-        )
+    async def test_authenticate_response_missing_login_id_does_not_raise(self, client, http):
+        http.route(EASYIQ_AUTHENTICATE_URL, HttpResponse(200, {"loginTypeId": "1"}))
+        http.route(EASYIQ_CHILDREN_URL, HttpResponse(200, {"Children": []}))
 
         await client.widgets.ensure_easyiq_session(
             ["inst-1"], "guardian-1", ["barn0003"], WIDGET_EASYIQ_HOMEWORK
@@ -1390,17 +1265,10 @@ class TestEasyiqProtocolCorrectIdentifier:
         assert client.widgets._easyiq_parent_login_id is None
 
     @pytest.mark.asyncio
-    async def test_authenticate_response_unparseable_body_does_not_raise(self, client):
-        unparseable = Mock()
-        unparseable.raise_for_status = Mock()
-        unparseable.json = Mock(side_effect=ValueError("not json"))
-        client._request_with_version_retry = AsyncMock(
-            side_effect=[
-                _token_response("token-boot"),
-                unparseable,
-                _calendar_response({"Children": []}),
-            ]
-        )
+    async def test_authenticate_response_unparseable_body_does_not_raise(self, client, http):
+        # http_httpx sets data to None when the body is not valid JSON.
+        http.route(EASYIQ_AUTHENTICATE_URL, HttpResponse(200, None))
+        http.route(EASYIQ_CHILDREN_URL, HttpResponse(200, {"Children": []}))
 
         await client.widgets.ensure_easyiq_session(
             ["inst-1"], "guardian-1", ["barn0003"], WIDGET_EASYIQ_HOMEWORK
@@ -1408,16 +1276,14 @@ class TestEasyiqProtocolCorrectIdentifier:
 
         assert client.widgets._easyiq_parent_login_id is None
         # A bad AuthenticateAulaUser body is not fatal: GetChildren still runs.
-        assert client._request_with_version_retry.await_count == 3
+        assert len(http.requests_to(EASYIQ_CHILDREN_URL)) == 1
 
     @pytest.mark.asyncio
-    async def test_get_children_stores_the_real_login_string_and_id(self, client):
-        client._request_with_version_retry = AsyncMock(
-            side_effect=[
-                _token_response("token-boot"),
-                _calendar_response({}),
-                _calendar_response({"Children": [{"Id": "9001", "Login": "BARN0003"}]}),
-            ]
+    async def test_get_children_stores_the_real_login_string_and_id(self, client, http):
+        http.route(EASYIQ_AUTHENTICATE_URL, HttpResponse(200, {}))
+        http.route(
+            EASYIQ_CHILDREN_URL,
+            HttpResponse(200, {"Children": [{"Id": "9001", "Login": "BARN0003"}]}),
         )
 
         await client.widgets.ensure_easyiq_session(
@@ -1468,13 +1334,13 @@ class TestEasyiqProtocolCorrectIdentifier:
         assert ("parent-42", "barn0003") not in variants
 
     @pytest.mark.asyncio
-    async def test_switch_child_posts_the_easyiq_id_as_login_id(self, client):
-        client._request_with_version_retry = AsyncMock(return_value=_calendar_response(None))
+    async def test_switch_child_posts_the_easyiq_id_as_login_id(self, client, http):
+        http.route(EASYIQ_SWITCHCHILD_URL, HttpResponse(200, None))
 
         await client.widgets.switch_easyiq_child(
             "9001",
             _EasyIQContext(
-                token="Bearer token-switch",
+                token="token-switch",
                 institution_filter=("inst-1",),
                 guardian_login="guardian-1",
                 child_user_ids=("barn0003", "barn0004"),
@@ -1483,19 +1349,19 @@ class TestEasyiqProtocolCorrectIdentifier:
             ),
         )
 
-        calls = client._request_with_version_retry.await_args_list
-        assert calls[0].args == ("post", f"{EASYIQ_PORTAL}{EASYIQ_SWITCHCHILD_PATH}")
+        [switch] = http.requests
+        assert (switch.method, switch.url) == ("post", EASYIQ_SWITCHCHILD_URL)
         # loginId is the Id GetChildren gave for this child -- not its Login,
         # and not Aula's own userId.
-        assert calls[0].kwargs["params"] == {"loginId": "9001"}
-        assert calls[0].kwargs["headers"]["x-child"] == "barn0003"
-        assert client._request_with_version_retry.await_count == 1
+        assert switch.params == {"loginId": "9001"}
+        assert switch.headers["x-child"] == "barn0003"
+        assert switch.headers["Authorization"] == "Bearer token-switch"
 
     def test_easyiq_headers_come_from_the_context(self, client):
         """Every portal call sends these, so their shape is the protocol."""
         headers = client.widgets.easyiq_headers(
             _EasyIQContext(
-                token="Bearer token-easy",
+                token="token-easy",
                 institution_filter=("inst-1", "inst-2"),
                 guardian_login="Guardian-1",
                 child_user_ids=("barn0001", "barn0002"),
@@ -1519,7 +1385,7 @@ class TestEasyiqProtocolCorrectIdentifier:
     def test_a_context_without_a_selected_child_sends_the_first_child(self, client):
         """The bootstrap selects no child, but the portal needs x-child on every call."""
         context = _EasyIQContext(
-            token="Bearer token-boot",
+            token="token-boot",
             institution_filter=("inst-1",),
             guardian_login="guardian-1",
             child_user_ids=("barn0001", "barn0002"),
@@ -1540,16 +1406,11 @@ class TestEasyiqProtocolCorrectIdentifier:
         client.widgets._easyiq_children_known = True
 
     @pytest.mark.asyncio
-    async def test_the_week_read_is_preceded_by_switch_child(self, client):
+    async def test_the_week_read_is_preceded_by_switch_child(self, client, http):
         self._bootstrapped(client, [{"Id": "9001", "Login": "barn0003"}])
-        client._request_with_version_retry = AsyncMock(
-            side_effect=[
-                _token_response("token-easy"),
-                _calendar_response(None),  # SwitchChild
-                _calendar_response({"child": "barn0003"}),  # confirmation
-                _calendar_response([{"ItemType": 9, "Title": "Dansk"}]),
-            ]
-        )
+        http.route(EASYIQ_SWITCHCHILD_URL, HttpResponse(200, None))
+        http.route(EASYIQ_AUTHENTICATE_URL, HttpResponse(200, {"child": "barn0003"}))
+        http.route(EASYIQ_CALENDAR_URL, HttpResponse(200, [{"ItemType": 9, "Title": "Dansk"}]))
 
         events = await client.widgets.get_easyiq_calendar_events(
             week="2026-W09",
@@ -1561,28 +1422,27 @@ class TestEasyiqProtocolCorrectIdentifier:
         )
 
         assert len(events) == 1
-        calls = client._request_with_version_retry.await_args_list
         # The switch has to happen first: identity headers alone do not move
         # the portal off whichever child the session is already on (#68).
-        assert calls[1].args == ("post", f"{EASYIQ_PORTAL}{EASYIQ_SWITCHCHILD_PATH}")
-        assert calls[1].kwargs["params"] == {"loginId": "9001"}
-        # Then the switch is confirmed, and only then is the week read.
-        assert calls[2].args == ("post", f"{EASYIQ_PORTAL}{EASYIQ_AUTHENTICATE_PATH}")
-        assert calls[3].args == ("get", EASYIQ_CALENDAR_URL)
-        # One token, shared by all three.
-        assert client._request_with_version_retry.await_count == 4
+        # Then the switch is confirmed, and only then is the week read. One
+        # token, shared by all three.
+        assert _sent(http) == [
+            ("get", _token_url(client, WIDGET_EASYIQ_WEEKPLAN)),
+            ("post", EASYIQ_SWITCHCHILD_URL),
+            ("post", EASYIQ_AUTHENTICATE_URL),
+            ("get", EASYIQ_CALENDAR_URL),
+        ]
+        [switch] = http.requests_to(EASYIQ_SWITCHCHILD_URL)
+        assert switch.params == {"loginId": "9001"}
 
     @pytest.mark.asyncio
-    async def test_child_without_an_easyiq_identity_is_not_read_at_all(self, client):
+    async def test_child_without_an_easyiq_identity_is_not_read_at_all(self, client, http):
         """The daycare case from #68: no identity means no week plan.
 
         Reading anyway does not fail, it returns whichever child the session
         was last switched to -- wrong data that looks entirely valid.
         """
         self._bootstrapped(client, [{"Id": "9001", "Login": "barn0003"}])
-        client._request_with_version_retry = AsyncMock(
-            side_effect=AssertionError("no request may be made for this child")
-        )
 
         with pytest.raises(EasyIQChildNotInPortal):
             await client.widgets.get_easyiq_calendar_events(
@@ -1594,10 +1454,10 @@ class TestEasyiqProtocolCorrectIdentifier:
                 guardian_login="guardian-1",
             )
 
-        assert client._request_with_version_retry.await_count == 0
+        assert http.requests == []
 
     @pytest.mark.asyncio
-    async def test_the_session_is_made_under_every_institution(self, client):
+    async def test_the_session_is_made_under_every_institution(self, client, http):
         """The bootstrap is cached, so it must not be scoped to one child.
 
         Callers pass the child's own institution for the read. If that were
@@ -1606,72 +1466,66 @@ class TestEasyiqProtocolCorrectIdentifier:
         would look like children EasyIQ does not know.
         """
         client.widgets._easyiq_session_ready = False
-        client._request_with_version_retry = AsyncMock(
-            side_effect=[
-                _token_response("token-boot"),
-                _calendar_response({"loginId": "parent-42"}),
-                _calendar_response({"Children": [{"Id": "9001", "Login": "barn0003"}]}),
-                _token_response("token-easy"),
-                _calendar_response(None),  # SwitchChild
-                _calendar_response({"child": "barn0003"}),  # confirmation
-                _calendar_response([{"ItemType": 9, "Title": "Dansk"}]),
-            ]
+        http.route(
+            EASYIQ_AUTHENTICATE_URL,
+            HttpResponse(200, {"loginId": "parent-42"}),  # bootstrap
+            HttpResponse(200, {"child": "barn0003"}),  # confirmation
         )
+        http.route(
+            EASYIQ_CHILDREN_URL,
+            HttpResponse(200, {"Children": [{"Id": "9001", "Login": "barn0003"}]}),
+        )
+        http.route(EASYIQ_SWITCHCHILD_URL, HttpResponse(200, None))
+        http.route(EASYIQ_CALENDAR_URL, HttpResponse(200, [{"ItemType": 9, "Title": "Dansk"}]))
 
         await client.widgets.get_easyiq_calendar_events(
             week="2026-W09",
-            institution_filter=["751052"],  # this child's school
+            institution_filter=["900001"],  # this child's school
             child_profile_id="4242",
             child_user_id="barn0003",
             all_child_user_ids=["barn0003", "barn0004"],
             guardian_login="guardian-1",
-            all_institution_filter=["751052", "751056", "G20365"],
+            all_institution_filter=["900001", "900002", "G90003"],
         )
 
-        calls = client._request_with_version_retry.await_args_list
-        every = "751052,751056,G20365"
-        assert calls[1].kwargs["headers"]["x-institutionfilter"] == every
-        assert calls[2].kwargs["headers"]["x-institutionfilter"] == every
+        every = "900001,900002,G90003"
+        bootstrap, confirmation = http.requests_to(EASYIQ_AUTHENTICATE_URL)
+        [children] = http.requests_to(EASYIQ_CHILDREN_URL)
+        [switch] = http.requests_to(EASYIQ_SWITCHCHILD_URL)
+        [read] = http.requests_to(EASYIQ_CALENDAR_URL)
+        assert bootstrap.headers["x-institutionfilter"] == every
+        assert children.headers["x-institutionfilter"] == every
         # Switch, confirmation and read still go out under the child's own institution.
-        for step in calls[4:7]:
-            assert step.kwargs["headers"]["x-institutionfilter"] == "751052"
+        for step in (switch, confirmation, read):
+            assert step.headers["x-institutionfilter"] == "900001"
 
     @pytest.mark.asyncio
-    async def test_the_session_falls_back_to_the_childs_institution(self, client):
+    async def test_the_session_falls_back_to_the_childs_institution(self, client, http):
         """Callers that do not know the full list keep the old behaviour."""
         client.widgets._easyiq_session_ready = False
-        client._request_with_version_retry = AsyncMock(
-            side_effect=[
-                _token_response("token-boot"),
-                _calendar_response({"loginId": "parent-42"}),
-                _calendar_response({"Children": []}),
-                _token_response("token-easy"),
-                _calendar_response([{"ItemType": 9, "Title": "Dansk"}]),
-            ]
-        )
+        http.route(EASYIQ_AUTHENTICATE_URL, HttpResponse(200, {"loginId": "parent-42"}))
+        http.route(EASYIQ_CHILDREN_URL, HttpResponse(200, {"Children": []}))
+        http.route(EASYIQ_CALENDAR_URL, HttpResponse(200, [{"ItemType": 9, "Title": "Dansk"}]))
 
         await client.widgets.get_easyiq_calendar_events(
             week="2026-W09",
-            institution_filter=["751052"],
+            institution_filter=["900001"],
             child_profile_id="4242",
             child_user_id="barn0003",
             all_child_user_ids=["barn0003"],
             guardian_login="guardian-1",
         )
 
-        calls = client._request_with_version_retry.await_args_list
-        assert calls[1].kwargs["headers"]["x-institutionfilter"] == "751052"
+        [bootstrap] = http.requests_to(EASYIQ_AUTHENTICATE_URL)
+        assert bootstrap.headers["x-institutionfilter"] == "900001"
 
     @pytest.mark.asyncio
-    async def test_a_failed_switch_child_surfaces_rather_than_returning_data(self, client):
+    async def test_a_failed_switch_child_surfaces_rather_than_returning_data(self, client, http):
         self._bootstrapped(client, [{"Id": "9001", "Login": "barn0003"}])
-        failing = Mock()
-        failing.raise_for_status = Mock(side_effect=RuntimeError("SwitchChild 500"))
-        client._request_with_version_retry = AsyncMock(
-            side_effect=[_token_response("token-easy"), failing]
-        )
+        http.route(EASYIQ_SWITCHCHILD_URL, HttpResponse(500))
+        http.route(EASYIQ_CALENDAR_URL, HttpResponse(200, [{"ItemType": 9, "Title": "Dansk"}]))
 
-        with pytest.raises(RuntimeError, match="SwitchChild 500"):
+        with pytest.raises(AulaServerError):
             await client.widgets.get_easyiq_calendar_events(
                 week="2026-W09",
                 institution_filter=["inst-1"],
@@ -1683,35 +1537,29 @@ class TestEasyiqProtocolCorrectIdentifier:
 
         # The read never happened: a week that could belong to any child is
         # worse than an error the caller can report.
-        assert client._request_with_version_retry.await_count == 2
+        assert _sent(http) == [
+            ("get", _token_url(client, WIDGET_EASYIQ_WEEKPLAN)),
+            ("post", EASYIQ_SWITCHCHILD_URL),
+        ]
 
     @pytest.mark.asyncio
-    async def test_switch_and_read_are_not_interleaved_between_children(self, client):
+    async def test_switch_and_read_are_not_interleaved_between_children(self):
         """Two children read at once must not have their switches interleave.
 
         SwitchChild moves server-side session state, so a switch landing
         between another child's switch and read would answer both with the
         same week.
         """
+        http = _InterleavingHttpClient()
+        client = _aula_client(http)
         self._bootstrapped(
             client,
             [{"Id": "9001", "Login": "barn0003"}, {"Id": "9002", "Login": "barn0004"}],
         )
-        sequence: list[str] = []
-
-        async def _dispatch(method, url, **kwargs):
-            await asyncio.sleep(0)
-            if "getAulaToken" in url:
-                return _token_response("token-easy")
-            if url.endswith(EASYIQ_SWITCHCHILD_PATH):
-                sequence.append(f"switch:{kwargs['params']['loginId']}")
-                return _calendar_response(None)
-            if url.endswith(EASYIQ_AUTHENTICATE_PATH):
-                return _calendar_response({"child": kwargs["headers"]["x-child"]})
-            sequence.append(f"read:{kwargs['headers']['x-child']}")
-            return _calendar_response([{"ItemType": 9, "Title": "Dansk"}])
-
-        client._request_with_version_retry = AsyncMock(side_effect=_dispatch)
+        http.route(EASYIQ_SWITCHCHILD_URL, HttpResponse(200, None))
+        # A confirmation that names no child lets either child go first.
+        http.route(EASYIQ_AUTHENTICATE_URL, HttpResponse(200, {}))
+        http.route(EASYIQ_CALENDAR_URL, HttpResponse(200, [{"ItemType": 9, "Title": "Dansk"}]))
 
         async def _read(child_user_id, child_profile_id):
             return await client.widgets.get_easyiq_calendar_events(
@@ -1725,6 +1573,13 @@ class TestEasyiqProtocolCorrectIdentifier:
 
         await asyncio.gather(_read("barn0003", "4242"), _read("barn0004", "4343"))
 
+        sequence = [
+            f"switch:{request.params['loginId']}"
+            if request.url == EASYIQ_SWITCHCHILD_URL
+            else f"read:{request.headers['x-child']}"
+            for request in http.requests
+            if request.url in (EASYIQ_SWITCHCHILD_URL, EASYIQ_CALENDAR_URL)
+        ]
         pairs = [tuple(sequence[i : i + 2]) for i in range(0, len(sequence), 2)]
         assert sorted(pairs) == [
             ("switch:9001", "read:barn0003"),
@@ -1732,30 +1587,22 @@ class TestEasyiqProtocolCorrectIdentifier:
         ]
 
     @pytest.mark.asyncio
-    async def test_concurrent_reads_keep_their_own_child_and_institution(self, client):
+    async def test_concurrent_reads_keep_their_own_child_and_institution(self):
         """A sibling read in flight must not change who this read's requests are for."""
+        http = _InterleavingHttpClient()
+        client = _aula_client(http)
         self._bootstrapped(
             client,
             [{"Id": "9001", "Login": "barn0001"}, {"Id": "9002", "Login": "barn0002"}],
         )
-        seen: list[tuple[str, str, str]] = []
-
-        async def _dispatch(method, url, **kwargs):
-            await asyncio.sleep(0)
-            if "getAulaToken" in url:
-                return _token_response("token-easy")
-            headers = kwargs["headers"]
-            if url.endswith(EASYIQ_SWITCHCHILD_PATH):
-                step, response = "switch", _calendar_response(None)
-            elif url.endswith(EASYIQ_AUTHENTICATE_PATH):
-                step, response = "confirm", _calendar_response({"child": headers["x-child"]})
-            else:
-                step = "read"
-                response = _calendar_response([{"ItemType": 9, "Title": headers["x-child"]}])
-            seen.append((step, headers["x-child"], headers["x-institutionfilter"]))
-            return response
-
-        client._request_with_version_retry = AsyncMock(side_effect=_dispatch)
+        http.route(EASYIQ_SWITCHCHILD_URL, HttpResponse(200, None))
+        # A confirmation that names no child lets either child go first.
+        http.route(EASYIQ_AUTHENTICATE_URL, HttpResponse(200, {}))
+        http.route(
+            EASYIQ_CALENDAR_URL,
+            HttpResponse(200, [{"ItemType": 9, "Title": "first-answer"}]),
+            HttpResponse(200, [{"ItemType": 9, "Title": "second-answer"}]),
+        )
 
         async def _read(child_user_id, child_profile_id, institution):
             return await client.widgets.get_easyiq_calendar_events(
@@ -1772,8 +1619,27 @@ class TestEasyiqProtocolCorrectIdentifier:
             _read("barn0002", "4343", "SKOLE-2"),
         )
 
-        assert [event.title for event in first] == ["barn0001"]
-        assert [event.title for event in second] == ["barn0002"]
+        # Each caller gets the answer to the read that carried its own child.
+        reads = http.requests_to(EASYIQ_CALENDAR_URL)
+        answered = dict(
+            zip(
+                (read.headers["x-child"] for read in reads),
+                ("first-answer", "second-answer"),
+                strict=True,
+            )
+        )
+        assert [event.title for event in first] == [answered["barn0001"]]
+        assert [event.title for event in second] == [answered["barn0002"]]
+
+        step = {
+            EASYIQ_SWITCHCHILD_URL: "switch",
+            EASYIQ_AUTHENTICATE_URL: "confirm",
+            EASYIQ_CALENDAR_URL: "read",
+        }
+        seen = [
+            (step[request.url], request.headers["x-child"], request.headers["x-institutionfilter"])
+            for request in http.requests_to(EASYIQ_PORTAL)
+        ]
         steps = sorted(tuple(seen[i : i + 3]) for i in range(0, len(seen), 3))
         assert steps == [
             tuple((step, "barn0001", "SKOLE-1") for step in ("switch", "confirm", "read")),
@@ -1783,26 +1649,24 @@ class TestEasyiqProtocolCorrectIdentifier:
     @pytest.mark.asyncio
     @pytest.mark.parametrize("reader", ["get_easyiq_calendar_events", "get_easyiq_homework_events"])
     @pytest.mark.parametrize(
-        "bootstrap_responses",
+        ("authenticate", "children"),
         [
-            [HttpResponse(500)],
-            [HttpResponse(200, {}), HttpResponse(500)],
-            [HttpResponse(200, {}), HttpResponse(200, {"Children": []})],
-            [HttpResponse(200, {}), HttpResponse(200, {"Children": [{"Name": "Child"}]})],
+            (HttpResponse(500), None),
+            (HttpResponse(200, {}), HttpResponse(500)),
+            (HttpResponse(200, {}), HttpResponse(200, {"Children": []})),
+            (HttpResponse(200, {}), HttpResponse(200, {"Children": [{"Name": "Child"}]})),
         ],
         ids=["authentication-failed", "children-failed", "empty-children", "unidentified-children"],
     )
     async def test_unidentified_children_refuse_multi_child_reads(
-        self, reader, bootstrap_responses
+        self, client, http, reader, authenticate, children
     ):
-        http_client = AsyncMock()
-        http_client.request.side_effect = [
-            HttpResponse(200, {"data": "token-easy"}),
-            *bootstrap_responses,
-            HttpResponse(200, {"data": "token-easy"}),
-            HttpResponse(200, [{"ItemType": 9, "Title": "Sibling's lesson"}]),
-        ]
-        client = AulaApiClient(http_client=http_client, access_token="token")
+        http.route(EASYIQ_AUTHENTICATE_URL, authenticate)
+        if children is not None:
+            http.route(EASYIQ_CHILDREN_URL, children)
+        sibling_lesson = HttpResponse(200, [{"ItemType": 9, "Title": "Sibling's lesson"}])
+        http.route(EASYIQ_CALENDAR_URL, sibling_lesson)
+        http.route(EASYIQ_HOMEWORK_URL, sibling_lesson)
 
         with pytest.raises(RuntimeError, match="portal did not identify the children"):
             await getattr(client.widgets, reader)(
@@ -1814,21 +1678,16 @@ class TestEasyiqProtocolCorrectIdentifier:
                 guardian_login="guardian-1",
             )
 
-        requested_urls = [request.args[1] for request in http_client.request.await_args_list]
-        assert EASYIQ_CALENDAR_URL not in requested_urls
-        assert EASYIQ_HOMEWORK_URL not in requested_urls
+        assert http.requests_to(EASYIQ_CALENDAR_URL) == []
+        assert http.requests_to(EASYIQ_HOMEWORK_URL) == []
 
     @pytest.mark.asyncio
     @pytest.mark.parametrize("reader", ["get_easyiq_calendar_events", "get_easyiq_homework_events"])
-    async def test_failed_bootstrap_preserves_single_child_reads(self, reader):
-        http_client = AsyncMock()
-        http_client.request.side_effect = [
-            HttpResponse(200, {"data": "token-easy"}),
-            HttpResponse(500),
-            HttpResponse(200, {"data": "token-easy"}),
-            HttpResponse(200, [{"ItemType": 9, "Title": "Dansk"}]),
-        ]
-        client = AulaApiClient(http_client=http_client, access_token="token")
+    async def test_failed_bootstrap_preserves_single_child_reads(self, client, http, reader):
+        http.route(EASYIQ_AUTHENTICATE_URL, HttpResponse(500))
+        lesson = HttpResponse(200, [{"ItemType": 9, "Title": "Dansk"}])
+        http.route(EASYIQ_CALENDAR_URL, lesson)
+        http.route(EASYIQ_HOMEWORK_URL, lesson)
 
         events = await getattr(client.widgets, reader)(
             week="2026-W09",
@@ -1842,15 +1701,10 @@ class TestEasyiqProtocolCorrectIdentifier:
         assert [event.title for event in events] == ["Dansk"]
 
     @pytest.mark.asyncio
-    async def test_no_switch_when_the_bootstrap_resolved_no_children(self, client):
+    async def test_no_switch_when_the_bootstrap_resolved_no_children(self, client, http):
         """Institutions the bootstrap does not suit keep the old guessing path."""
         client.widgets._easyiq_session_ready = True  # bootstrap ran, found nothing
-        client._request_with_version_retry = AsyncMock(
-            side_effect=[
-                _token_response("token-easy"),
-                _calendar_response([{"ItemType": 9, "Title": "Dansk"}]),
-            ]
-        )
+        http.route(EASYIQ_CALENDAR_URL, HttpResponse(200, [{"ItemType": 9, "Title": "Dansk"}]))
 
         events = await client.widgets.get_easyiq_calendar_events(
             week="2026-W09",
@@ -1862,12 +1716,13 @@ class TestEasyiqProtocolCorrectIdentifier:
         )
 
         assert len(events) == 1
-        calls = client._request_with_version_retry.await_args_list
-        assert calls[1].args == ("get", EASYIQ_CALENDAR_URL)
-        assert client._request_with_version_retry.await_count == 2
+        assert _sent(http) == [
+            ("get", _token_url(client, WIDGET_EASYIQ_WEEKPLAN)),
+            ("get", EASYIQ_CALENDAR_URL),
+        ]
 
     @pytest.mark.asyncio
-    async def test_a_switch_that_did_not_take_effect_is_refused(self, client):
+    async def test_a_switch_that_did_not_take_effect_is_refused(self, client, http):
         """SwitchChild answering 200 is not proof the session moved.
 
         Two other Aula clients guess identifiers and treat "200 and
@@ -1875,13 +1730,11 @@ class TestEasyiqProtocolCorrectIdentifier:
         gets shipped as if it were this child's.
         """
         self._bootstrapped(client, [{"Id": "9001", "Login": "barn0003"}])
-        client._request_with_version_retry = AsyncMock(
-            side_effect=[
-                _token_response("token-easy"),
-                _calendar_response(None),  # SwitchChild says 200
-                _calendar_response({"child": "barn0004"}),  # but it is on the sibling
-                _calendar_response([{"ItemType": 9, "Title": "Wrong child"}]),
-            ]
+        http.route(EASYIQ_SWITCHCHILD_URL, HttpResponse(200, None))  # SwitchChild says 200
+        # but it is on the sibling
+        http.route(EASYIQ_AUTHENTICATE_URL, HttpResponse(200, {"child": "barn0004"}))
+        http.route(
+            EASYIQ_CALENDAR_URL, HttpResponse(200, [{"ItemType": 9, "Title": "Wrong child"}])
         )
 
         with pytest.raises(EasyIQWrongChildSession):
@@ -1895,19 +1748,19 @@ class TestEasyiqProtocolCorrectIdentifier:
             )
 
         # Refused before the read, so no wrong-child data is ever parsed.
-        assert client._request_with_version_retry.await_count == 3
+        assert _sent(http) == [
+            ("get", _token_url(client, WIDGET_EASYIQ_WEEKPLAN)),
+            ("post", EASYIQ_SWITCHCHILD_URL),
+            ("post", EASYIQ_AUTHENTICATE_URL),
+        ]
 
     @pytest.mark.asyncio
-    async def test_the_confirmation_ignores_casing(self, client):
+    async def test_the_confirmation_ignores_casing(self, client, http):
         self._bootstrapped(client, [{"Id": "9001", "Login": "BARN0003"}])
-        client._request_with_version_retry = AsyncMock(
-            side_effect=[
-                _token_response("token-easy"),
-                _calendar_response(None),
-                _calendar_response({"child": "barn0003"}),  # same child, other casing
-                _calendar_response([{"ItemType": 9, "Title": "Dansk"}]),
-            ]
-        )
+        http.route(EASYIQ_SWITCHCHILD_URL, HttpResponse(200, None))
+        # Same child, other casing.
+        http.route(EASYIQ_AUTHENTICATE_URL, HttpResponse(200, {"child": "barn0003"}))
+        http.route(EASYIQ_CALENDAR_URL, HttpResponse(200, [{"ItemType": 9, "Title": "Dansk"}]))
 
         events = await client.widgets.get_easyiq_calendar_events(
             week="2026-W09",
@@ -1921,21 +1774,16 @@ class TestEasyiqProtocolCorrectIdentifier:
         assert len(events) == 1
 
     @pytest.mark.asyncio
-    async def test_a_portal_that_names_no_child_does_not_block_the_read(self, client):
+    async def test_a_portal_that_names_no_child_does_not_block_the_read(self, client, http):
         """Silence is not disagreement.
 
         Institutions whose answer omits ``child`` leave us where we were
         before this check existed, which is no reason to refuse them.
         """
         self._bootstrapped(client, [{"Id": "9001", "Login": "barn0003"}])
-        client._request_with_version_retry = AsyncMock(
-            side_effect=[
-                _token_response("token-easy"),
-                _calendar_response(None),
-                _calendar_response({"loginId": "parent-42"}),  # no child field
-                _calendar_response([{"ItemType": 9, "Title": "Dansk"}]),
-            ]
-        )
+        http.route(EASYIQ_SWITCHCHILD_URL, HttpResponse(200, None))
+        http.route(EASYIQ_AUTHENTICATE_URL, HttpResponse(200, {"loginId": "parent-42"}))
+        http.route(EASYIQ_CALENDAR_URL, HttpResponse(200, [{"ItemType": 9, "Title": "Dansk"}]))
 
         events = await client.widgets.get_easyiq_calendar_events(
             week="2026-W09",
@@ -1949,16 +1797,11 @@ class TestEasyiqProtocolCorrectIdentifier:
         assert len(events) == 1
 
     @pytest.mark.asyncio
-    async def test_the_refusal_names_no_identifier(self, client):
+    async def test_the_refusal_names_no_identifier(self, client, http):
         """The message reaches the CLI, and both sides of it are UniLogins."""
         self._bootstrapped(client, [{"Id": "9001", "Login": "barn0003"}])
-        client._request_with_version_retry = AsyncMock(
-            side_effect=[
-                _token_response("token-easy"),
-                _calendar_response(None),
-                _calendar_response({"child": "barn0004"}),
-            ]
-        )
+        http.route(EASYIQ_SWITCHCHILD_URL, HttpResponse(200, None))
+        http.route(EASYIQ_AUTHENTICATE_URL, HttpResponse(200, {"child": "barn0004"}))
 
         with pytest.raises(EasyIQWrongChildSession) as excinfo:
             await client.widgets.get_easyiq_calendar_events(

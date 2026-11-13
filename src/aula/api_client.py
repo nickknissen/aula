@@ -1,6 +1,5 @@
 import asyncio
 import inspect
-import json
 import logging
 import time
 import warnings
@@ -71,7 +70,7 @@ from .models import (
 from .models.meeting_booking import MEETING_TYPES, meeting_bookings, replace_booked_meetings
 from .models.pagination import PaginationResult
 from .utils.dates import aula_today
-from .utils.diagnostics import credential_logger, redact_credentials
+from .utils.diagnostics import compact_payload_for_log, credential_logger
 from .utils.mapping import get_in
 from .utils.pagination import PaginationState
 from .widgets import AulaWidgetsClient
@@ -96,17 +95,6 @@ def _extract_api_method(url: str, params: dict[str, Any] | None) -> str | None:
     if isinstance(raw_method, str) and raw_method:
         return raw_method
     return None
-
-
-def _compact_payload_for_log(payload: Any, *, max_chars: int = 4000) -> str:
-    payload = redact_credentials(payload)
-    try:
-        rendered = json.dumps(payload, ensure_ascii=True, separators=(",", ":"), default=str)
-    except TypeError, ValueError:
-        rendered = str(payload)
-    if len(rendered) > max_chars:
-        return f"{rendered[:max_chars]}...<truncated>"
-    return rendered
 
 
 def _teacher_names(lesson: dict[str, Any], role: str) -> list[str]:
@@ -211,6 +199,11 @@ class AulaApiClient:
         )
         self.api_url = f"{API_URL}{API_VERSION}"
         self.widgets: AulaWidgetsClient = AulaWidgetsClient(self)
+
+    @property
+    def http_client(self) -> HttpClient:
+        """The HttpClient this client sends through. Widget providers share it."""
+        return self._client
 
     async def init(self) -> None:
         """Discover the current API version and establish guardian role.
@@ -452,7 +445,7 @@ class AulaApiClient:
                 _LOGGER.debug(
                     "Response method=%s: %s",
                     api_method or "unknown",
-                    _compact_payload_for_log(response.json()),
+                    compact_payload_for_log(response.json()),
                 )
 
             if response.status_code == 410 and url.startswith(API_URL):
@@ -683,7 +676,7 @@ class AulaApiClient:
             activity_type: How the child leaves at the end of the day. Prefer an
                 ``ActivityType`` member; raw ints are accepted for compatibility.
             exit_with: Name of person picking up, including relation suffix
-                (e.g., "Nick Hansen (Far)"). Required for PICKED_UP_BY and GO_HOME_WITH.
+                (e.g., "Værge Et (Far)"). Required for PICKED_UP_BY and GO_HOME_WITH.
             comment: Optional daily comment/remark (empty string if not set).
             template_id: Existing template ID to update (None for new).
             repeat_pattern: "Never", "Weekly", or "Every2Weeks".
@@ -2190,8 +2183,18 @@ class AulaApiClient:
         """Download a file as raw bytes."""
         return await self._client.download_bytes(url)
 
-    async def _get_bearer_token(self, widget_id: str) -> str:
-        return await self.widgets._get_bearer_token(widget_id)
+    async def get_widget_token(self, widget_id: str) -> str:
+        """Mint a widget token for ``widget_id`` from the Aula session.
+
+        Returns the raw JWT, with no ``Bearer `` prefix: each provider puts it
+        in its own header.
+        """
+        resp = await self._request_with_version_retry(
+            "get",
+            f"{self.api_url}?method=aulaToken.getAulaToken&widgetId={widget_id}",
+        )
+        resp.raise_for_status()
+        return str(resp.json()["data"])
 
     def _parse_date(self, date_str: str) -> datetime:
         return datetime.fromisoformat(date_str).astimezone(ZoneInfo("Europe/Copenhagen"))

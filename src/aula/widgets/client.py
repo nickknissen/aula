@@ -24,7 +24,7 @@ from ..const import (
     WIDGET_HUSKELISTEN,
     WIDGET_MEEBOOK,
 )
-from ..http import HttpResponse, ProviderAuthenticationError
+from ..http import HttpClient
 from ..models import (
     HOMEWORK_ITEM_TYPES,
     WEEKPLAN_ITEM_TYPES,
@@ -40,6 +40,7 @@ from ..models import (
     UserReminders,
 )
 from ..utils.week import monday_of_week
+from ._transport import ProviderTransport
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -72,7 +73,7 @@ class EasyIQChildNotInPortal(Exception):
 class _EasyIQContext:
     """Who one EasyIQ portal call is for. Built per call, never kept on the client."""
 
-    token: str
+    token: str  # The raw widget token, without "Bearer ".
     institution_filter: tuple[str, ...]
     guardian_login: str
     child_user_ids: tuple[str, ...]
@@ -109,16 +110,6 @@ def _as_list(data: Any, provider: str) -> list[Any]:
             len(data) - len(items),
         )
     return items
-
-
-def _raise_for_provider_status(resp: HttpResponse, widget_id: str) -> None:
-    if resp.status_code in (401, 403):
-        raise ProviderAuthenticationError(
-            f"Provider refused widget {widget_id} (HTTP {resp.status_code})",
-            resp.status_code,
-            widget_id=widget_id,
-        )
-    resp.raise_for_status()
 
 
 def _is_meebook_jwt_expired(payload: Any) -> bool:
@@ -205,8 +196,13 @@ def _log_unreadable_body(source: str, payload: Any, **context: str) -> None:
 
 
 class _WidgetRequestClient(Protocol):
-    api_url: str
+    @property
+    def http_client(self) -> HttpClient: ...
 
+    async def get_widget_token(self, widget_id: str) -> str: ...
+
+    # Only Meebook's expiry recovery calls this. It stays private until the
+    # Aula session has a module of its own.
     async def _refresh_authentication(
         self,
         observed_generation: int | None = None,
@@ -214,22 +210,13 @@ class _WidgetRequestClient(Protocol):
         force: bool = False,
     ) -> bool: ...
 
-    async def _request_with_version_retry(
-        self,
-        method: str,
-        url: str,
-        *,
-        headers: dict[str, str] | None = None,
-        params: dict[str, Any] | None = None,
-        json: object | None = None,
-    ) -> HttpResponse: ...
-
 
 class AulaWidgetsClient:
     """Widget provider API client for third-party Aula integrations."""
 
     def __init__(self, api_client: _WidgetRequestClient) -> None:
         self._api_client = api_client
+        self._transport = ProviderTransport(api_client.http_client)
         # child user ID -> the (loginId, child header) pair EasyIQ accepted.
         self._easyiq_identifiers: dict[str, list[tuple[str, str]]] = {}
         # Whether POST /Aula/AuthenticateAulaUser has run for this client.
@@ -255,15 +242,6 @@ class AulaWidgetsClient:
         # answered with the other's data.
         self._easyiq_child_lock = asyncio.Lock()
 
-    async def _get_bearer_token(self, widget_id: str) -> str:
-        resp = await self._api_client._request_with_version_retry(
-            "get",
-            f"{self._api_client.api_url}?method=aulaToken.getAulaToken&widgetId={widget_id}",
-        )
-        resp.raise_for_status()
-        token = "Bearer " + str(resp.json()["data"])
-        return token
-
     async def get_mu_tasks(
         self,
         widget_id: str,
@@ -272,7 +250,7 @@ class AulaWidgetsClient:
         week: str,
         session_uuid: str,
     ) -> list[MUTask]:
-        token = await self._get_bearer_token(widget_id)
+        token = await self._api_client.get_widget_token(widget_id)
         params = {
             "placement": "narrow",
             "sessionUUID": session_uuid,
@@ -283,14 +261,14 @@ class AulaWidgetsClient:
             "institutionFilter[]": institution_filter,
         }
 
-        resp = await self._api_client._request_with_version_retry(
+        body = await self._transport.send(
+            widget_id,
             "get",
             f"{MIN_UDDANNELSE_API}/opgaveliste",
             params=params,
-            headers={"Authorization": token, "Accept": "application/json"},
+            headers={"Authorization": f"Bearer {token}", "Accept": "application/json"},
         )
-        _raise_for_provider_status(resp, widget_id)
-        return [MUTask.from_dict(o) for o in resp.json().get("opgaver", [])]
+        return [MUTask.from_dict(o) for o in body.get("opgaver", [])]
 
     async def get_ugeplan(
         self,
@@ -300,7 +278,7 @@ class AulaWidgetsClient:
         week: str,
         session_uuid: str,
     ) -> list[MUWeeklyPerson]:
-        token = await self._get_bearer_token(widget_id)
+        token = await self._api_client.get_widget_token(widget_id)
         params = {
             "assuranceLevel": "3",
             "childFilter": ",".join(child_filter),
@@ -312,14 +290,14 @@ class AulaWidgetsClient:
             "userProfile": "guardian",
         }
 
-        resp = await self._api_client._request_with_version_retry(
+        body = await self._transport.send(
+            widget_id,
             "get",
             f"{MIN_UDDANNELSE_API}/ugebrev",
             params=params,
-            headers={"Authorization": token, "Accept": "application/json"},
+            headers={"Authorization": f"Bearer {token}", "Accept": "application/json"},
         )
-        _raise_for_provider_status(resp, widget_id)
-        return [MUWeeklyPerson.from_dict(p) for p in resp.json().get("personer", [])]
+        return [MUWeeklyPerson.from_dict(p) for p in body.get("personer", [])]
 
     def easyiq_headers(self, context: _EasyIQContext) -> dict[str, str]:
         """Headers the EasyIQ portal expects from its embedded widgets.
@@ -334,7 +312,7 @@ class AulaWidgetsClient:
         """
         child_user_ids = context.child_user_ids
         return {
-            "Authorization": context.token,
+            "Authorization": f"Bearer {context.token}",
             "Accept": "application/json",
             "x-institutionfilter": ",".join(context.institution_filter),
             "x-userprofile": "guardian",
@@ -395,17 +373,12 @@ class AulaWidgetsClient:
         raising, since every caller can carry on without it. Transport
         failures do raise.
         """
-        resp = await self._api_client._request_with_version_retry(
+        payload = await self._transport.send(
+            context.widget_id,
             "post",
             f"{EASYIQ_PORTAL}{EASYIQ_AUTHENTICATE_PATH}",
             headers=self.easyiq_headers(context),
         )
-        _raise_for_provider_status(resp, context.widget_id)
-        try:
-            payload = resp.json()
-        except Exception as e:
-            _LOGGER.warning("EasyIQ AuthenticateAulaUser body could not be parsed: %s", e)
-            return {}
         if not isinstance(payload, dict):
             return {}
         return {str(key).lower(): value for key, value in payload.items()}
@@ -419,7 +392,7 @@ class AulaWidgetsClient:
     ) -> None:
         """Make the portal session and read its child IDs. Holds the lock."""
         session = _EasyIQContext(
-            token=await self._get_bearer_token(widget_id),
+            token=await self._api_client.get_widget_token(widget_id),
             institution_filter=tuple(institution_filter),
             guardian_login=guardian_login,
             child_user_ids=tuple(child_user_ids),
@@ -439,13 +412,12 @@ class AulaWidgetsClient:
             self._easyiq_parent_login_id = str(login_id)
 
         try:
-            resp = await self._api_client._request_with_version_retry(
+            payload = await self._transport.send(
+                session.widget_id,
                 "get",
                 f"{EASYIQ_PORTAL}{EASYIQ_CHILDREN_PATH}",
                 headers=self.easyiq_headers(session),
             )
-            _raise_for_provider_status(resp, session.widget_id)
-            payload = resp.json()
         except Exception as e:
             _LOGGER.info("EasyIQ GetChildren failed (%s); falling back to guessing", e)
             return
@@ -538,13 +510,13 @@ class AulaWidgetsClient:
         (:meth:`resolve_easyiq_child_id`) -- not their ``Login`` string, and
         not Aula's own user ID.
         """
-        resp = await self._api_client._request_with_version_retry(
+        await self._transport.send(
+            context.widget_id,
             "post",
             f"{EASYIQ_PORTAL}{EASYIQ_SWITCHCHILD_PATH}",
             params={"loginId": child_easyiq_id},
             headers=self.easyiq_headers(context),
         )
-        _raise_for_provider_status(resp, context.widget_id)
 
     async def confirm_easyiq_session_child(
         self, expected_child_login: str, context: _EasyIQContext
@@ -634,7 +606,7 @@ class AulaWidgetsClient:
             )
 
         context = _EasyIQContext(
-            token=await self._get_bearer_token(widget_id),
+            token=await self._api_client.get_widget_token(widget_id),
             institution_filter=tuple(institution_filter),
             guardian_login=guardian_login,
             child_user_ids=tuple(all_child_user_ids),
@@ -698,19 +670,18 @@ class AulaWidgetsClient:
             # x-childfilter stays the full list; only x-child varies per try.
             headers = {**base_headers, "x-child": child_header}
             try:
-                resp = await self._api_client._request_with_version_retry(
+                payload = await self._transport.send(
+                    widget_id,
                     "get",
                     f"{EASYIQ_PORTAL}{path}",
                     params={**params, "loginId": login_id},
                     headers=headers,
                 )
-                _raise_for_provider_status(resp, widget_id)
             except Exception as e:
                 last_error = e
                 _LOGGER.debug("EasyIQ %s rejected loginId=%s: %s", path, login_id, e)
                 continue
 
-            payload = resp.json()
             found = _find_events(payload)
             if found is None:
                 # Nothing readable in this answer; the next identifier may fare
@@ -833,9 +804,9 @@ class AulaWidgetsClient:
         child, which means they have no week plan rather than that anything
         went wrong.
         """
-        token = await self._get_bearer_token(widget_id)
+        token = await self._api_client.get_widget_token(widget_id)
         headers = {
-            "Authorization": token,
+            "Authorization": f"Bearer {token}",
             "x-aula-institutionfilter": ",".join(institution_filter),
         }
         payload = {
@@ -847,11 +818,9 @@ class AulaWidgetsClient:
         }
         appointments: list[dict[str, Any]] = []
         try:
-            resp = await self._api_client._request_with_version_retry(
-                "post", f"{EASYIQ_API}/weekplaninfo", json=payload, headers=headers
+            data = await self._transport.send(
+                widget_id, "post", f"{EASYIQ_API}/weekplaninfo", json=payload, headers=headers
             )
-            _raise_for_provider_status(resp, widget_id)
-            data = resp.json()
             envelope = data.get("data") if isinstance(data, dict) else None
             if isinstance(envelope, dict):
                 appointments = _as_list(envelope.get("appointments", []), "EasyIQ weekplan")
@@ -960,25 +929,24 @@ class AulaWidgetsClient:
         }
 
         async def request_weekplan() -> Any:
-            token = await self._get_bearer_token(WIDGET_MEEBOOK)
+            token = await self._api_client.get_widget_token(WIDGET_MEEBOOK)
             headers = {
-                "Authorization": token,
+                "Authorization": f"Bearer {token}",
                 "Accept": "application/json",
                 "sessionUUID": session_uuid,
                 "X-Version": "1.0",
             }
-
-            resp = await self._api_client._request_with_version_retry(
+            return await self._transport.send(
+                WIDGET_MEEBOOK,
                 "get",
                 f"{MEEBOOK_API}/relatedweekplan/all",
                 params=params,
                 headers=headers,
             )
-            _raise_for_provider_status(resp, WIDGET_MEEBOOK)
-            return resp.json()
 
         payload = await request_weekplan()
         if _is_meebook_jwt_expired(payload):
+            # The one provider answer allowed to refresh the Aula session (docs/adr/0001).
             refreshed = await self._api_client._refresh_authentication(force=True)
             if refreshed:
                 payload = await request_weekplan()
@@ -996,7 +964,7 @@ class AulaWidgetsClient:
         Docendo does not filter by child. Use ``DocendoWeekPlan.matches_class``
         with the child's ``institution_profile.metadata`` to pair them up.
         """
-        jwt = (await self._get_bearer_token(WIDGET_DOCENDO)).removeprefix("Bearer ")
+        jwt = await self._api_client.get_widget_token(WIDGET_DOCENDO)
         headers = {
             "Accept": "application/json",
             # Docendo's own widget sends this misspelled scheme.
@@ -1008,14 +976,13 @@ class AulaWidgetsClient:
         if session_uuid:
             headers["aulasessionuuid"] = session_uuid
 
-        resp = await self._api_client._request_with_version_retry(
+        payload = await self._transport.send(
+            WIDGET_DOCENDO,
             "get",
             f"{DOCENDO_API}/weekplan",
             params={"currentWeekNumber": _zero_padded_week(week), "userProfile": "guardian"},
             headers=headers,
         )
-        _raise_for_provider_status(resp, WIDGET_DOCENDO)
-        payload = resp.json()
 
         data = payload.get("data") if isinstance(payload, dict) else None
         plans = data.get("weekPlans") if isinstance(data, dict) else None
@@ -1035,7 +1002,7 @@ class AulaWidgetsClient:
         institutions: list[str],
         session_uuid: str,
     ) -> list[MomoUserCourses]:
-        token = await self._get_bearer_token(WIDGET_HUSKELISTEN)
+        token = await self._api_client.get_widget_token(WIDGET_HUSKELISTEN)
 
         params = {
             "widgetVersion": "1.3",
@@ -1045,14 +1012,14 @@ class AulaWidgetsClient:
             "institutions": institutions,
         }
 
-        resp = await self._api_client._request_with_version_retry(
+        body = await self._transport.send(
+            WIDGET_HUSKELISTEN,
             "get",
             f"{SYSTEMATIC_API}/courses/v1",
             params=params,
-            headers={"Aula-Authorization": token},
+            headers={"Aula-Authorization": f"Bearer {token}"},
         )
-        _raise_for_provider_status(resp, WIDGET_HUSKELISTEN)
-        courses = _as_list(resp.json(), "Huskelisten courses")
+        courses = _as_list(body, "Huskelisten courses")
         return [MomoUserCourses.from_dict(u) for u in courses]
 
     async def get_momo_reminders(
@@ -1063,7 +1030,7 @@ class AulaWidgetsClient:
         from_date: str,
         due_no_later_than: str,
     ) -> list[UserReminders]:
-        token = await self._get_bearer_token(WIDGET_HUSKELISTEN)
+        token = await self._api_client.get_widget_token(WIDGET_HUSKELISTEN)
 
         params = {
             "widgetVersion": "1.10",
@@ -1075,14 +1042,14 @@ class AulaWidgetsClient:
             "dueNoLaterThan": due_no_later_than,
         }
 
-        resp = await self._api_client._request_with_version_retry(
+        body = await self._transport.send(
+            WIDGET_HUSKELISTEN,
             "get",
             f"{SYSTEMATIC_API}/reminders/v1",
             params=params,
-            headers={"Aula-Authorization": token},
+            headers={"Aula-Authorization": f"Bearer {token}"},
         )
-        _raise_for_provider_status(resp, WIDGET_HUSKELISTEN)
-        reminders = _as_list(resp.json(), "Huskelisten reminders")
+        reminders = _as_list(body, "Huskelisten reminders")
         return [UserReminders.from_dict(u) for u in reminders]
 
     async def get_library_status(
@@ -1092,7 +1059,7 @@ class AulaWidgetsClient:
         institutions: list[str],
         session_uuid: str,
     ) -> LibraryStatus:
-        token = await self._get_bearer_token(widget_id)
+        token = await self._api_client.get_widget_token(widget_id)
         params = {
             "coverImageHeight": "160",
             "widgetVersion": "1.6",
@@ -1102,14 +1069,13 @@ class AulaWidgetsClient:
             "children": children,
         }
 
-        resp = await self._api_client._request_with_version_retry(
+        data = await self._transport.send(
+            widget_id,
             "get",
             f"{CICERO_API}/library/status/v3",
             params=params,
-            headers={"Authorization": token, "Accept": "application/json"},
+            headers={"Authorization": f"Bearer {token}", "Accept": "application/json"},
         )
-        _raise_for_provider_status(resp, widget_id)
-        data = resp.json()
         if not isinstance(data, dict):
             _LOGGER.warning(
                 "Library status returned %s instead of an object, treating as empty: %s",

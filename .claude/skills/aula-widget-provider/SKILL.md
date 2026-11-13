@@ -12,13 +12,13 @@ description: >
 
 ## Workflow
 
-Adding a new widget provider always touches 5 files in the same order:
+Adding a new widget provider always touches 5 files in the same order, plus a test in `tests/test_widgets_client.py`:
 
 1. **`src/aula/const.py`** -- Add `<PROVIDER>_API` base URL and `WIDGET_<PROVIDER>` ID
 2. **`src/aula/models/<provider>_<type>.py`** -- Create dataclass models with `from_dict()` + `_raw`
 3. **`src/aula/models/__init__.py`** -- Export the top-level model
-4. **`src/aula/api_client.py`** -- Add async method: get bearer token, build params/headers, request, parse
-5. **`src/aula/cli.py`** -- Add Click command with standard boilerplate (profile, filters, session UUID, call, display)
+4. **`src/aula/widgets/client.py`** -- Add an `AulaWidgetsClient` method: mint the widget token, build params/headers, `self._transport.send`, parse
+5. **`src/aula/cli.py`** -- Add Click command with standard boilerplate (profile, filters, session UUID, `client.widgets.<method>`, display)
 
 ## Before Starting
 
