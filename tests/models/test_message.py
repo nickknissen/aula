@@ -89,14 +89,14 @@ def test_message_from_dict_sender_and_send_time():
     data = {
         "id": "m2",
         "text": {"html": "<p>Hej</p>"},
-        "sender": {"fullName": "Anne Lærer", "shortName": "AL"},
+        "sender": {"fullName": "Lærer Et", "shortName": "AL"},
         "sendDateTime": "2026-09-25T08:15:00+02:00",
     }
     msg = Message.from_dict(data)
-    assert msg.sender_name == "Anne Lærer"
+    assert msg.sender_name == "Lærer Et"
     assert msg.send_datetime == datetime.datetime.fromisoformat("2026-09-25T08:15:00+02:00")
     result = dict(msg)
-    assert result["sender_name"] == "Anne Lærer"
+    assert result["sender_name"] == "Lærer Et"
     assert "send_datetime" in result
 
 

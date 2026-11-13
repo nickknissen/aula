@@ -79,8 +79,8 @@ def test_start_date_and_end_date_are_normalized():
 
 
 def test_owner_name_aliases_are_read():
-    assert EasyIQCalendarEvent.from_dict({"OwnerName": "Ada Teacher"}).owner_name == "Ada Teacher"
-    assert EasyIQCalendarEvent.from_dict({"teacher": "Grace Teacher"}).owner_name == "Grace Teacher"
+    assert EasyIQCalendarEvent.from_dict({"OwnerName": "Lærer Et"}).owner_name == "Lærer Et"
+    assert EasyIQCalendarEvent.from_dict({"teacher": "Lærer To"}).owner_name == "Lærer To"
 
 
 def test_is_all_day_uses_only_known_true_encodings():
@@ -193,17 +193,17 @@ def test_an_unparseable_timestamp_is_passed_through():
 
 
 def test_event_id_is_read():
-    assert EasyIQCalendarEvent.from_dict({"Id": 17363414}).event_id == "17363414"
+    assert EasyIQCalendarEvent.from_dict({"Id": 4000001}).event_id == "4000001"
 
 
 def test_dict_conversion_drops_raw():
     result = dict(
         EasyIQCalendarEvent.from_dict(
-            {"itemType": 4, "courses": "Dansk", "OwnerName": "Ada Teacher", "IsAllDay": True}
+            {"itemType": 4, "courses": "Dansk", "OwnerName": "Lærer Et", "IsAllDay": True}
         )
     )
     assert result["courses"] == "Dansk"
-    assert result["owner_name"] == "Ada Teacher"
+    assert result["owner_name"] == "Lærer Et"
     assert result["is_all_day"] is True
     assert result["is_notice"] is False
     assert "_raw" not in result

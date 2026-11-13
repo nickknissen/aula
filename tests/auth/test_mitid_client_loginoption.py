@@ -24,11 +24,11 @@ LOGIN_OPTION_PAGE = """
 <html><body>
   <input type="hidden" name="__RequestVerificationToken" value="tok-1"/>
   <a class="list-link" data-loginoptions='{"id":"priv"}'>
-    <div class="list-link-text">Asser Smidt</div>
+    <div class="list-link-text">Værge Et</div>
     <div class="link-list-detail">Privat</div>
   </a>
   <a class="list-link" data-loginoptions='{"id":"biz"}'>
-    <div class="list-link-text">Asser Smidt</div>
+    <div class="list-link-text">Værge Et</div>
     <div class="link-list-detail">Firma ApS</div>
   </a>
 </body></html>
@@ -82,7 +82,7 @@ class TestStep4CompleteMitIDFlow:
         """The 302 to /loginoption has an empty body — not following it loses the SAML form."""
 
         async def pick_first(identities: list[str]) -> int:
-            assert identities == ["Asser Smidt (Privat)", "Asser Smidt (Firma ApS)"]
+            assert identities == ["Værge Et (Privat)", "Værge Et (Firma ApS)"]
             return 0
 
         backend = FakeNemLogIn(identities=2)

@@ -263,10 +263,18 @@ def cli_client(monkeypatch, row):
             display_name="Parent",
             children=[
                 Child(
-                    id=11, profile_id=21, name="Alex", institution_name="School", profile_picture=""
+                    id=11,
+                    profile_id=21,
+                    name="Barn Et",
+                    institution_name="School",
+                    profile_picture="",
                 ),
                 Child(
-                    id=12, profile_id=22, name="Sam", institution_name="School", profile_picture=""
+                    id=12,
+                    profile_id=22,
+                    name="Barn To",
+                    institution_name="School",
+                    profile_picture="",
                 ),
             ],
         )
@@ -291,10 +299,10 @@ def test_cli_selected_child_and_output(cli_client, output):
     assert cli_client.get_meeting_bookings.await_args.args[0] == 11
     if output == "json":
         data = json.loads(result.output)
-        assert data[0]["child_name"] == "Alex"
+        assert data[0]["child_name"] == "Barn Et"
         assert data[0]["start_datetime"] == "2026-11-02T09:40:00+01:00"
     else:
-        assert "Alex: Reading discussion" in result.output
+        assert "Barn Et: Reading discussion" in result.output
         assert "09:40" in result.output
         assert "Room A" in result.output
 

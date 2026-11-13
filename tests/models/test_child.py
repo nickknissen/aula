@@ -87,7 +87,7 @@ def test_child_from_dict_numeric_identifiers_become_strings():
     data = {
         "id": 6,
         "profileId": 600,
-        "name": "Finn",
+        "name": "Barn Et",
         "userId": 123456,
         "institutionProfile": {"institutionCode": 999999},
     }

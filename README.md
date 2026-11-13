@@ -380,7 +380,7 @@ All commands support `--output json` for machine-readable output:
 
 ```bash
 aula --output json messages --unread
-aula --output json daily-summary --child "Emma"
+aula --output json daily-summary --child "Barn Et"
 aula --output json calendar --start-date 2026-03-10
 ```
 

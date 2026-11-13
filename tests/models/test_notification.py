@@ -7,15 +7,15 @@ class TestNotificationFromDict:
     def test_new_message_private_inbox_uses_stripped_message_text(self):
         data = {
             "messageText": (
-                "Kære alle forældre på birken 😊<br /><br />"
-                "Vi kan desværre ikke finde Conrad\u2019s sovebamse."
+                "Kære alle forældre på stuen 😊<br /><br />"
+                "Vi kan desværre ikke finde Barn Et\u2019s sovebamse."
             ),
-            "senderName": "Linda Charlotte Sørensen",
-            "notificationId": "NewMessagePrivateInbox:159531910:Badge",
+            "senderName": "Lærer Et",
+            "notificationId": "NewMessagePrivateInbox:3000002:Badge",
             "notificationEventType": "NewMessagePrivateInbox",
             "notificationArea": "Messages",
             "notificationType": "Badge",
-            "institutionCode": "G19736",
+            "institutionCode": "G90001",
             "expires": "2026-05-31T15:55:16+00:00",
             "triggered": "2026-03-02T15:55:16+00:00",
         }
@@ -29,9 +29,9 @@ class TestNotificationFromDict:
 
     def test_post_shared_uses_post_title(self):
         data = {
-            "postTitle": "Hoppeland i Smidstrup Hallen d. 9. februar",
-            "postId": 12196398,
-            "notificationId": "PostSharedWithMe:12196398:Badge",
+            "postTitle": "Hoppeland i hallen d. 9. februar",
+            "postId": 3000001,
+            "notificationId": "PostSharedWithMe:3000001:Badge",
             "notificationEventType": "PostSharedWithMe",
             "notificationArea": "Posts",
             "notificationType": "Badge",
@@ -41,6 +41,6 @@ class TestNotificationFromDict:
 
         n = Notification.from_dict(data)
 
-        assert n.title == "Hoppeland i Smidstrup Hallen d. 9. februar"
+        assert n.title == "Hoppeland i hallen d. 9. februar"
         assert n.event_type == "PostSharedWithMe"
-        assert n.post_id == 12196398
+        assert n.post_id == 3000001
