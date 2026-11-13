@@ -19,6 +19,7 @@ from aula.http import (
     HttpRequestError,
     HttpResponse,
 )
+from tests.fakes import FakeHttpClient
 
 
 def search_hit(message):
@@ -1285,33 +1286,30 @@ class TestLegacyWidgetMethodWrappers:
         assert warning_info[0].lineno == call_line
 
 
-class TestBearerTokenCompatibilityWrapper:
-    """Compatibility wrapper should transparently delegate to widgets namespace."""
-
-    @pytest.fixture
-    def client(self):
-        http_client = AsyncMock()
-        return AulaApiClient(http_client=http_client, access_token="test_token")
-
+class TestGetWidgetToken:
     @pytest.mark.asyncio
-    async def test_get_bearer_token_delegates_to_widgets(self, client):
-        client.widgets._get_bearer_token = AsyncMock(return_value="Bearer test-token")
-
-        token = await client._get_bearer_token("widget-id")
-
-        assert token == "Bearer test-token"
-        client.widgets._get_bearer_token.assert_awaited_once_with("widget-id")
-
-    @pytest.mark.asyncio
-    async def test_get_bearer_token_preserves_widget_status_handling(self, client):
-        client.widgets._get_bearer_token = AsyncMock(
-            side_effect=AulaAuthenticationError("HTTP 401", status_code=401)
+    async def test_returns_the_raw_token_from_get_aula_token(self):
+        http = FakeHttpClient()
+        client = AulaApiClient(http)
+        http.route(
+            f"{client.api_url}?method=aulaToken.getAulaToken",
+            HttpResponse(200, {"status": {"code": 0}, "data": "token-123"}),
         )
 
-        with pytest.raises(AulaAuthenticationError):
-            await client._get_bearer_token("widget-id")
+        assert await client.get_widget_token("0030") == "token-123"
+        assert [request.url for request in http.requests] == [
+            f"{client.api_url}?method=aulaToken.getAulaToken&widgetId=0030"
+        ]
+        assert client.http_client is http
 
-        client.widgets._get_bearer_token.assert_awaited_once_with("widget-id")
+    @pytest.mark.asyncio
+    async def test_a_refused_mint_is_an_aula_authentication_error(self):
+        http = FakeHttpClient()
+        client = AulaApiClient(http)
+        http.route(f"{client.api_url}?method=aulaToken.getAulaToken", HttpResponse(403, None))
+
+        with pytest.raises(AulaAuthenticationError):
+            await client.get_widget_token("0030")
 
 
 class TestGetCalendarEvents:

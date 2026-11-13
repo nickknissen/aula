@@ -108,7 +108,7 @@ async def test_an_easyiq_portal_refusal_names_the_easyiq_widget():
     client, http, refresh = _client()
     http.route(f"{EASYIQ_PORTAL}{EASYIQ_SWITCHCHILD_PATH}", HttpResponse(401, None))
     context = _EasyIQContext(
-        token=f"Bearer {WIDGET_TOKEN}",
+        token=WIDGET_TOKEN,
         institution_filter=("inst-1",),
         guardian_login="guardian-1",
         child_user_ids=("barn0001",),

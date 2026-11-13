@@ -1,5 +1,6 @@
 """Credential redaction for diagnostic copies, without modifying wire data."""
 
+import json
 import logging
 import re
 from typing import Any
@@ -72,6 +73,18 @@ def redact_credentials(value: Any) -> Any:
     if isinstance(value, str) and "://" in value:
         return diagnostic_url(value)
     return value
+
+
+def compact_payload_for_log(payload: Any, *, max_chars: int = 4000) -> str:
+    """Render a response body as one redacted, size-capped line for a debug log."""
+    payload = redact_credentials(payload)
+    try:
+        rendered = json.dumps(payload, ensure_ascii=True, separators=(",", ":"), default=str)
+    except TypeError, ValueError:
+        rendered = str(payload)
+    if len(rendered) > max_chars:
+        return f"{rendered[:max_chars]}...<truncated>"
+    return rendered
 
 
 class _CredentialFilter(logging.Filter):
