@@ -49,14 +49,14 @@ aula --username "<username>" <command>
 #### `daily-summary` — Today's full picture
 ```bash
 aula --output json daily-summary
-aula --output json daily-summary --child "Emma" --date 2026-03-10
+aula --output json daily-summary --child "Barn Et" --date 2026-03-10
 ```
 Returns: `{status, calendar_events, homework_due_today, unread_messages}`
 
 #### `weekly-summary` — Week at a glance
 ```bash
 aula --output json weekly-summary
-aula --output json weekly-summary --child "Emma" --week 10 --provider all
+aula --output json weekly-summary --child "Barn Et" --week 10 --provider all
 ```
 Returns: `{week, calendar_events, unread_messages, mu_tasks, meebook_weekplan, ...}`
 Providers: `mu_opgaver`, `mu_ugeplan`, `meebook`, `docendo`, `easyiq`, `easyiq_homework`, `all`.

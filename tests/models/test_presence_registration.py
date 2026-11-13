@@ -54,7 +54,7 @@ class TestPresenceRegistrationDetail:
     def test_from_dict_full(self):
         data = {
             "id": 555,
-            "childName": "Maja",
+            "childName": "Barn Et",
             "institutionProfileId": 201,
             "status": 1,
             "date": "2026-03-08",
@@ -67,7 +67,7 @@ class TestPresenceRegistrationDetail:
         }
         detail = PresenceRegistrationDetail.from_dict(data)
         assert detail.id == 555
-        assert detail.child_name == "Maja"
+        assert detail.child_name == "Barn Et"
         assert detail.status == PresenceState.SICK
         assert detail.exit_with == "Mor"
         assert detail.comment == "Halvdag"
@@ -82,12 +82,12 @@ class TestChildPresenceState:
         """Real API uses 'state' and nests profile info in 'uniStudent'."""
         data = {
             "uniStudentId": 201,
-            "uniStudent": {"id": 201, "name": "Maja"},
+            "uniStudent": {"id": 201, "name": "Barn Et"},
             "state": 3,
         }
         state = ChildPresenceState.from_dict(data)
         assert state.institution_profile_id == 201
-        assert state.name == "Maja"
+        assert state.name == "Barn Et"
         assert state.status == PresenceState.PRESENT
 
     def test_from_dict_fallback_format(self):
@@ -107,7 +107,7 @@ class TestPresenceConfiguration:
         data = {
             "uniStudentId": 201,
             "presenceConfiguration": {
-                "institution": {"institutionCode": "G19736", "name": "Test School"},
+                "institution": {"institutionCode": "G90001", "name": "Test School"},
                 "pickup": True,
                 "goHomeWith": True,
                 "selfDecider": False,
@@ -115,7 +115,7 @@ class TestPresenceConfiguration:
         }
         config = PresenceConfiguration.from_dict(data)
         assert config.child_id == 201
-        assert config.institution_code == "G19736"
+        assert config.institution_code == "G90001"
         assert config.institution_name == "Test School"
         assert config.pickup is True
         assert config.go_home_with is True

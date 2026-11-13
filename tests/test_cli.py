@@ -959,9 +959,9 @@ class TestRegisterAbsence:
         assert fake_client.add_vacation.await_args.args[0] == [201, 203]
 
     def test_comment_is_sent_unchanged(self, run, fake_client):
-        run(*self.DATES, "--comment", "Familietur til Bornholm", "-y")
+        run(*self.DATES, "--comment", "Familietur", "-y")
 
-        assert fake_client.add_vacation.await_args.args[3] == "Familietur til Bornholm"
+        assert fake_client.add_vacation.await_args.args[3] == "Familietur"
 
     def test_single_day_starting_today_is_accepted(self, run, fake_client):
         """Today is the earliest start the portal allows, and one day is a valid range."""

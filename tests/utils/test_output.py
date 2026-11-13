@@ -216,16 +216,16 @@ class TestBuildContactTable:
     def test_rows_are_sorted_child_then_guardian(self):
         contacts = [
             {
-                "fullName": "Barn Bo",
+                "fullName": "Barn B",
                 "role": "child",
-                "relations": [{"fullName": "Værge Zeta", "role": "guardian"}],
+                "relations": [{"fullName": "Værge Z", "role": "guardian"}],
             },
             {
-                "fullName": "Barn Ada",
+                "fullName": "Barn A",
                 "role": "child",
                 "relations": [
-                    {"fullName": "Værge Bent", "role": "guardian"},
-                    {"fullName": "Værge Anne", "role": "guardian"},
+                    {"fullName": "Værge B", "role": "guardian"},
+                    {"fullName": "Værge A", "role": "guardian"},
                 ],
             },
         ]
@@ -233,9 +233,9 @@ class TestBuildContactTable:
         _, rows = build_contact_table(contacts)
 
         assert [(row[0], row[1]) for row in rows] == [
-            ("Barn Ada", "Værge Anne"),
-            ("Barn Ada", "Værge Bent"),
-            ("Barn Bo", "Værge Zeta"),
+            ("Barn A", "Værge A"),
+            ("Barn A", "Værge B"),
+            ("Barn B", "Værge Z"),
         ]
 
     def test_every_row_matches_the_header_width(self):
@@ -264,13 +264,18 @@ def _row(child: str, guardian: str = "g") -> ContactRow:
 
 class TestSortContactRows:
     def test_sorts_by_child_then_guardian(self):
-        rows = [_row("Bo", "Zeta"), _row("Ada", "Bent"), _row("Bo", "Alma"), _row("Ada", "Anne")]
+        rows = [
+            _row("Barn B", "Værge Z"),
+            _row("Barn A", "Værge B"),
+            _row("Barn B", "Værge A"),
+            _row("Barn A", "Værge A"),
+        ]
 
         assert [(r.child, r.guardian) for r in sort_contact_rows(rows)] == [
-            ("Ada", "Anne"),
-            ("Ada", "Bent"),
-            ("Bo", "Alma"),
-            ("Bo", "Zeta"),
+            ("Barn A", "Værge A"),
+            ("Barn A", "Værge B"),
+            ("Barn B", "Værge A"),
+            ("Barn B", "Værge Z"),
         ]
 
     def test_sort_is_case_insensitive(self):
@@ -279,22 +284,22 @@ class TestSortContactRows:
         assert [r.child for r in sort_contact_rows(rows)] == ["Alice", "bob"]
 
     def test_danish_letters_sort_after_z_in_danish_order(self):
-        rows = [_row(name) for name in ["Åge", "Bo", "Æbbe", "Øjvind", "Zenia"]]
+        rows = [_row(name) for name in ["Ål", "Bil", "Æble", "Ørn", "Zebra"]]
 
         assert [r.child for r in sort_contact_rows(rows)] == [
-            "Bo",
-            "Zenia",
-            "Æbbe",
-            "Øjvind",
-            "Åge",
+            "Bil",
+            "Zebra",
+            "Æble",
+            "Ørn",
+            "Ål",
         ]
 
     def test_does_not_mutate_the_input(self):
-        rows = [_row("Bo"), _row("Ada")]
+        rows = [_row("Barn B"), _row("Barn A")]
 
         sort_contact_rows(rows)
 
-        assert rows[0].child == "Bo"
+        assert rows[0].child == "Barn B"
 
 
 class TestScopeRelationsToChildren:
@@ -361,7 +366,7 @@ class TestFormatNotificationLines:
             institution_code="1234",
             created_at="2026-02-27T10:00:00Z",
             expires_at="2026-03-01T00:00:00Z",
-            related_child_name="Ada",
+            related_child_name="Barn A",
             post_id=77,
             album_id=None,
             media_id=88,
@@ -377,7 +382,7 @@ class TestFormatNotificationLines:
             "  Triggered: 2026-02-27T10:00:00Z",
             "  Expires: 2026-03-01T00:00:00Z",
             "  Institution: Sunrise School",
-            "  Child: Ada",
+            "  Child: Barn A",
             "  Post: 77",
             "  Media: 88",
         ]
@@ -513,14 +518,14 @@ class TestFormatRecordLines:
     def test_formats_record_with_properties_and_body(self):
         lines = format_record_lines(
             title="Task title",
-            properties=[("Student", "Ada"), ("Type", "Homework")],
+            properties=[("Student", "Barn A"), ("Type", "Homework")],
             body_lines=["Read chapter 2", "Solve 3 questions"],
             body_label="Body",
         )
 
         assert lines == [
             "Task title",
-            "  Student: Ada",
+            "  Student: Barn A",
             "  Type: Homework",
             "  Body:",
             "  Read chapter 2",

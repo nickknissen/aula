@@ -17,13 +17,13 @@ class TestVacationRegistration:
             "isMissingAnswer": True,
             "isPresenceTimesRequired": True,
         }
-        child = {"id": 1000001, "name": "Anna", "institutionCode": "G19736", "metadata": "0.A"}
+        child = {"id": 1000001, "name": "Barn Et", "institutionCode": "G90001", "metadata": "0.A"}
 
         reg = VacationRegistration.from_dict(data, child)
 
         assert reg.id == 9911
         assert reg.child_id == 1000001
-        assert reg.child_name == "Anna"
+        assert reg.child_name == "Barn Et"
         assert reg.title == "Sommerferie"
         assert reg.start_date == "2026-07-01"
         assert reg.end_date == "2026-07-14"

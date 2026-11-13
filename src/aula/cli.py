@@ -3397,9 +3397,9 @@ async def mark_read(ctx, thread_ids):
 
     Examples:
 
-      aula mark-read 170189345
+      aula mark-read 100001
 
-      aula mark-read 170924263 170924078
+      aula mark-read 100002 100003
     """
     is_json = bool(ctx.obj) and ctx.obj.get("OUTPUT_FORMAT") == "json"
     results: list[dict] = []
