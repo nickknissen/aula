@@ -30,6 +30,10 @@ class DailyOverview(AulaDataClass):
     exit_time: str | None = None
     exit_with: str | None = None
     comment: str | None = None
+    is_default_entry_time: bool = False
+    is_default_exit_time: bool = False
+    self_decider_start_time: str | None = None
+    self_decider_end_time: str | None = None
     _raw: dict[str, Any] | None = field(default=None, repr=False)
 
     @classmethod
@@ -57,6 +61,10 @@ class DailyOverview(AulaDataClass):
             exit_time=raw_data.get("exitTime"),
             exit_with=raw_data.get("exitWith"),
             comment=raw_data.get("comment"),
+            is_default_entry_time=bool(raw_data.get("isDefaultEntryTime")),
+            is_default_exit_time=bool(raw_data.get("isDefaultExitTime")),
+            self_decider_start_time=raw_data.get("selfDeciderStartTime"),
+            self_decider_end_time=raw_data.get("selfDeciderEndTime"),
             institution_profile=(
                 InstitutionProfile.from_dict(inst_data) if isinstance(inst_data, dict) else None
             ),

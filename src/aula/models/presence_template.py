@@ -37,6 +37,10 @@ class DayTemplate(AulaDataClass):
     exit_with: str | None = None
     comment: str | None = None
     spare_time_activity: SpareTimeActivity | None = None
+    is_default_entry_time: bool = False
+    is_default_exit_time: bool = False
+    self_decider_start_time: str | None = None
+    self_decider_end_time: str | None = None
     _raw: dict | None = field(default=None, repr=False)
 
     @classmethod
@@ -57,6 +61,10 @@ class DayTemplate(AulaDataClass):
             exit_with=data.get("exitWith"),
             comment=data.get("comment"),
             spare_time_activity=SpareTimeActivity.from_dict(sta_data) if sta_data else None,
+            is_default_entry_time=bool(data.get("isDefaultEntryTime")),
+            is_default_exit_time=bool(data.get("isDefaultExitTime")),
+            self_decider_start_time=data.get("selfDeciderStartTime"),
+            self_decider_end_time=data.get("selfDeciderEndTime"),
         )
 
 

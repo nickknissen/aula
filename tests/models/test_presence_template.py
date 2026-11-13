@@ -110,6 +110,10 @@ class TestDayTemplate:
         assert day.exit_time is None
         assert day.spare_time_activity is None
         assert day.is_on_vacation is False
+        assert day.is_default_entry_time is False
+        assert day.is_default_exit_time is False
+        assert day.self_decider_start_time is None
+        assert day.self_decider_end_time is None
 
     def test_day_template_from_dict_no_spare_time(self):
         """Test parsing day template without spare time activity."""
@@ -146,6 +150,39 @@ class TestDayTemplate:
         day = DayTemplate.from_dict(data)
         assert day.is_on_vacation is True
 
+    def test_day_template_without_a_plan_flags_its_times_as_placeholders(self):
+        data = {
+            "id": 1,
+            "byDate": "2026-11-16",
+            "entryTime": None,
+            "exitTime": None,
+            "isDefaultEntryTime": True,
+            "isDefaultExitTime": True,
+        }
+        day = DayTemplate.from_dict(data)
+        assert day.is_default_entry_time is True
+        assert day.is_default_exit_time is True
+        assert day.entry_time is None
+        assert day.exit_time is None
+
+    def test_day_template_self_decider_window_is_not_the_spare_time_activity(self):
+        data = {
+            "id": 1,
+            "byDate": "2026-11-17",
+            "activityType": 1,
+            "entryTime": "08:00",
+            "exitTime": "14:00",
+            "selfDeciderStartTime": "14:00",
+            "selfDeciderEndTime": "15:30",
+            "spareTimeActivity": {"startTime": "12:00", "endTime": "13:00"},
+        }
+        day = DayTemplate.from_dict(data)
+        assert day.self_decider_start_time == "14:00"
+        assert day.self_decider_end_time == "15:30"
+        assert day.spare_time_activity is not None
+        assert day.spare_time_activity.start_time == "12:00"
+        assert day.spare_time_activity.end_time == "13:00"
+
     def test_day_template_dict_conversion(self):
         """Test dict conversion of day template."""
         day = DayTemplate(
@@ -158,6 +195,10 @@ class TestDayTemplate:
         assert result["id"] == 1
         assert result["by_date"] == "2026-02-25"
         assert result["entry_time"] == "08:00"
+        assert result["is_default_entry_time"] is False
+        assert result["is_default_exit_time"] is False
+        assert result["self_decider_start_time"] is None
+        assert result["self_decider_end_time"] is None
         assert "_raw" not in result
 
 
