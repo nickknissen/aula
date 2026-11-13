@@ -1436,8 +1436,8 @@ class TestGetCalendarEvents:
                 "primaryResource": {"name": "Room 101"},
                 "lesson": {
                     "participants": [
-                        {"participantRole": "primaryTeacher", "teacherName": "Mrs. Jensen"},
-                        {"participantRole": "substituteTeacher", "teacherName": "Mr. Hansen"},
+                        {"participantRole": "primaryTeacher", "teacherName": "Lærer Et"},
+                        {"participantRole": "substituteTeacher", "teacherName": "Lærer To"},
                     ],
                     "lessonStatus": "substitute",
                 },
@@ -1451,9 +1451,9 @@ class TestGetCalendarEvents:
 
         assert len(events) == 1
         assert events[0].title == "Math"
-        assert events[0].teacher_name == "Mrs. Jensen"
+        assert events[0].teacher_name == "Lærer Et"
         assert events[0].has_substitute is True
-        assert events[0].substitute_name == "Mr. Hansen"
+        assert events[0].substitute_name == "Lærer To"
         assert events[0].location == "Room 101"
         assert events[0].belongs_to == 100
 
@@ -1574,8 +1574,8 @@ class TestGetCalendarEvents:
                 "belongsToProfiles": [100],
                 "lesson": {
                     "participants": [
-                        {"participantRole": "primaryTeacher", "teacherName": "Mrs. Jensen"},
-                        {"participantRole": "primaryTeacher", "teacherName": "Mr. Poulsen"},
+                        {"participantRole": "primaryTeacher", "teacherName": "Lærer Et"},
+                        {"participantRole": "primaryTeacher", "teacherName": "Lærer To"},
                     ],
                 },
             }
@@ -1587,8 +1587,8 @@ class TestGetCalendarEvents:
         events = await client.get_calendar_events([100], datetime(2026, 3, 1), datetime(2026, 3, 1))
 
         assert len(events) == 1
-        assert events[0].teacher_names == ["Mrs. Jensen", "Mr. Poulsen"]
-        assert events[0].teacher_name == "Mrs. Jensen"
+        assert events[0].teacher_names == ["Lærer Et", "Lærer To"]
+        assert events[0].teacher_name == "Lærer Et"
 
     @pytest.mark.asyncio
     async def test_shared_event_keeps_every_profile_and_its_type(self, client):
@@ -1899,12 +1899,12 @@ class TestGetNotificationsForActiveProfile:
 
         await client.get_notifications_for_active_profile(
             children_ids=[111, 222],
-            institution_codes=["G19736", "900001"],
+            institution_codes=["G90001", "900001"],
         )
 
         _, kwargs = client._request_with_version_retry.call_args
         assert kwargs["params"]["activeChildrenIds[]"] == [111, 222]
-        assert kwargs["params"]["activeInstitutionCodes[]"] == ["G19736", "900001"]
+        assert kwargs["params"]["activeInstitutionCodes[]"] == ["G90001", "900001"]
 
     @pytest.mark.asyncio
     async def test_module_filter_is_forwarded(self, client):
@@ -1951,15 +1951,15 @@ class TestGetNotificationsForActiveProfile:
                 data={
                     "data": [
                         {
-                            "notificationId": "PostSharedWithMe:12478046:Badge",
-                            "postTitle": "Afslutning for Duygu",
+                            "notificationId": "PostSharedWithMe:3000001:Badge",
+                            "postTitle": "Afslutning for Lærer Et",
                             "notificationArea": "Posts",
                             "notificationEventType": "PostSharedWithMe",
                             "notificationType": "Badge",
-                            "institutionCode": "G19736",
+                            "institutionCode": "G90001",
                             "triggered": "2026-02-27T08:57:31+00:00",
                             "expires": "2026-05-28T08:57:31+00:00",
-                            "postId": 12478046,
+                            "postId": 3000001,
                         }
                     ]
                 },
@@ -1968,15 +1968,15 @@ class TestGetNotificationsForActiveProfile:
 
         items = await client.get_notifications_for_active_profile(limit=1)
         assert len(items) == 1
-        assert items[0].id == "PostSharedWithMe:12478046:Badge"
-        assert items[0].title == "Afslutning for Duygu"
+        assert items[0].id == "PostSharedWithMe:3000001:Badge"
+        assert items[0].title == "Afslutning for Lærer Et"
         assert items[0].module == "Posts"
         assert items[0].event_type == "PostSharedWithMe"
         assert items[0].notification_type == "Badge"
-        assert items[0].institution_code == "G19736"
+        assert items[0].institution_code == "G90001"
         assert items[0].created_at == "2026-02-27T08:57:31+00:00"
         assert items[0].expires_at == "2026-05-28T08:57:31+00:00"
-        assert items[0].post_id == 12478046
+        assert items[0].post_id == 3000001
 
     @pytest.mark.asyncio
     async def test_limit_is_applied_client_side(self, client):
@@ -2410,14 +2410,14 @@ class TestGetPresenceRegistrationDetail:
 
     @pytest.mark.asyncio
     async def test_happy_path(self, client):
-        response_data = {"data": {"id": 555, "childName": "Maja", "status": 1}}
+        response_data = {"data": {"id": 555, "childName": "Barn Et", "status": 1}}
         client._request_with_version_retry = AsyncMock(
             return_value=HttpResponse(status_code=200, data=response_data)
         )
         result = await client.get_presence_registration_detail(555)
         assert result is not None
         assert result.id == 555
-        assert result.child_name == "Maja"
+        assert result.child_name == "Barn Et"
 
     @pytest.mark.asyncio
     async def test_null_data(self, client):
@@ -2471,7 +2471,7 @@ class TestGetPresenceConfiguration:
                 {
                     "uniStudentId": 201,
                     "presenceConfiguration": {
-                        "institution": {"institutionCode": "G19736", "name": "Test"},
+                        "institution": {"institutionCode": "G90001", "name": "Test"},
                         "pickup": True,
                         "goHomeWith": True,
                         "selfDecider": False,
@@ -2616,7 +2616,7 @@ class TestGetVacationRegistrations:
         response_data = {
             "data": [
                 {
-                    "child": {"id": 201, "name": "Anna"},
+                    "child": {"id": 201, "name": "Barn Et"},
                     "vacationRegistrations": [
                         {
                             "vacationRegistrationId": 1,
@@ -2628,7 +2628,7 @@ class TestGetVacationRegistrations:
                     ],
                 },
                 {
-                    "child": {"id": 202, "name": "Bo"},
+                    "child": {"id": 202, "name": "Barn To"},
                     "vacationRegistrations": [{"vacationRegistrationId": 3, "title": "Juleferie"}],
                 },
             ]
@@ -2641,7 +2641,7 @@ class TestGetVacationRegistrations:
 
         assert [r.id for r in result] == [1, 2, 3]
         assert [r.child_id for r in result] == [201, 201, 202]
-        assert [r.child_name for r in result] == ["Anna", "Anna", "Bo"]
+        assert [r.child_name for r in result] == ["Barn Et", "Barn Et", "Barn To"]
         assert result[0].start_date == "2026-07-01"
 
     @pytest.mark.asyncio
@@ -2670,11 +2670,11 @@ class TestGetVacationRegistrations:
     async def test_skips_groups_without_registrations(self, client):
         response_data = {
             "data": [
-                {"child": {"id": 201, "name": "Anna"}},
-                {"child": {"id": 202, "name": "Bo"}, "vacationRegistrations": None},
+                {"child": {"id": 201, "name": "Barn Et"}},
+                {"child": {"id": 202, "name": "Barn To"}, "vacationRegistrations": None},
                 "not-a-group",
                 {
-                    "child": {"id": 203, "name": "Cille"},
+                    "child": {"id": 203, "name": "Barn Tre"},
                     "vacationRegistrations": [{"vacationRegistrationId": 5}, "not-a-row"],
                 },
             ]
@@ -2686,7 +2686,7 @@ class TestGetVacationRegistrations:
         result = await client.get_vacation_registrations([201, 202, 203])
 
         assert [r.id for r in result] == [5]
-        assert result[0].child_name == "Cille"
+        assert result[0].child_name == "Barn Tre"
 
     @pytest.mark.asyncio
     async def test_group_without_child_still_parses(self, client):
@@ -3673,7 +3673,7 @@ class TestUpdatePresenceTemplate:
             entry_time="08:00",
             exit_time="16:00",
             activity_type=ActivityType.GO_HOME_WITH,
-            exit_with="Nick Nissen (Far)",
+            exit_with="Værge Et (Far)",
         )
 
         activity = self._payload(mock_client)["presenceActivity"]
@@ -3681,7 +3681,7 @@ class TestUpdatePresenceTemplate:
         assert activity["goHomeWith"] == {
             "entryTime": "08:00",
             "exitTime": "16:00",
-            "exitWith": "Nick Nissen (Far)",
+            "exitWith": "Værge Et (Far)",
         }
 
     @pytest.mark.asyncio

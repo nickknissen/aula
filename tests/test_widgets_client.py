@@ -184,7 +184,7 @@ class TestWidgetsClient:
                                 "end": "2026-02-24 09:00",
                                 "description": "<p>Algebra</p>",
                                 "itemType": 9,
-                                "ownerName": "Ada Teacher",
+                                "ownerName": "Lærer Et",
                                 "isAllDay": "true",
                                 "isNotice": False,
                             }
@@ -206,7 +206,7 @@ class TestWidgetsClient:
         assert appointments[0].end == "2026-02-24 09:00"
         assert appointments[0].description == "<p>Algebra</p>"
         assert appointments[0].item_type == 9
-        assert appointments[0].owner_name == "Ada Teacher"
+        assert appointments[0].owner_name == "Lærer Et"
         assert appointments[0].is_all_day is True
         assert appointments[0].is_notice is False
         assert _sent(http) == [
@@ -629,7 +629,7 @@ class TestWidgetsClient:
                             "Id": "notice-1",
                             "ItemType": 8,
                             "Title": "Sports day",
-                            "OwnerName": "Ada Teacher",
+                            "OwnerName": "Lærer Et",
                         }
                     ]
                 },
@@ -647,7 +647,7 @@ class TestWidgetsClient:
         assert len(appointments) == 1
         assert appointments[0].appointment_id == "notice-1"
         assert appointments[0].title == "Sports day"
-        assert appointments[0].owner_name == "Ada Teacher"
+        assert appointments[0].owner_name == "Lærer Et"
         assert appointments[0].is_all_day is True
         assert appointments[0].is_notice is True
 
@@ -935,34 +935,34 @@ class TestWidgetsClient:
                 200,
                 [
                     {
-                        "userId": 164625,
-                        "userName": "Emilie Efternavn",
+                        "userId": 1000001,
+                        "userName": "Barn Et",
                         "courseReminders": [],
                         "assignmentReminders": [
                             {
                                 "id": 1,
-                                "institutionName": "Holme Skole",
+                                "institutionName": "Skole Et",
                                 "institutionId": 183,
                                 "dueDate": "2026-03-01T11:00:00Z",
-                                "courseId": 297469,
+                                "courseId": 5000001,
                                 "teamNames": ["5A"],
-                                "teamIds": [65271],
+                                "teamIds": [5000002],
                                 "courseSubjects": [],
-                                "assignmentId": 5027904,
+                                "assignmentId": 5000003,
                                 "assignmentText": "Skriv en novelle",
                             }
                         ],
                         "teamReminders": [
                             {
-                                "id": 76169,
-                                "institutionName": "Holme Skole",
+                                "id": 5000004,
+                                "institutionName": "Skole Et",
                                 "institutionId": 183,
                                 "dueDate": "2026-02-28T23:00:00Z",
-                                "teamId": 65240,
+                                "teamId": 5000005,
                                 "teamName": "2A",
                                 "reminderText": "Lektie: Matematikfessor",
-                                "createdBy": "Peter",
-                                "lastEditBy": "Peter",
+                                "createdBy": "Lærer Et",
+                                "lastEditBy": "Lærer Et",
                                 "subjectName": "Matematik",
                             }
                         ],
@@ -980,7 +980,7 @@ class TestWidgetsClient:
         )
 
         assert len(users) == 1
-        assert users[0].user_name == "Emilie Efternavn"
+        assert users[0].user_name == "Barn Et"
         assert len(users[0].team_reminders) == 1
         assert users[0].team_reminders[0].subject_name == "Matematik"
         assert len(users[0].assignment_reminders) == 1
@@ -1480,15 +1480,15 @@ class TestEasyiqProtocolCorrectIdentifier:
 
         await client.widgets.get_easyiq_calendar_events(
             week="2026-W09",
-            institution_filter=["751052"],  # this child's school
+            institution_filter=["900001"],  # this child's school
             child_profile_id="4242",
             child_user_id="barn0003",
             all_child_user_ids=["barn0003", "barn0004"],
             guardian_login="guardian-1",
-            all_institution_filter=["751052", "751056", "G20365"],
+            all_institution_filter=["900001", "900002", "G90003"],
         )
 
-        every = "751052,751056,G20365"
+        every = "900001,900002,G90003"
         bootstrap, confirmation = http.requests_to(EASYIQ_AUTHENTICATE_URL)
         [children] = http.requests_to(EASYIQ_CHILDREN_URL)
         [switch] = http.requests_to(EASYIQ_SWITCHCHILD_URL)
@@ -1497,7 +1497,7 @@ class TestEasyiqProtocolCorrectIdentifier:
         assert children.headers["x-institutionfilter"] == every
         # Switch, confirmation and read still go out under the child's own institution.
         for step in (switch, confirmation, read):
-            assert step.headers["x-institutionfilter"] == "751052"
+            assert step.headers["x-institutionfilter"] == "900001"
 
     @pytest.mark.asyncio
     async def test_the_session_falls_back_to_the_childs_institution(self, client, http):
@@ -1509,7 +1509,7 @@ class TestEasyiqProtocolCorrectIdentifier:
 
         await client.widgets.get_easyiq_calendar_events(
             week="2026-W09",
-            institution_filter=["751052"],
+            institution_filter=["900001"],
             child_profile_id="4242",
             child_user_id="barn0003",
             all_child_user_ids=["barn0003"],
@@ -1517,7 +1517,7 @@ class TestEasyiqProtocolCorrectIdentifier:
         )
 
         [bootstrap] = http.requests_to(EASYIQ_AUTHENTICATE_URL)
-        assert bootstrap.headers["x-institutionfilter"] == "751052"
+        assert bootstrap.headers["x-institutionfilter"] == "900001"
 
     @pytest.mark.asyncio
     async def test_a_failed_switch_child_surfaces_rather_than_returning_data(self, client, http):

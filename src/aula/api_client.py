@@ -676,7 +676,7 @@ class AulaApiClient:
             activity_type: How the child leaves at the end of the day. Prefer an
                 ``ActivityType`` member; raw ints are accepted for compatibility.
             exit_with: Name of person picking up, including relation suffix
-                (e.g., "Nick Hansen (Far)"). Required for PICKED_UP_BY and GO_HOME_WITH.
+                (e.g., "Værge Et (Far)"). Required for PICKED_UP_BY and GO_HOME_WITH.
             comment: Optional daily comment/remark (empty string if not set).
             template_id: Existing template ID to update (None for new).
             repeat_pattern: "Never", "Weekly", or "Every2Weeks".
