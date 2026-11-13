@@ -32,6 +32,15 @@ repos:
         entry: '\.get\([^)]*, ?\{\}\)'
         files: '^src/.+\.py$'
 
+      # Names, UniLogins and IDs copied from a live account must not reach the repo.
+      # scripts/check_fixture_values.py explains the local value list and the escape comment.
+      - id: check-fixture-values
+        name: fixture values look like placeholders
+        language: system
+        entry: uv run --quiet python scripts/check_fixture_values.py
+        types: [text]
+        exclude: '^(uv\.lock|LICENSE|pyproject\.toml|scripts/check_fixture_values\.py)$'
+
       - id: pytest
         name: pytest
         language: system
