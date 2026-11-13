@@ -57,6 +57,34 @@ def test_daily_overview_from_dict_full():
     assert overview._raw is data
 
 
+def test_daily_overview_without_a_plan_passes_placeholder_times_through_flagged():
+    data = {
+        "id": 1,
+        "entryTime": "06:30",
+        "exitTime": "23:59",
+        "isDefaultEntryTime": True,
+        "isDefaultExitTime": True,
+    }
+    overview = DailyOverview.from_dict(data)
+    assert overview.entry_time == "06:30"
+    assert overview.exit_time == "23:59"
+    assert overview.is_default_entry_time is True
+    assert overview.is_default_exit_time is True
+
+
+def test_daily_overview_carries_the_self_decider_window():
+    data = {
+        "id": 1,
+        "entryTime": "08:00",
+        "exitTime": "14:00",
+        "selfDeciderStartTime": "14:00",
+        "selfDeciderEndTime": "15:30",
+    }
+    overview = DailyOverview.from_dict(data)
+    assert overview.self_decider_start_time == "14:00"
+    assert overview.self_decider_end_time == "15:30"
+
+
 def test_daily_overview_from_dict_minimal():
     data = {}
     overview = DailyOverview.from_dict(data)
@@ -65,6 +93,10 @@ def test_daily_overview_from_dict_minimal():
     assert overview.institution_profile is None
     assert overview.main_group is None
     assert overview.sleep_intervals == []
+    assert overview.is_default_entry_time is False
+    assert overview.is_default_exit_time is False
+    assert overview.self_decider_start_time is None
+    assert overview.self_decider_end_time is None
 
 
 def test_daily_overview_unknown_status():
@@ -83,6 +115,10 @@ def test_daily_overview_dict_conversion():
         "description": "",
         "symbol": "",
     }
+    assert result["is_default_entry_time"] is False
+    assert result["is_default_exit_time"] is False
+    assert result["self_decider_start_time"] is None
+    assert result["self_decider_end_time"] is None
     assert "_raw" not in result
 
 
