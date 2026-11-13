@@ -19,8 +19,10 @@ from .const import (
 )
 from .http import (
     AulaAuthenticationError,
+    AulaConnectionError,
     AulaInvalidTokenError,
     AulaRejectedError,
+    AulaServerError,
     AulaSessionExpiredError,
     AulaStepUpRequiredError,
     AulaUserDeactivatedError,
@@ -292,7 +294,9 @@ class AulaApiClient:
         On HTTP 401 or API sub-code 9 (InvalidToken) or 23 (SessionExpired),
         attempts a single token refresh via the ``on_token_refresh`` callback
         (if provided), re-inits the session, and retries the request. Widget
-        provider URLs never trigger a refresh.
+        provider URLs never trigger a refresh. When the refresh fails because
+        a server is down or unreachable, that ``AulaServerError`` or
+        ``AulaConnectionError`` is raised instead of returning the 401.
         """
         is_aula_call = url.startswith(API_URL)
         observed_generation = self._auth_generation
@@ -380,6 +384,9 @@ class AulaApiClient:
                 await self.init()
                 self._auth_generation += 1
                 return True
+            except AulaServerError, AulaConnectionError:
+                self._access_token = previous_access_token
+                raise
             except Exception as e:
                 self._access_token = previous_access_token
                 _LOGGER.warning("Token refresh failed: %s", e)

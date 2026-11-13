@@ -1,14 +1,15 @@
 """Refresh-token rotation and persistence through the real refresh path."""
 
 import time
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock, Mock
 
 import httpx
 import pytest
 
-from aula.auth.exceptions import OAuthError
+from aula.auth.exceptions import NetworkError, OAuthError
 from aula.auth.mitid_client import MitIDAuthClient
 from aula.auth_flow import authenticate
+from aula.const import OAUTH_TOKEN_PATH
 
 
 @pytest.mark.asyncio
@@ -48,6 +49,40 @@ async def test_expired_cache_saves_reusable_refresh_token(rotated):
     assert result["tokens"]["expires_at"] > time.time()
     assert result["cookies"] == {"PHPSESSID": "session"}
     storage.save.assert_awaited_once_with(result)
+
+
+def _token_server_down(request: httpx.Request) -> httpx.Response:
+    return httpx.Response(503, text="Service Unavailable")
+
+
+def _token_server_unreachable(request: httpx.Request) -> httpx.Response:
+    raise httpx.ConnectTimeout("timed out", request=request)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("token_server", [_token_server_down, _token_server_unreachable])
+async def test_expired_cache_does_not_start_mitid_login_while_token_server_is_down(token_server):
+    storage = AsyncMock()
+    storage.load.return_value = {
+        "tokens": {"access_token": "expired", "refresh_token": "original-refresh", "expires_at": 1},
+        "cookies": {},
+    }
+    requested_paths = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        requested_paths.append(request.url.path)
+        return token_server(request)
+
+    login_required = Mock()
+    async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as http:
+        with pytest.raises(NetworkError):
+            await authenticate(
+                "tester", storage, httpx_client=http, on_login_required=login_required
+            )
+
+    assert requested_paths == [OAUTH_TOKEN_PATH]
+    login_required.assert_not_called()
+    storage.save.assert_not_awaited()
 
 
 @pytest.mark.asyncio
