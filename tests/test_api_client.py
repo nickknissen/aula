@@ -6,6 +6,7 @@ import logging
 from datetime import UTC, date, datetime, timedelta, timezone
 from unittest.mock import AsyncMock, MagicMock, patch
 
+import httpx
 import pytest
 
 from aula.api_client import AulaApiClient, ThreadScanLimitError, validate_vacation
@@ -16,9 +17,11 @@ from aula.http import (
     AulaRejectedError,
     AulaServerError,
     AulaSessionExpiredError,
+    DownloadTooLargeError,
     HttpRequestError,
     HttpResponse,
 )
+from aula.http_httpx import HttpxHttpClient
 from tests.fakes import FakeHttpClient
 
 
@@ -1310,6 +1313,21 @@ class TestGetWidgetToken:
 
         with pytest.raises(AulaAuthenticationError):
             await client.get_widget_token("0030")
+
+
+class TestDownloadFile:
+    @pytest.mark.asyncio
+    async def test_refuses_a_file_larger_than_max_bytes(self):
+        http = HttpxHttpClient(
+            httpx_client=httpx.AsyncClient(
+                transport=httpx.MockTransport(
+                    lambda request: httpx.Response(200, content=b"9 bytes!!")
+                )
+            )
+        )
+
+        with pytest.raises(DownloadTooLargeError):
+            await AulaApiClient(http).download_file("https://media.aula.dk/file.pdf", max_bytes=8)
 
 
 class TestGetCalendarEvents:

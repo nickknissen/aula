@@ -2186,9 +2186,12 @@ class AulaApiClient:
                 return state.result("no_progress")
         return state.result("max_pages")
 
-    async def download_file(self, url: str) -> bytes:
-        """Download a file as raw bytes."""
-        return await self._client.download_bytes(url)
+    async def download_file(self, url: str, *, max_bytes: int | None = None) -> bytes:
+        """Download a file as raw bytes.
+
+        Raises ``DownloadTooLargeError`` when the file is larger than ``max_bytes``.
+        """
+        return await self._client.download_bytes(url, max_bytes=max_bytes)
 
     async def get_widget_token(self, widget_id: str) -> str:
         """Mint a widget token for ``widget_id`` from the Aula session.
