@@ -132,6 +132,14 @@ class AulaConnectionError(HttpRequestError):
         super().__init__(message, status_code)
 
 
+class DownloadTooLargeError(Exception):
+    """Raised when a download is larger than the ``max_bytes`` the caller allowed."""
+
+    def __init__(self, message: str, *, max_bytes: int) -> None:
+        super().__init__(message)
+        self.max_bytes = max_bytes
+
+
 @dataclass
 class HttpResponse:
     """Transport-agnostic HTTP response with pre-parsed JSON data.
@@ -203,7 +211,7 @@ class HttpClient(Protocol):
         json: Any | None = None,
     ) -> HttpResponse: ...
 
-    async def download_bytes(self, url: str) -> bytes: ...
+    async def download_bytes(self, url: str, *, max_bytes: int | None = None) -> bytes: ...
 
     def get_cookie(self, name: str) -> str | None:
         """Read a cookie value by name from the underlying session.

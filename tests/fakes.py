@@ -50,7 +50,7 @@ class FakeHttpClient:
         answers = self._routes[max(matches, key=len)]
         return answers.pop(0) if len(answers) > 1 else answers[0]
 
-    async def download_bytes(self, url: str) -> bytes:
+    async def download_bytes(self, url: str, *, max_bytes: int | None = None) -> bytes:
         raise AssertionError(f"Unexpected download of {url}")
 
     def get_cookie(self, name: str) -> str | None:
