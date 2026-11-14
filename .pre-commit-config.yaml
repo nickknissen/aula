@@ -41,6 +41,13 @@ repos:
         types: [text]
         exclude: '^(uv\.lock|LICENSE|pyproject\.toml|scripts/check_fixture_values\.py)$'
 
+      - id: ty
+        name: ty check
+        language: system
+        entry: uv run ty check
+        pass_filenames: false
+        types: [python]
+
       - id: pytest
         name: pytest
         language: system

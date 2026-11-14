@@ -16,24 +16,28 @@ uv sync
 aula --username <mitid_username> <command>
 # or: python -m aula
 
-# Lint and format
-ruff check src/ tests/
-ruff format src/ tests/
+# Lint, format and type check
+uv run ruff check src/ tests/
+uv run ruff format src/ tests/
+uv run ty check
 
 # Run tests
-pytest
+uv run pytest
 ```
 
 ## Release Flow
 
-1. Bump `version` in `pyproject.toml` (semver: patch for fixes/docs, minor for new features)
-2. Commit: `git commit -m "chore: bump version to X.Y.Z"`
-3. Push: `git push`
-4. Create a GitHub release — this triggers the PyPI publish workflow (`.github/workflows/publish.yml`):
+Release from a worktree on `origin/main`, never from a checkout that may be on another branch.
+
+1. `git fetch origin && git worktree add --detach <dir> origin/main`, then work in `<dir>`.
+2. Bump `version` in `pyproject.toml` (semver: patch for fixes and docs, minor for new features), then run `uv lock`.
+3. `git commit -am "chore: bump version to X.Y.Z" && git push origin HEAD:main`
+4. Create the GitHub release. It triggers the PyPI publish workflow (`.github/workflows/publish.yml`):
    ```bash
-   gh release create vX.Y.Z --title "vX.Y.Z" --notes "- change 1\n- change 2"
+   gh release create vX.Y.Z --target "$(git rev-parse HEAD)" --title "vX.Y.Z" --notes "- change (#N)"
    ```
-5. Verify the Actions run at https://github.com/nickknissen/aula/actions and the new version appears on PyPI.
+   One bullet per user-facing change, with its issue number.
+5. `gh run watch` the publish run, then check that PyPI shows the new version.
 
 When working with Python, invoke the relevant /astral:\<skill> for uv, ty, and ruff to ensure best practices are followed.
 
@@ -99,10 +103,5 @@ cli.py → api_client.py → auth/mitid_client.py → auth/browser_client.py →
 
 ### Key Patterns
 
-- **Async-first**: all API and auth code is async (`httpx.AsyncClient`).
-- **Convention commits**: `feat:`, `refactor:`, `chore:`, `fix:`.
-- **`_raw` field**: models preserve original API dicts for debugging/extensibility.
-- **Placeholder fixtures**: test data, docs and examples use `Barn Et`, `Værge Et`, `Lærer Et`, `Skole Et`, `barn0001`, `900001`, `G90001`, `1000001`. The `check-fixture-values` pre-commit hook (`scripts/check_fixture_values.py`) blocks anything shaped like account data.
-- **Defensive parsing**: `try/except` around response parsing with `logging.warning` on failures.
-- **Optional rich dependency**: calendar table rendering falls back to plain text if `rich` is not installed.
+- **Coding standards**: `CODING_STANDARDS.md` holds the rules review checks: comments, models, tests, commits, prose and placeholder data.
 - **MitID username resolution order** (CLI): `--username` flag → `AULA_MITID_USERNAME` env var → config file → interactive prompt.
