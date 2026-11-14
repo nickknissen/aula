@@ -16,12 +16,13 @@ uv sync
 aula --username <mitid_username> <command>
 # or: python -m aula
 
-# Lint and format
-ruff check src/ tests/
-ruff format src/ tests/
+# Lint, format and type check
+uv run ruff check src/ tests/
+uv run ruff format src/ tests/
+uv run ty check
 
 # Run tests
-pytest
+uv run pytest
 ```
 
 ## Release Flow
