@@ -27,14 +27,17 @@ uv run pytest
 
 ## Release Flow
 
-1. Bump `version` in `pyproject.toml` (semver: patch for fixes/docs, minor for new features)
-2. Commit: `git commit -m "chore: bump version to X.Y.Z"`
-3. Push: `git push`
-4. Create a GitHub release — this triggers the PyPI publish workflow (`.github/workflows/publish.yml`):
+Release from a worktree on `origin/main`, never from a checkout that may be on another branch.
+
+1. `git fetch origin && git worktree add --detach <dir> origin/main`, then work in `<dir>`.
+2. Bump `version` in `pyproject.toml` (semver: patch for fixes and docs, minor for new features), then run `uv lock`.
+3. `git commit -am "chore: bump version to X.Y.Z" && git push origin HEAD:main`
+4. Create the GitHub release. It triggers the PyPI publish workflow (`.github/workflows/publish.yml`):
    ```bash
-   gh release create vX.Y.Z --title "vX.Y.Z" --notes "- change 1\n- change 2"
+   gh release create vX.Y.Z --target "$(git rev-parse HEAD)" --title "vX.Y.Z" --notes "- change (#N)"
    ```
-5. Verify the Actions run at https://github.com/nickknissen/aula/actions and the new version appears on PyPI.
+   One bullet per user-facing change, with its issue number.
+5. `gh run watch` the publish run, then check that PyPI shows the new version.
 
 When working with Python, invoke the relevant /astral:\<skill> for uv, ty, and ruff to ensure best practices are followed.
 
