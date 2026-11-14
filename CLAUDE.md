@@ -100,10 +100,5 @@ cli.py → api_client.py → auth/mitid_client.py → auth/browser_client.py →
 
 ### Key Patterns
 
-- **Async-first**: all API and auth code is async (`httpx.AsyncClient`).
-- **Convention commits**: `feat:`, `refactor:`, `chore:`, `fix:`.
-- **`_raw` field**: models preserve original API dicts for debugging/extensibility.
-- **Placeholder fixtures**: test data, docs and examples use `Barn Et`, `Værge Et`, `Lærer Et`, `Skole Et`, `barn0001`, `900001`, `G90001`, `1000001`. The `check-fixture-values` pre-commit hook (`scripts/check_fixture_values.py`) blocks anything shaped like account data.
-- **Defensive parsing**: `try/except` around response parsing with `logging.warning` on failures.
-- **Optional rich dependency**: calendar table rendering falls back to plain text if `rich` is not installed.
+- **Coding standards**: `CODING_STANDARDS.md` holds the rules review checks: comments, models, tests, commits, prose and placeholder data.
 - **MitID username resolution order** (CLI): `--username` flag → `AULA_MITID_USERNAME` env var → config file → interactive prompt.
