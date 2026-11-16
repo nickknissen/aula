@@ -80,6 +80,10 @@ def _unreachable(request: httpx.Request) -> httpx.Response:
     raise httpx.ConnectError("[Errno -3] Try again", request=request)
 
 
+def _maintenance_redirect(request: httpx.Request) -> httpx.Response:
+    return httpx.Response(302, headers={"Location": "https://login.aula.dk/"})
+
+
 # ---------------------------------------------------------------------------
 # create_client
 # ---------------------------------------------------------------------------
@@ -225,6 +229,7 @@ class TestCreateClient:
         ("token_server", "raised"),
         [
             (lambda request: httpx.Response(503), AulaServerError),
+            (_maintenance_redirect, AulaServerError),
             (_unreachable, AulaConnectionError),
         ],
     )
@@ -261,6 +266,12 @@ class TestRefreshTokenViaOidc:
         ):
             await _refresh_token_via_oidc("refresh-1")
         assert raised.value.status_code == 502
+
+    @pytest.mark.asyncio
+    async def test_redirect_raises(self):
+        with _token_server(_maintenance_redirect), pytest.raises(AulaServerError) as raised:
+            await _refresh_token_via_oidc("refresh-1")
+        assert raised.value.status_code == 302
 
     @pytest.mark.asyncio
     async def test_unreachable_server_raises(self):

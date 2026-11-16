@@ -59,8 +59,14 @@ def _token_server_unreachable(request: httpx.Request) -> httpx.Response:
     raise httpx.ConnectTimeout("timed out", request=request)
 
 
+def _token_server_in_maintenance(request: httpx.Request) -> httpx.Response:
+    return httpx.Response(302, headers={"Location": "https://login.aula.dk/"})
+
+
 @pytest.mark.asyncio
-@pytest.mark.parametrize("token_server", [_token_server_down, _token_server_unreachable])
+@pytest.mark.parametrize(
+    "token_server", [_token_server_down, _token_server_unreachable, _token_server_in_maintenance]
+)
 async def test_expired_cache_does_not_start_mitid_login_while_token_server_is_down(token_server):
     storage = AsyncMock()
     storage.load.return_value = {
