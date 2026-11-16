@@ -44,11 +44,12 @@ async def _refresh_token_via_oidc(refresh_token: str) -> dict[str, Any] | None:
 
     Raises:
         AulaConnectionError: If the token server cannot be reached.
-        AulaServerError: If the token server answers with a 5xx.
+        AulaServerError: If the token server answers with a 5xx or redirects, as it
+            does during Aula maintenance.
     """
     token_url = f"{AUTH_BASE_URL}{OAUTH_TOKEN_PATH}"
     try:
-        async with httpx.AsyncClient() as client:
+        async with httpx.AsyncClient(follow_redirects=False) as client:
             response = await client.post(
                 token_url,
                 data={
@@ -58,7 +59,7 @@ async def _refresh_token_via_oidc(refresh_token: str) -> dict[str, Any] | None:
                 },
                 headers={"Content-Type": "application/x-www-form-urlencoded"},
             )
-            if response.is_server_error:
+            if response.is_server_error or response.is_redirect:
                 raise AulaServerError(
                     f"Token server unavailable: HTTP {response.status_code}",
                     response.status_code,

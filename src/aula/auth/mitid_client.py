@@ -857,7 +857,8 @@ class MitIDAuthClient:
 
         Raises:
             OAuthError: If the token server rejects the refresh token.
-            NetworkError: If the token server is unreachable or answers with a 5xx.
+            NetworkError: If the token server is unreachable, answers with a 5xx or
+                redirects, as it does during Aula maintenance.
         """
         _LOGGER.info("Refreshing access token")
 
@@ -877,7 +878,7 @@ class MitIDAuthClient:
                 },
             )
 
-            if response.is_server_error:
+            if response.is_server_error or response.is_redirect:
                 raise NetworkError(f"Token server unavailable: HTTP {response.status_code}")
             if not response.is_success:
                 raise OAuthError(f"Token refresh failed: {response.status_code}")
