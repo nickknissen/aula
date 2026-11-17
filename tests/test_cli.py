@@ -49,6 +49,8 @@ from aula.models import (
     Child,
     CommonFile,
     EasyIQHomework,
+    MessageThread,
+    Post,
     PresenceConfiguration,
     PresenceState,
     Profile,
@@ -1655,6 +1657,61 @@ class TestMarkRead:
 
     def test_needs_a_thread_id(self, run):
         assert run().exit_code != 0
+
+
+class TestWebLinks:
+    THREAD_URL = "https://www.aula.dk/portal/#/beskeder/1000001"
+    POST_URL = "https://www.aula.dk/portal/#/overblik/1000002"
+
+    @pytest.fixture
+    def fake_client(self):
+        client = MagicMock()
+        client.get_message_threads = AsyncMock(
+            return_value=[MessageThread(thread_id="1000001", subject="Emne")]
+        )
+        client.get_messages_for_thread = AsyncMock(return_value=[])
+        client.get_profile = AsyncMock(
+            return_value=Profile(profile_id=1, display_name="Værge Et", institution_profile_ids=[1])
+        )
+        client.get_posts = AsyncMock(
+            return_value=[
+                Post.from_dict(
+                    {"id": 1000002, "title": "Opslag", "ownerProfile": {"id": 1, "profileId": 1}}
+                )
+            ]
+        )
+        client.__aenter__ = AsyncMock(return_value=client)
+        client.__aexit__ = AsyncMock(return_value=False)
+        return client
+
+    @pytest.fixture
+    def run(self, fake_client, monkeypatch):
+        monkeypatch.setattr("aula.cli._get_client", AsyncMock(return_value=fake_client))
+
+        def invoke(command, output_format="text"):
+            return CliRunner().invoke(command, [], obj={"OUTPUT_FORMAT": output_format})
+
+        return invoke
+
+    def test_messages_show_the_thread_link(self, run):
+        result = run(cli.messages)
+
+        assert f"  Link: {self.THREAD_URL}" in result.output
+
+    def test_messages_json_carries_the_thread_link(self, run):
+        result = run(cli.messages, output_format="json")
+
+        assert json.loads(result.stdout)[0]["web_url"] == self.THREAD_URL
+
+    def test_posts_show_the_post_link(self, run):
+        result = run(cli.posts)
+
+        assert f"  Link: {self.POST_URL}" in result.output
+
+    def test_posts_json_carries_the_post_link(self, run):
+        result = run(cli.posts, output_format="json")
+
+        assert json.loads(result.stdout)[0]["web_url"] == self.POST_URL
 
 
 class TestCommonFiles:

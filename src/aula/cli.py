@@ -997,6 +997,8 @@ async def messages(ctx, limit, unread, search, folders):
                 meta_parts.append(last_updated)
             if meta_parts:
                 click.echo(f"  {clip(' | '.join(meta_parts))}")
+            if thread.web_url:
+                click.echo(f"  Link: {thread.web_url}")
 
             try:
                 messages_list: list[Message] = await client.get_messages_for_thread(
@@ -1351,6 +1353,7 @@ async def posts(ctx, institution_profile_id, post_id, comments, limit, page):
                 date=date_str,
                 body=post.content,
                 attachments_count=len(post.attachments),
+                link=post.web_url,
             ):
                 click.echo(line)
 
@@ -1398,6 +1401,7 @@ async def posts(ctx, institution_profile_id, post_id, comments, limit, page):
                     date=date_str,
                     body=post.content,
                     attachments_count=len(post.attachments),
+                    link=post.web_url,
                 ):
                     click.echo(line)
 

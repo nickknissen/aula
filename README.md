@@ -384,6 +384,10 @@ aula --output json daily-summary --child "Barn Et"
 aula --output json calendar --start-date 2026-03-10
 ```
 
+Message threads, posts and notifications about a post carry `web_url`, a link to the
+item in the Aula web portal. The link only works in a browser that is logged in to
+Aula. On a phone it opens the browser, not the Aula app.
+
 ### Examples
 
 ```bash

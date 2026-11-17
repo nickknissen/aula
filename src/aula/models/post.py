@@ -2,6 +2,7 @@ import datetime
 from dataclasses import dataclass, field
 from typing import Any
 
+from ..const import WEB_PORTAL_URL
 from ..utils.dates import parse_api_datetime
 from ..utils.html import html_to_markdown, html_to_plain
 from ..utils.mapping import get_in
@@ -34,6 +35,11 @@ class Post(AulaDataClass):
     can_current_user_comment: bool
     edited_at: datetime.datetime | None = None
     _raw: dict | None = field(default=None, repr=False)
+    #: Opens only in a browser logged in to Aula. A phone opens it in the browser, not the app.
+    web_url: str = field(init=False)
+
+    def __post_init__(self) -> None:
+        self.web_url = f"{WEB_PORTAL_URL}/overblik/{self.id}"
 
     @property
     def content(self) -> str:

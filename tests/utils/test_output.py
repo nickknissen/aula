@@ -384,6 +384,7 @@ class TestFormatNotificationLines:
             "  Institution: Sunrise School",
             "  Child: Barn A",
             "  Post: 77",
+            "  Link: https://www.aula.dk/portal/#/overblik/77",
             "  Media: 88",
         ]
 
@@ -481,6 +482,23 @@ class TestFormatPostLines:
             "  Bring lunch",
             "  Wear boots",
             "  Attachments: 2",
+        ]
+
+    def test_shows_the_link_after_the_date(self):
+        lines = format_post_lines(
+            title="School trip",
+            author="Class Teacher",
+            date="2026-03-02 08:30",
+            body="Bring lunch",
+            attachments_count=0,
+            link="https://www.aula.dk/portal/#/overblik/1000001",
+        )
+
+        assert lines[:4] == [
+            "School trip",
+            "  Author: Class Teacher",
+            "  Date: 2026-03-02 08:30",
+            "  Link: https://www.aula.dk/portal/#/overblik/1000001",
         ]
 
     def test_omits_empty_optional_fields(self):

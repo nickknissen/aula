@@ -114,6 +114,13 @@ def test_post_dict_conversion():
     assert "_raw" not in result
 
 
+def test_post_links_to_the_post_in_the_web_portal():
+    post = Post.from_dict({"id": 1000001, "ownerProfile": {"id": 1, "profileId": 1}})
+
+    assert post.web_url == "https://www.aula.dk/portal/#/overblik/1000001"
+    assert dict(post)["web_url"] == post.web_url
+
+
 def test_post_from_dict_null_content():
     """A post with no body arrives as "content": null, not as a missing key."""
     data = {
