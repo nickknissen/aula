@@ -1,6 +1,7 @@
 from dataclasses import dataclass, field
 from html.parser import HTMLParser
 
+from ..const import WEB_PORTAL_URL
 from .base import AulaDataClass
 
 
@@ -29,6 +30,13 @@ class Notification(AulaDataClass):
     media_id: int | None = None
     institution_profile_id: int | None = None
     _raw: dict | None = field(default=None, repr=False)
+    #: Opens only in a browser logged in to Aula. A phone opens it in the browser, not the app.
+    web_url: str | None = field(init=False)
+
+    def __post_init__(self) -> None:
+        self.web_url = (
+            f"{WEB_PORTAL_URL}/overblik/{self.post_id}" if self.post_id is not None else None
+        )
 
     @classmethod
     def from_dict(cls, data: dict) -> Notification:

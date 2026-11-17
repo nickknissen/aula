@@ -1,6 +1,8 @@
 DOMAIN = "aula"
 API_URL = "https://www.aula.dk/api/v"
 API_VERSION = "25"
+# Aula can change the web portal's hash routes without notice.
+WEB_PORTAL_URL = "https://www.aula.dk/portal/#"
 MIN_UDDANNELSE_API = "https://api.minuddannelse.net/aula"
 SYSTEMATIC_API = "https://systematic-momo.dk/api/aula"
 EASYIQ_API = "https://api.easyiqcloud.dk/api/aula"

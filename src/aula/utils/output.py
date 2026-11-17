@@ -313,6 +313,8 @@ def format_notification_lines(
 
     if item.post_id is not None:
         lines.append(f"  Post: {item.post_id}")
+    if item.web_url:
+        lines.append(f"  Link: {item.web_url}")
     if item.album_id is not None:
         album_label = str(item.album_id)
         if album_names:
@@ -330,6 +332,7 @@ def format_post_lines(
     date: str,
     body: str,
     attachments_count: int,
+    link: str | None = None,
 ) -> list[str]:
     """Format a post as title plus indented metadata/body lines."""
     lines = [clip(title) if title.strip() else "(No title)"]
@@ -337,6 +340,8 @@ def format_post_lines(
         lines.append(f"  Author: {author}")
     if date.strip():
         lines.append(f"  Date: {date}")
+    if link:
+        lines.append(f"  Link: {link}")
 
     body_text = body.strip()
     lines.append("  Body:")

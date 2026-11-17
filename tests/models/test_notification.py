@@ -44,3 +44,18 @@ class TestNotificationFromDict:
         assert n.title == "Hoppeland i hallen d. 9. februar"
         assert n.event_type == "PostSharedWithMe"
         assert n.post_id == 3000001
+
+
+class TestNotificationWebUrl:
+    def test_a_notification_about_a_post_links_to_the_post(self):
+        n = Notification.from_dict({"notificationEventType": "PostSharedWithMe", "postId": 3000001})
+
+        assert n.web_url == "https://www.aula.dk/portal/#/overblik/3000001"
+        assert dict(n)["web_url"] == n.web_url
+
+    def test_a_notification_without_a_post_has_no_link(self):
+        n = Notification.from_dict(
+            {"notificationEventType": "NewMessagePrivateInbox", "messageText": "Hej"}
+        )
+
+        assert n.web_url is None
