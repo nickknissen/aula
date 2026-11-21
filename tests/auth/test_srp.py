@@ -31,3 +31,10 @@ def test_scrambling_parameter_pads_short_keys_with_zero_bytes():
     digest = hashlib.sha256(padding + b"\x01\x02" + padding + b"\x03\x04").hexdigest()
 
     assert srp._compute_u() == int(digest, 16) % _N
+
+
+def test_multiplier_pads_g_with_zero_bytes():
+    padded_g = b"\x00" * (N_LENGTH - 1) + b"\x02"
+    digest = hashlib.sha256(str(_N).encode() + padded_g).hexdigest()
+
+    assert CustomSRP()._compute_little_s() == int(digest, 16)

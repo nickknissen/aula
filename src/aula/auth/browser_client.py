@@ -22,8 +22,6 @@ _LOGGER = logging.getLogger(__name__)
 _POLL_SECONDS = 0.5
 _QR_POLL_SECONDS = 1.0
 
-_BLOCK_SIZE = 16
-
 # Authenticator mapping tables
 _COMBINATION_ID_TO_NAME: dict[str, str] = {
     "S4": "APP",  # App + MitID chip
@@ -35,11 +33,6 @@ _NAME_TO_COMBINATION_ID: dict[str, str] = {
     "APP": "S3",
     "TOKEN": "S1",
 }
-
-
-def _pkcs7_pad(s: str) -> str:
-    pad_len = _BLOCK_SIZE - len(s) % _BLOCK_SIZE
-    return s + pad_len * chr(pad_len)
 
 
 class _ComputeTimer:
@@ -414,9 +407,9 @@ class BrowserClient:
             if not srp.srp_stage5(m2):
                 raise MitIDError("m2 could not be validated during proving of app response")
 
-            auth_enc = base64.b64encode(
-                srp.auth_enc(base64.b64decode(_pkcs7_pad(response_signature)))
-            ).decode("ascii")
+            auth_enc = base64.b64encode(srp.auth_enc(base64.b64decode(response_signature))).decode(
+                "ascii"
+            )
 
         front_end_time_ms = timer.milliseconds
 
