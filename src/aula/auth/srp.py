@@ -25,9 +25,9 @@ def _sha256_hex(data: bytes) -> str:
 
 
 def _pad_to_n_length(value: bytes) -> bytes:
-    """Pad bytes with leading zeros to match the byte length of N."""
+    """Pad bytes with leading zero bytes to match the byte length of N."""
     n_length = len(int_to_bytes(_N))
-    return value.zfill(n_length)
+    return value.rjust(n_length, b"\x00")
 
 
 class CustomSRP:
