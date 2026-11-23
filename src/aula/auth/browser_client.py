@@ -8,16 +8,19 @@ import json
 import logging
 import time
 from collections.abc import Callable
-from typing import Self
+from typing import Any, Self
 
 import httpx
 import qrcode
 
+from ..const import USER_AGENT
 from ._utils import bytes_to_hex
 from .exceptions import MitIDError, PasswordInvalidError, TokenInvalidError
 from .srp import CustomSRP
 
 _LOGGER = logging.getLogger(__name__)
+
+_HEADERS = {"User-Agent": USER_AGENT}
 
 _POLL_SECONDS = 0.5
 _QR_POLL_SECONDS = 1.0
@@ -120,6 +123,15 @@ class BrowserClient:
         self.otp_code: str | None = None
         self.status_message: str | None = None
 
+    async def _get(self, url: str, **kwargs: Any) -> httpx.Response:
+        return await self._client.get(url, headers=_HEADERS, **kwargs)
+
+    async def _post(self, url: str, **kwargs: Any) -> httpx.Response:
+        return await self._client.post(url, headers=_HEADERS, **kwargs)
+
+    async def _put(self, url: str, **kwargs: Any) -> httpx.Response:
+        return await self._client.put(url, headers=_HEADERS, **kwargs)
+
     def _base_url(self, version: int = 1) -> str:
         return f"https://www.mitid.dk/mitid-core-client-backend/v{version}/authentication-sessions/{self._authentication_session_id}"
 
@@ -141,7 +153,7 @@ class BrowserClient:
 
     async def initialize(self) -> None:
         """Initialize the authentication session and retrieve service provider info."""
-        r = await self._client.get(self._base_url())
+        r = await self._get(self._base_url())
         if not r.is_success:
             raise MitIDError(f"Failed to get authentication session: {r.status_code}")
 
@@ -173,7 +185,7 @@ class BrowserClient:
         """Identify as a user and get available authentication methods."""
         self._user_id = user_id
 
-        r = await self._client.put(
+        r = await self._put(
             self._base_url(),
             json={"identityClaim": user_id},
         )
@@ -187,7 +199,7 @@ class BrowserClient:
                 raise MitIDError("Authentication session not found")
             raise MitIDError(f"Failed to identify as user ({user_id}): HTTP {r.status_code}")
 
-        r = await self._client.post(
+        r = await self._post(
             self._base_url(version=2) + "/next",
             json={"combinationId": ""},
         )
@@ -225,7 +237,7 @@ class BrowserClient:
         try:
             await self._select_authenticator("APP")
 
-            r = await self._client.post(f"{self._app_auth_url()}/init-auth", json={})
+            r = await self._post(f"{self._app_auth_url()}/init-auth", json={})
             if not r.is_success:
                 raise MitIDError(f"Failed to request app login: HTTP {r.status_code}")
 
@@ -261,7 +273,7 @@ class BrowserClient:
                 "No finalization session ID set, complete an authentication flow first."
             )
 
-        r = await self._client.put(
+        r = await self._put(
             f"https://www.mitid.dk/mitid-core-client-backend/v1/authentication-sessions/{self._finalization_session_id}/finalization"
         )
         if not r.is_success:
@@ -278,7 +290,7 @@ class BrowserClient:
             Tuple of (response, response_signature) from the app payload.
         """
         while True:
-            r = await self._client.post(poll_url, json={"ticket": ticket})
+            r = await self._post(poll_url, json={"ticket": ticket})
             data = r.json()
 
             if not r.is_success:
@@ -375,7 +387,7 @@ class BrowserClient:
             srp = CustomSRP()
             public_a = srp.srp_stage1()
 
-        r = await self._client.post(
+        r = await self._post(
             f"{self._app_auth_url()}/init",
             json={"randomA": {"value": public_a}},
         )
@@ -395,7 +407,7 @@ class BrowserClient:
 
             flow_value_proof = self._compute_flow_value_proof(srp.session_key_bytes)
 
-        r = await self._client.post(
+        r = await self._post(
             f"{self._app_auth_url()}/prove",
             json={"m1": {"value": m1}, "flowValueProof": {"value": flow_value_proof}},
         )
@@ -413,7 +425,7 @@ class BrowserClient:
 
         front_end_time_ms = timer.milliseconds
 
-        r = await self._client.post(
+        r = await self._post(
             f"{self._app_auth_url()}/verify",
             json={
                 "encAuth": auth_enc,
@@ -423,7 +435,7 @@ class BrowserClient:
         if not r.is_success:
             raise MitIDError(f"Failed to verify app response signature: HTTP {r.status_code}")
 
-        r = await self._client.post(
+        r = await self._post(
             self._base_url(version=2) + "/next",
             json={"combinationId": ""},
         )
@@ -447,7 +459,7 @@ class BrowserClient:
             srp = CustomSRP()
             public_a = srp.srp_stage1()
 
-        r = await self._client.post(
+        r = await self._post(
             f"{self._code_token_auth_url()}/codetoken-init",
             json={"randomA": {"value": public_a}},
         )
@@ -473,7 +485,7 @@ class BrowserClient:
 
         front_end_time_ms = timer.milliseconds
 
-        r = await self._client.post(
+        r = await self._post(
             f"{self._code_token_auth_url()}/codetoken-prove",
             json={
                 "m1": {"value": m1},
@@ -484,7 +496,7 @@ class BrowserClient:
         if not r.is_success:
             raise MitIDError(f"Failed to submit token proof: HTTP {r.status_code}")
 
-        r = await self._client.post(
+        r = await self._post(
             self._base_url(version=2) + "/next",
             json={"combinationId": ""},
         )
@@ -516,7 +528,7 @@ class BrowserClient:
             srp = CustomSRP()
             public_a = srp.srp_stage1()
 
-        r = await self._client.post(
+        r = await self._post(
             f"{self._password_auth_url()}/init",
             json={"randomA": {"value": public_a}},
         )
@@ -549,7 +561,7 @@ class BrowserClient:
 
         front_end_time_ms = timer.milliseconds
 
-        r = await self._client.post(
+        r = await self._post(
             f"{self._password_auth_url()}/password-prove",
             json={
                 "m1": {"value": m1},
@@ -560,7 +572,7 @@ class BrowserClient:
         if not r.is_success:
             raise MitIDError(f"Failed to submit password proof: HTTP {r.status_code}")
 
-        r = await self._client.post(
+        r = await self._post(
             self._base_url(version=2) + "/next",
             json={"combinationId": ""},
         )
@@ -668,7 +680,7 @@ class BrowserClient:
 
         combination_id = self._combination_id_for(authenticator_type)
 
-        r = await self._client.post(
+        r = await self._post(
             self._base_url(version=2) + "/next",
             json={"combinationId": combination_id},
         )
