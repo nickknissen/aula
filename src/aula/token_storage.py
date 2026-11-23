@@ -1,13 +1,13 @@
 """Token storage abstraction for Aula authentication tokens."""
 
+import asyncio
 import json
 import logging
-import os
-import sys
-import tempfile
 from abc import ABC, abstractmethod
 from pathlib import Path
 from typing import Any
+
+from .utils.files import write_json_atomic
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -43,6 +43,9 @@ class FileTokenStorage(TokenStorage):
         self._path = Path(path)
 
     async def load(self) -> dict[str, Any] | None:
+        return await asyncio.to_thread(self._load)
+
+    def _load(self) -> dict[str, Any] | None:
         if not self._path.exists():
             _LOGGER.debug("Token file does not exist: %s", self._path)
             return None
@@ -60,19 +63,7 @@ class FileTokenStorage(TokenStorage):
         return data
 
     async def save(self, data: dict[str, Any]) -> None:
-        self._path.parent.mkdir(parents=True, exist_ok=True)
-        # Atomic write: write to temp file then rename to avoid partial writes
-        fd, tmp_path = tempfile.mkstemp(dir=self._path.parent, suffix=".tmp")
-        try:
-            with os.fdopen(fd, "w") as f:
-                json.dump(data, f, indent=2)
-            # Restrict file permissions to owner-only on Unix systems
-            if sys.platform != "win32":
-                os.chmod(tmp_path, 0o600)
-            os.replace(tmp_path, self._path)
-        except OSError:
-            os.unlink(tmp_path)
-            raise
+        await asyncio.to_thread(write_json_atomic, self._path, data)
         _LOGGER.debug("Tokens saved to %s", self._path)
 
     async def clear(self) -> bool:
@@ -81,6 +72,9 @@ class FileTokenStorage(TokenStorage):
         Returns:
             True when a token file was removed, False when there was none.
         """
+        return await asyncio.to_thread(self._clear)
+
+    def _clear(self) -> bool:
         try:
             self._path.unlink()
         except FileNotFoundError:

@@ -1,12 +1,15 @@
 """Configuration management for Aula CLI."""
 
-import contextlib
 import json
-import os
+import logging
 from pathlib import Path
 from typing import Any
 
 import click
+
+from .utils.files import write_json_atomic
+
+_LOGGER = logging.getLogger(__name__)
 
 CONFIG_DIR = Path.home() / ".config" / "aula"
 CONFIG_FILE = CONFIG_DIR / "config.json"
@@ -25,7 +28,8 @@ def load_config() -> dict[str, Any]:
         try:
             with open(CONFIG_FILE) as f:
                 return json.load(f)
-        except OSError, json.JSONDecodeError:
+        except (OSError, json.JSONDecodeError) as exc:
+            _LOGGER.warning("Failed to read configuration from %s: %s", CONFIG_FILE, exc)
             return {}
     return {}
 
@@ -34,11 +38,6 @@ def save_config(config: dict[str, Any]) -> None:
     """Save configuration to a file only the owner can read."""
     ensure_config_dir()
     try:
-        fd = os.open(CONFIG_FILE, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
-        with os.fdopen(fd, "w") as f:
-            # The mode given to os.open applies only when it creates the file.
-            with contextlib.suppress(OSError):
-                os.fchmod(fd, 0o600)
-            json.dump(config, f, indent=2)
+        write_json_atomic(CONFIG_FILE, config)
     except OSError as e:
         click.echo(f"Error saving configuration: {e}", err=True)
