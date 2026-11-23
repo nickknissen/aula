@@ -57,6 +57,13 @@ def _is_secret(key: object, item: object) -> bool:
     return field in _SECRET_FIELDS and not _is_aula_status_code(field, item)
 
 
+def _is_url_object(value: object) -> bool:
+    if isinstance(value, (str, bytes, int, float, bool, type(None))):
+        return False
+    text = str(value)
+    return "://" in text and "?" in text
+
+
 def redact_credentials(value: Any) -> Any:
     """Copy nested structures, replacing recognized credential fields before logging."""
     if isinstance(value, BaseException):
@@ -71,6 +78,8 @@ def redact_credentials(value: Any) -> Any:
     if isinstance(value, str) and _JWT.fullmatch(value):
         return "[redacted]"
     if isinstance(value, str) and "://" in value:
+        return diagnostic_url(value)
+    if _is_url_object(value):
         return diagnostic_url(value)
     return value
 

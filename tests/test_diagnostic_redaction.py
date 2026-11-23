@@ -13,7 +13,7 @@ from aula.auth.exceptions import SAMLError
 from aula.auth.mitid_client import MitIDAuthClient
 from aula.auth_flow import authenticate
 from aula.http import AulaResponseError, HttpRequestError, HttpResponse
-from aula.utils.diagnostics import redact_credentials
+from aula.utils.diagnostics import diagnostic_url, redact_credentials
 
 
 @pytest.mark.asyncio
@@ -151,3 +151,8 @@ async def test_model_parsing_warnings_redact_credentials_at_reader_entry_point(c
     assert "model-marker" not in caplog.text
     assert "Unexpected location" in caplog.text
     assert payload == original
+
+
+def test_httpx_url_is_redacted_like_its_string_form():
+    url = httpx.URL("https://www.aula.dk/api/v25/?method=x&access_token=SECRET")
+    assert redact_credentials(url) == diagnostic_url(str(url))
