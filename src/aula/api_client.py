@@ -4,7 +4,7 @@ import logging
 import re
 import time
 import warnings
-from collections.abc import Awaitable, Callable
+from collections.abc import Awaitable, Callable, Sized
 from contextvars import ContextVar
 from datetime import date, datetime, timedelta
 from types import TracebackType
@@ -160,6 +160,27 @@ def _parse_object[T](
         return parse(data)
     except (KeyError, TypeError, ValueError, AttributeError) as e:
         raise AulaResponseError(f"Could not parse the {what} from Aula", status_code) from e
+
+
+class _SkippedRecords:
+    """Records a parse loop skipped, so a loop that kept none of them can raise."""
+
+    def __init__(self, record_type: str) -> None:
+        self.record_type = record_type
+        self.count = 0
+        self.last_error: Exception | None = None
+
+    def add(self, error: Exception) -> None:
+        self.count += 1
+        self.last_error = error
+
+    def raise_if_none_parsed(self, parsed: Sized, status_code: int) -> None:
+        """Raise ``AulaResponseError`` when records were skipped and none parsed."""
+        if self.count and not parsed:
+            raise AulaResponseError(
+                f"Could not parse any of the {self.count} {self.record_type} records from Aula",
+                status_code,
+            ) from self.last_error
 
 
 def _api_version_of(url: str) -> int | None:
@@ -591,6 +612,7 @@ class AulaApiClient:
         profile_dict = raw_data_list[0]
 
         children = []
+        skipped = _SkippedRecords("child")
         raw_children = profile_dict.get("children", [])
         if isinstance(raw_children, list):
             for child_dict in raw_children:
@@ -599,9 +621,11 @@ class AulaApiClient:
                 try:
                     children.append(Child.from_dict(child_dict))
                 except (TypeError, ValueError) as e:
+                    skipped.add(e)
                     _LOGGER.warning(
                         "Skipping child due to parsing error: %s - Data: %s", e, child_dict
                     )
+        skipped.raise_if_none_parsed(children, resp.status_code)
 
         children.extend(await self._extended_access_children({child.id for child in children}))
 
@@ -638,6 +662,7 @@ class AulaApiClient:
             return []
 
         children = []
+        skipped = _SkippedRecords("extended-access child")
         for institution in get_in(context, "data.institutions", default=None) or []:
             if not isinstance(institution, dict):
                 continue
@@ -654,10 +679,12 @@ class AulaApiClient:
                 try:
                     child = Child.from_dict(child_dict)
                 except (KeyError, TypeError, ValueError) as e:
+                    skipped.add(e)
                     _LOGGER.warning("Skipping extended-access child: %s", e)
                     continue
                 known_ids.add(child.id)
                 children.append(child)
+        skipped.raise_if_none_parsed(children, 200)
         return children
 
     async def is_logged_in(self) -> bool:
@@ -760,15 +787,18 @@ class AulaApiClient:
             resp.status_code,
         )
         result = []
+        skipped = _SkippedRecords("presence week template")
         for t in templates:
             if t is None or not isinstance(t, dict):
                 continue
             try:
                 result.append(PresenceWeekTemplate.from_dict(t))
             except (TypeError, ValueError, KeyError, AttributeError) as e:
+                skipped.add(e)
                 _LOGGER.warning(
                     "Skipping presence week template due to parsing error: %s - Data: %s", e, t
                 )
+        skipped.raise_if_none_parsed(result, resp.status_code)
         return result
 
     async def update_presence_template(
@@ -1009,13 +1039,16 @@ class AulaApiClient:
         resp.raise_for_status()
         data = _response_data_list(resp)
         result = []
+        skipped = _SkippedRecords("pickup responsible")
         for item in data:
             if item is None or not isinstance(item, dict):
                 continue
             try:
                 result.append(ChildPickupResponsibles.from_dict(item))
             except (TypeError, ValueError, KeyError, AttributeError) as e:
+                skipped.add(e)
                 _LOGGER.warning("Skipping pickup responsible due to parsing error: %s", e)
+        skipped.raise_if_none_parsed(result, resp.status_code)
         return result
 
     async def get_presence_registrations(
@@ -1087,15 +1120,18 @@ class AulaApiClient:
         resp.raise_for_status()
         data = _response_data_list(resp)
         result = []
+        skipped = _SkippedRecords("presence registration")
         for item in data:
             if not isinstance(item, dict):
                 continue
             try:
                 result.append(PresenceRegistration.from_dict(item))
             except (TypeError, ValueError, KeyError, AttributeError) as e:
+                skipped.add(e)
                 _LOGGER.warning(
                     "Skipping presence registration due to parsing error: %s - Data: %s", e, item
                 )
+        skipped.raise_if_none_parsed(result, resp.status_code)
         return result
 
     async def get_presence_registration_detail(
@@ -1129,15 +1165,18 @@ class AulaApiClient:
         resp.raise_for_status()
         data = _response_data_list(resp)
         result = []
+        skipped = _SkippedRecords("presence state")
         for item in data:
             if not isinstance(item, dict):
                 continue
             try:
                 result.append(ChildPresenceState.from_dict(item))
             except (TypeError, ValueError, KeyError, AttributeError) as e:
+                skipped.add(e)
                 _LOGGER.warning(
                     "Skipping presence state due to parsing error: %s - Data: %s", e, item
                 )
+        skipped.raise_if_none_parsed(result, resp.status_code)
         return result
 
     async def get_presence_configuration(
@@ -1153,15 +1192,18 @@ class AulaApiClient:
         resp.raise_for_status()
         data = _response_data_list(resp)
         result = []
+        skipped = _SkippedRecords("presence configuration")
         for item in data:
             if not isinstance(item, dict):
                 continue
             try:
                 result.append(PresenceConfiguration.from_dict(item))
             except (TypeError, ValueError, KeyError, AttributeError) as e:
+                skipped.add(e)
                 _LOGGER.warning(
                     "Skipping presence configuration due to parsing error: %s - Data: %s", e, item
                 )
+        skipped.raise_if_none_parsed(result, resp.status_code)
         return result
 
     async def get_activity_overview(
@@ -1214,15 +1256,18 @@ class AulaApiClient:
         payload = _response_data_list(resp)
 
         notifications: list[Notification] = []
+        skipped = _SkippedRecords("notification")
         for item in payload:
             if not isinstance(item, dict):
                 continue
             try:
                 notifications.append(Notification.from_dict(item))
             except (TypeError, ValueError) as e:
+                skipped.add(e)
                 _LOGGER.warning(
                     "Skipping notification due to parsing error: %s - Data: %s", e, item
                 )
+        skipped.raise_if_none_parsed(notifications, resp.status_code)
         if limit > 0:
             return notifications[:limit]
         return notifications
@@ -1239,6 +1284,7 @@ class AulaApiClient:
         )
 
         threads = []
+        skipped = _SkippedRecords("message thread")
         for t_dict in threads_data:
             if not isinstance(t_dict, dict):
                 continue
@@ -1250,11 +1296,13 @@ class AulaApiClient:
                 )
                 threads.append(thread)
             except (TypeError, ValueError, KeyError) as e:
+                skipped.add(e)
                 _LOGGER.warning(
                     "Skipping message thread due to initialization error: %s - Data: %s",
                     e,
                     t_dict,
                 )
+        skipped.raise_if_none_parsed(threads, resp.status_code)
         return threads
 
     async def get_messages_for_thread(self, thread_id: str, limit: int = 5) -> list[Message]:
@@ -1265,6 +1313,7 @@ class AulaApiClient:
         )
         resp.raise_for_status()
         messages = []
+        skipped = _SkippedRecords("message")
         raw_messages = _as_list(
             _response_data_object(resp).get("messages"), "data.messages", resp.status_code
         )
@@ -1276,12 +1325,14 @@ class AulaApiClient:
                 try:
                     messages.append(Message.from_dict(msg_dict))
                 except (TypeError, ValueError) as e:
+                    skipped.add(e)
                     _LOGGER.warning(
                         "Skipping message due to parsing error: %s - Data: %s", e, msg_dict
                     )
             if len(messages) >= limit:
                 break
 
+        skipped.raise_if_none_parsed(messages, resp.status_code)
         return messages
 
     @staticmethod
@@ -1429,6 +1480,7 @@ class AulaApiClient:
         events = []
         raw_events = _response_data_list(resp)
 
+        skipped = _SkippedRecords("calendar event")
         for event in raw_events:
             if not isinstance(event, dict):
                 continue
@@ -1461,6 +1513,7 @@ class AulaApiClient:
                     )
                 )
             except (TypeError, ValueError, KeyError) as e:
+                skipped.add(e)
                 _LOGGER.warning(
                     "Skipping calendar event due to initialization error: %s - Data: %s",
                     e,
@@ -1468,6 +1521,7 @@ class AulaApiClient:
                 )
                 continue
 
+        skipped.raise_if_none_parsed(events, resp.status_code)
         return merge_duplicate_lessons(events)
 
     async def get_calendar_events_by_child(
@@ -1748,6 +1802,7 @@ class AulaApiClient:
                 raw_groups.extend(context["groups"])
 
         groups: list[Group] = []
+        skipped = _SkippedRecords("group")
         seen_ids: set[Any] = set()
         for item in raw_groups:
             try:
@@ -1759,8 +1814,10 @@ class AulaApiClient:
                 seen_ids.add(item["id"])
                 groups.append(Group.from_dict(item))
             except (TypeError, ValueError, KeyError) as e:
+                skipped.add(e)
                 _LOGGER.warning("Skipping group due to parsing error: %s - Data: %s", e, item)
                 continue
+        skipped.raise_if_none_parsed(groups, resp.status_code)
         return groups
 
     async def get_group(self, group_id: int) -> Group | None:
@@ -1797,6 +1854,7 @@ class AulaApiClient:
         raw_members = _response_data_list(resp)
 
         members: list[GroupMember] = []
+        skipped = _SkippedRecords("group member")
         for item in raw_members:
             try:
                 if not isinstance(item, dict) or "institutionProfileId" not in item:
@@ -1804,10 +1862,12 @@ class AulaApiClient:
                     continue
                 members.append(GroupMember.from_dict(item))
             except (TypeError, ValueError, KeyError) as e:
+                skipped.add(e)
                 _LOGGER.warning(
                     "Skipping group member due to parsing error: %s - Data: %s", e, item
                 )
                 continue
+        skipped.raise_if_none_parsed(members, resp.status_code)
         return members
 
     async def get_posts(
@@ -1835,6 +1895,7 @@ class AulaApiClient:
             _response_data_object(resp).get("posts"), "data.posts", resp.status_code
         )
         posts = []
+        skipped = _SkippedRecords("post")
 
         for post_data in posts_data:
             try:
@@ -1852,6 +1913,7 @@ class AulaApiClient:
                         post_data,
                     )
             except (TypeError, ValueError, KeyError) as e:
+                skipped.add(e)
                 _LOGGER.warning(
                     "Skipping post due to parsing error: %s - Data: %s",
                     e,
@@ -1860,6 +1922,7 @@ class AulaApiClient:
                 )
                 continue
 
+        skipped.raise_if_none_parsed(posts, resp.status_code)
         return posts
 
     async def get_post(self, post_id: int) -> Post | None:
@@ -1901,6 +1964,7 @@ class AulaApiClient:
 
         comments_data = _response_data_list(resp)
         comments = []
+        skipped = _SkippedRecords("comment")
 
         for item in comments_data:
             try:
@@ -1909,6 +1973,7 @@ class AulaApiClient:
                     continue
                 comments.append(Comment.from_dict(item))
             except (TypeError, ValueError, KeyError) as e:
+                skipped.add(e)
                 _LOGGER.warning(
                     "Skipping comment due to parsing error: %s - Data: %s",
                     e,
@@ -1917,6 +1982,7 @@ class AulaApiClient:
                 )
                 continue
 
+        skipped.raise_if_none_parsed(comments, resp.status_code)
         return comments
 
     async def get_mu_tasks(
@@ -2540,13 +2606,16 @@ class AulaApiClient:
         resp.raise_for_status()
         data = _response_data_list(resp)
         result: list[ConsentResponse] = []
+        skipped = _SkippedRecords("consent response")
         for item in data:
             if not isinstance(item, dict):
                 continue
             try:
                 result.append(ConsentResponse.from_dict(item))
             except (TypeError, ValueError, KeyError) as e:
+                skipped.add(e)
                 _LOGGER.warning("Skipping consent response due to parsing error: %s", e)
+        skipped.raise_if_none_parsed(result, resp.status_code)
         return result
 
     async def get_auto_reply(self) -> AutoReply | None:
@@ -2578,13 +2647,16 @@ class AulaApiClient:
             _response_data_object(resp).get("results"), "data.results", resp.status_code
         )
         groups: list[Group] = []
+        skipped = _SkippedRecords("group search result")
         for item in results:
             if not isinstance(item, dict):
                 continue
             try:
                 groups.append(Group.from_dict(item))
             except (TypeError, ValueError, KeyError) as e:
+                skipped.add(e)
                 _LOGGER.warning("Skipping group from search due to parsing error: %s", e)
+        skipped.raise_if_none_parsed(groups, resp.status_code)
         return groups
 
     async def get_secure_documents(
@@ -2596,6 +2668,7 @@ class AulaApiClient:
         child's institution profile ID is included.
         """
         result: list[SecureDocument] = []
+        skipped = _SkippedRecords("secure document")
         seen = 0
         while True:
             resp = await self._request_with_version_retry(
@@ -2611,7 +2684,7 @@ class AulaApiClient:
             data = _response_data_object(resp)
             batch = _as_list(data.get("documents"), "data.documents", resp.status_code)
             if not batch:
-                return result
+                break
 
             seen += len(batch)
             for item in batch:
@@ -2620,10 +2693,13 @@ class AulaApiClient:
                 try:
                     result.append(SecureDocument.from_dict(item))
                 except (TypeError, ValueError, KeyError) as e:
+                    skipped.add(e)
                     _LOGGER.warning("Skipping document due to parsing error: %s", e)
 
             if not data.get("moreDocumentsExists"):
-                return result
+                break
+        skipped.raise_if_none_parsed(result, resp.status_code)
+        return result
 
     async def get_common_files(
         self, institution_codes: list[str], page_size: int = 20
@@ -2636,6 +2712,7 @@ class AulaApiClient:
             return []
 
         result: list[CommonFile] = []
+        skipped = _SkippedRecords("common file")
         seen = 0
         while True:
             params: dict[str, Any] = {
@@ -2650,7 +2727,7 @@ class AulaApiClient:
             batch = _as_list(data.get("commonFiles"), "data.commonFiles", resp.status_code)
             total = data.get("totalAmount")
             if not batch:
-                return result
+                break
 
             seen += len(batch)
             for item in batch:
@@ -2659,10 +2736,13 @@ class AulaApiClient:
                 try:
                     result.append(CommonFile.from_dict(item))
                 except (TypeError, ValueError, KeyError) as e:
+                    skipped.add(e)
                     _LOGGER.warning("Skipping common file due to parsing error: %s", e)
 
             if not isinstance(total, int) or seen >= total:
-                return result
+                break
+        skipped.raise_if_none_parsed(result, resp.status_code)
+        return result
 
     async def get_vacation_registrations(self, child_ids: list[int]) -> list[VacationRegistration]:
         """Fetch vacation registrations for the given children.
@@ -2683,6 +2763,7 @@ class AulaApiClient:
         resp.raise_for_status()
         data = _response_data_list(resp)
         result: list[VacationRegistration] = []
+        skipped = _SkippedRecords("vacation registration")
         for group in data:
             if not isinstance(group, dict):
                 continue
@@ -2697,7 +2778,9 @@ class AulaApiClient:
                 try:
                     result.append(VacationRegistration.from_dict(item, child))
                 except (TypeError, ValueError, KeyError) as e:
+                    skipped.add(e)
                     _LOGGER.warning("Skipping vacation registration due to parsing error: %s", e)
+        skipped.raise_if_none_parsed(result, resp.status_code)
         return result
 
     async def get_notification_settings(self) -> list[NotificationSetting]:
@@ -2709,13 +2792,16 @@ class AulaApiClient:
         resp.raise_for_status()
         data = _response_data_list(resp)
         result: list[NotificationSetting] = []
+        skipped = _SkippedRecords("notification setting")
         for item in data:
             if not isinstance(item, dict):
                 continue
             try:
                 result.append(NotificationSetting.from_dict(item))
             except (TypeError, ValueError, KeyError) as e:
+                skipped.add(e)
                 _LOGGER.warning("Skipping notification setting due to parsing error: %s", e)
+        skipped.raise_if_none_parsed(result, resp.status_code)
         return result
 
     async def __aenter__(self) -> Self:

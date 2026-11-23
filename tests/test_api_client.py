@@ -1692,6 +1692,176 @@ class TestDataThatIsNotTheExpectedObject:
             await call(client_answering(HttpResponse(status_code=200, data={"data": data})))
 
 
+def _groups(*records):
+    return HttpResponse(200, {"data": {"results": list(records)}})
+
+
+GOOD_GROUP = {"id": 1, "name": "Skole Et 3.A"}
+BAD_GROUP = {"id": "not-a-number"}
+
+EVERY_PARSE_LOOP = [
+    (
+        lambda c: c.get_profile(),
+        "Child.from_dict",
+        [{"data": {"profiles": [{"profileId": 1, "children": [{}]}]}}],
+    ),
+    (
+        lambda c: c.get_profile(),
+        "Child.from_dict",
+        [
+            {"data": {"profiles": [{"profileId": 1, "children": []}]}},
+            {"data": {"institutions": [{"name": "Skole Et", "children": [{"id": 1}]}]}},
+        ],
+    ),
+    (
+        lambda c: c.get_presence_templates([1000001], date.today(), date.today()),
+        "PresenceWeekTemplate.from_dict",
+        [{"data": {"presenceWeekTemplates": [{}]}}],
+    ),
+    (
+        lambda c: c.get_pickup_responsibles([1000001]),
+        "ChildPickupResponsibles.from_dict",
+        [{"data": [{}]}],
+    ),
+    (
+        lambda c: c.get_presence_registrations([1000001], date.today(), date.today()),
+        "PresenceRegistration.from_dict",
+        [{"data": [{}]}],
+    ),
+    (lambda c: c.get_presence_states(), "ChildPresenceState.from_dict", [{"data": [{}]}]),
+    (
+        lambda c: c.get_presence_configuration([1000001]),
+        "PresenceConfiguration.from_dict",
+        [{"data": [{}]}],
+    ),
+    (
+        lambda c: c.get_notifications_for_active_profile(),
+        "Notification.from_dict",
+        [{"data": [{}]}],
+    ),
+    (lambda c: c.get_message_threads(), "MessageThread", [{"data": {"threads": [{}]}}]),
+    (
+        lambda c: c.get_messages_for_thread("1000001"),
+        "Message.from_dict",
+        [{"data": {"messages": [{"messageType": "Message"}]}}],
+    ),
+    (
+        lambda c: c.get_calendar_events([1000001], datetime.now(), datetime.now()),
+        "CalendarEvent",
+        [
+            {
+                "data": [
+                    {
+                        "startDateTime": "2026-11-23T08:00:00+01:00",
+                        "endDateTime": "2026-11-23T09:00:00+01:00",
+                    }
+                ]
+            }
+        ],
+    ),
+    (
+        lambda c: c.get_groups(institution_codes=["G90001"]),
+        "Group.from_dict",
+        [{"data": {"groups": [{"id": 1}]}}],
+    ),
+    (
+        lambda c: c.get_group_members(1000001),
+        "GroupMember.from_dict",
+        [{"data": [{"institutionProfileId": 1000001}]}],
+    ),
+    (
+        lambda c: c.get_posts([1000001]),
+        "Post.from_dict",
+        [{"data": {"posts": [{"id": 1, "title": "Post"}]}}],
+    ),
+    (lambda c: c.get_comments("post", 1), "Comment.from_dict", [{"data": [{}]}]),
+    (
+        lambda c: c.get_consent_responses([1000001]),
+        "ConsentResponse.from_dict",
+        [{"data": [{}]}],
+    ),
+    (lambda c: c.search_groups("3.A"), "Group.from_dict", [{"data": {"results": [{}]}}]),
+    (
+        lambda c: c.get_secure_documents([1000001]),
+        "SecureDocument.from_dict",
+        [{"data": {"documents": [{}], "moreDocumentsExists": False}}],
+    ),
+    (
+        lambda c: c.get_common_files(["G90001"]),
+        "CommonFile.from_dict",
+        [{"data": {"commonFiles": [{}], "totalAmount": 1}}],
+    ),
+    (
+        lambda c: c.get_vacation_registrations([1000001]),
+        "VacationRegistration.from_dict",
+        [{"data": [{"child": {}, "vacationRegistrations": [{}]}]}],
+    ),
+    (
+        lambda c: c.get_notification_settings(),
+        "NotificationSetting.from_dict",
+        [{"data": [{}]}],
+    ),
+]
+
+
+class TestRecordsThatFailToParse:
+    @pytest.mark.asyncio
+    async def test_all_records_failing_is_an_aula_response_error(self):
+        http = FakeHttpClient()
+        http.route(API_URL, _groups(BAD_GROUP, BAD_GROUP, BAD_GROUP))
+
+        with pytest.raises(AulaResponseError) as exc_info:
+            await AulaApiClient(http).search_groups("3.A")
+
+        assert exc_info.value.status_code == 200
+        assert isinstance(exc_info.value.__cause__, ValueError)
+        assert "3 group search result records" in str(exc_info.value)
+
+    @pytest.mark.asyncio
+    async def test_the_error_holds_no_record_values(self):
+        http = FakeHttpClient()
+        http.route(API_URL, _groups({"id": "Barn Et"}))
+
+        with pytest.raises(AulaResponseError) as exc_info:
+            await AulaApiClient(http).search_groups("3.A")
+
+        assert "Barn Et" not in str(exc_info.value)
+
+    @pytest.mark.asyncio
+    async def test_some_records_failing_are_skipped_with_a_warning(self, caplog):
+        http = FakeHttpClient()
+        http.route(API_URL, _groups(GOOD_GROUP, BAD_GROUP, GOOD_GROUP))
+
+        with caplog.at_level(logging.WARNING, logger="aula"):
+            groups = await AulaApiClient(http).search_groups("3.A")
+
+        assert [group.id for group in groups] == [1, 1]
+        assert "Skipping group from search" in caplog.text
+
+    @pytest.mark.asyncio
+    async def test_an_empty_answer_is_an_empty_list(self):
+        http = FakeHttpClient()
+        http.route(API_URL, _groups())
+
+        assert await AulaApiClient(http).search_groups("3.A") == []
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize(("call", "target", "bodies"), EVERY_PARSE_LOOP)
+    async def test_every_parse_loop_raises_when_nothing_parses(self, call, target, bodies):
+        client = AulaApiClient(AsyncMock(), access_token="test_token")
+        client._request_with_version_retry = AsyncMock(
+            side_effect=[HttpResponse(200, body) for body in bodies]
+        )
+
+        with (
+            patch(f"aula.api_client.{target}", side_effect=ValueError("bad record")),
+            pytest.raises(AulaResponseError) as exc_info,
+        ):
+            await call(client)
+
+        assert str(exc_info.value.__cause__) == "bad record"
+
+
 class TestDownloadFile:
     @pytest.mark.asyncio
     async def test_refuses_a_file_larger_than_max_bytes(self):

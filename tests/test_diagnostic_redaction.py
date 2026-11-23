@@ -12,7 +12,7 @@ from aula.api_client import AulaApiClient
 from aula.auth.exceptions import SAMLError
 from aula.auth.mitid_client import MitIDAuthClient
 from aula.auth_flow import authenticate
-from aula.http import HttpRequestError, HttpResponse
+from aula.http import AulaResponseError, HttpRequestError, HttpResponse
 from aula.utils.diagnostics import redact_credentials
 
 
@@ -116,7 +116,7 @@ async def test_post_reader_diagnostics_sanitize_nested_credentials(caplog):
     original = copy.deepcopy(payload)
     http = AsyncMock()
     http.request.return_value = HttpResponse(200, payload)
-    with caplog.at_level(logging.DEBUG, logger="aula"):
+    with caplog.at_level(logging.DEBUG, logger="aula"), pytest.raises(AulaResponseError):
         await AulaApiClient(http).get_posts([1])
     assert "post-marker" not in caplog.text
     assert "nested-marker" not in caplog.text
