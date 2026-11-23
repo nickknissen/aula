@@ -56,6 +56,10 @@ class AulaAuthenticationError(HttpRequestError):
     pass
 
 
+class AulaLoginRequiredError(AulaAuthenticationError):
+    """Raised when stored credentials cannot be used and a new MitID login is needed."""
+
+
 class AulaRateLimitError(HttpRequestError):
     """Raised when the API rate limit is exceeded (429 Too Many Requests).
 

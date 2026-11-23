@@ -20,7 +20,13 @@ from .api_client import AulaApiClient
 from .auth.exceptions import MitIDAuthError, OAuthError, SecurityCheckError
 from .auth.mitid_client import MitIDAuthClient
 from .const import AUTH_BASE_URL, CSRF_TOKEN_COOKIE, OAUTH_CLIENT_ID, OAUTH_TOKEN_PATH
-from .http import AulaAuthenticationError, AulaConnectionError, AulaServerError, HttpClient
+from .http import (
+    AulaAuthenticationError,
+    AulaConnectionError,
+    AulaLoginRequiredError,
+    AulaServerError,
+    HttpClient,
+)
 from .http_httpx import HttpxHttpClient
 from .token_storage import TokenStorage
 from .utils.diagnostics import credential_logger
@@ -43,6 +49,7 @@ async def _refresh_token_via_oidc(refresh_token: str) -> dict[str, Any] | None:
         Updated token dict with new access_token, or None if refresh fails.
 
     Raises:
+        AulaLoginRequiredError: If the token server rejects the refresh token.
         AulaConnectionError: If the token server cannot be reached.
         AulaServerError: If the token server answers with a 5xx or redirects, as it
             does during Aula maintenance.
@@ -64,6 +71,11 @@ async def _refresh_token_via_oidc(refresh_token: str) -> dict[str, Any] | None:
                     f"Token server unavailable: HTTP {response.status_code}",
                     response.status_code,
                 )
+            if response.is_client_error:
+                raise AulaLoginRequiredError(
+                    f"Token server rejected the refresh token: HTTP {response.status_code}",
+                    response.status_code,
+                )
             if response.status_code != 200:
                 _LOGGER.warning("Token refresh failed: HTTP %d", response.status_code)
                 return None
@@ -72,7 +84,7 @@ async def _refresh_token_via_oidc(refresh_token: str) -> dict[str, Any] | None:
             if expires_in is not None:
                 data["expires_at"] = time.time() + int(expires_in)
             return data
-    except AulaServerError:
+    except AulaServerError, AulaLoginRequiredError:
         raise
     except httpx.TransportError as e:
         raise AulaConnectionError(
@@ -178,6 +190,7 @@ async def authenticate(
     on_password: Callable[[], Awaitable[str]] | None = None,
     on_otp_code: Callable[[str], None] | None = None,
     on_qr_done: Callable[[], None] | None = None,
+    allow_login: bool = True,
 ) -> dict[str, Any]:
     """Authenticate via MitID (or cached tokens) and return credential data.
 
@@ -205,6 +218,7 @@ async def authenticate(
 
         force_login: When ``True``, bypass cached credentials and perform a
             fresh MitID login to restore a valid session cookie jar.
+        allow_login: When ``False``, never start a MitID login.
 
     Errors raised by the callbacks reach the caller unchanged.
 
@@ -212,6 +226,10 @@ async def authenticate(
         Credential dict suitable for passing to :func:`create_client`.
         Contains ``tokens`` (with ``access_token`` used during init to
         establish the session) and ``cookies`` for Aula session auth.
+
+    Raises:
+        AulaLoginRequiredError: If ``allow_login`` is ``False`` and the stored
+            tokens cannot be used or refreshed.
     """
     async with MitIDAuthClient(
         mitid_username=mitid_username,
@@ -228,6 +246,7 @@ async def authenticate(
             None if force_login else (await token_storage.load() if token_storage else None)
         )
         tokens_valid = False
+        refresh_error: OAuthError | RuntimeError | None = None
         cookies: dict[str, str] = {}
 
         result_data: dict[str, Any] = {}
@@ -257,9 +276,15 @@ async def authenticate(
                     tokens_valid = True
                     _LOGGER.info("Token refresh successful, tokens saved")
                 except (OAuthError, RuntimeError) as e:
+                    refresh_error = e
                     _LOGGER.warning("Token refresh failed, will require full authentication: %s", e)
             else:
                 _LOGGER.info("Cached tokens are expired, no refresh token available")
+
+        if not tokens_valid and not allow_login:
+            raise AulaLoginRequiredError(
+                "Stored tokens cannot be used and MitID login is not allowed", 401
+            ) from refresh_error
 
         if not tokens_valid:
             _LOGGER.info("No valid tokens found, starting MitID authentication...")
@@ -301,6 +326,7 @@ async def authenticate_and_create_client(
     on_otp_code: Callable[[str], None] | None = None,
     on_qr_done: Callable[[], None] | None = None,
     force_login: bool = False,
+    allow_login: bool = True,
 ) -> AulaApiClient:
     """Authenticate via MitID (or cached tokens) and return a ready-to-use client.
 
@@ -317,6 +343,8 @@ async def authenticate_and_create_client(
         on_identity_selected: Callback for choosing between multiple identities.
         force_login: When ``True``, log in through MitID even if the cached
             session still works.
+        allow_login: When ``False``, raise ``AulaLoginRequiredError`` instead of
+            starting a MitID login.
     """
     token_data = await authenticate(
         mitid_username,
@@ -331,10 +359,17 @@ async def authenticate_and_create_client(
         on_password=on_password,
         on_otp_code=on_otp_code,
         on_qr_done=on_qr_done,
+        allow_login=allow_login,
     )
     try:
         return await create_client(token_data, token_storage=token_storage)
     except AulaAuthenticationError as err:
+        if not allow_login:
+            if isinstance(err, AulaLoginRequiredError):
+                raise
+            raise AulaLoginRequiredError(
+                f"Aula rejected the stored session: {err}", err.status_code
+            ) from err
         _LOGGER.warning(
             "Cached session cookies were rejected (%s); retrying with fresh MitID login",
             err,

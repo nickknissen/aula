@@ -23,6 +23,7 @@ from .http import (
     AulaAuthenticationError,
     AulaConnectionError,
     AulaInvalidTokenError,
+    AulaLoginRequiredError,
     AulaRejectedError,
     AulaResponseError,
     AulaServerError,
@@ -395,6 +396,15 @@ class AulaApiClient:
         if sub_code == self._SUBCODE_SESSION_EXPIRED:
             raise AulaSessionExpiredError(f"Session expired{method_info}", status_code=401)
 
+    def _raise_for_auth_failure(
+        self, response: HttpResponse, url: str, params: dict[str, Any] | None
+    ) -> None:
+        """Raise the authentication error a response carries in its sub-code or status."""
+        sub_code = self._extract_sub_code(response)
+        if sub_code is not None:
+            self._raise_for_sub_code(sub_code, _extract_api_method(url, params))
+        response.raise_for_status()
+
     async def _request_with_version_retry(
         self,
         method: str,
@@ -419,7 +429,9 @@ class AulaApiClient:
         (if provided), re-inits the session, and retries the request. Widget
         provider URLs never trigger a refresh. When the refresh fails because
         a server is down or unreachable, that ``AulaServerError`` or
-        ``AulaConnectionError`` is raised instead of returning the 401.
+        ``AulaConnectionError`` is raised instead of returning the 401. When the
+        refresh callback raises ``AulaLoginRequiredError``, that error is raised
+        with the original authentication error as its cause.
         """
         is_aula_call = url.startswith(API_URL)
         observed_generation = self._auth_generation
@@ -441,7 +453,17 @@ class AulaApiClient:
                     "Auth failure (HTTP %d), attempting token refresh and retry",
                     response.status_code,
                 )
-                if await self._refresh_authentication(observed_generation):
+                try:
+                    refreshed = await self._refresh_authentication(observed_generation)
+                except AulaLoginRequiredError as rejected:
+                    try:
+                        self._raise_for_auth_failure(response, url, params)
+                    except AulaAuthenticationError as original:
+                        raise AulaLoginRequiredError(
+                            str(rejected), original.status_code
+                        ) from original
+                    raise
+                if refreshed:
                     response = await self._do_request(
                         method, url, headers=headers, params=params, json=json
                     )
@@ -507,7 +529,7 @@ class AulaApiClient:
                 await self.init()
                 self._auth_generation += 1
                 return True
-            except AulaServerError, AulaConnectionError:
+            except AulaServerError, AulaConnectionError, AulaLoginRequiredError:
                 self._access_token = previous_access_token
                 raise
             except Exception as e:

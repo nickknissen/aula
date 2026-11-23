@@ -15,6 +15,8 @@ from aula.http import (
     AulaApiVersionError,
     AulaAuthenticationError,
     AulaConnectionError,
+    AulaInvalidTokenError,
+    AulaLoginRequiredError,
     AulaRejectedError,
     AulaResponseError,
     AulaServerError,
@@ -214,6 +216,36 @@ class TestRequestWithVersionRetry:
         assert response.json() == {"data": {"ok": True}}
         on_token_refresh.assert_awaited_once_with()
         assert http_client.request.await_count == 4
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        ("response", "original"),
+        [
+            (HttpResponse(status_code=401), AulaAuthenticationError),
+            (HttpResponse(status_code=200, data={"status": {"subCode": 9}}), AulaInvalidTokenError),
+        ],
+    )
+    async def test_rejected_refresh_raises_login_required_from_original_error(
+        self, response, original
+    ):
+        http_client = AsyncMock()
+        http_client.request = AsyncMock(return_value=response)
+        rejected = AulaLoginRequiredError("Token server rejected the refresh token", 400)
+        client = AulaApiClient(
+            http_client=http_client,
+            access_token="old-token",
+            on_token_refresh=AsyncMock(side_effect=rejected),
+        )
+
+        with pytest.raises(AulaLoginRequiredError) as raised:
+            await client._request_with_version_retry(
+                "get", f"{API_URL}{API_VERSION}?method=rejected-refresh"
+            )
+
+        assert type(raised.value.__cause__) is original
+        assert raised.value.status_code == 401
+        assert client._access_token == "old-token"
+        assert http_client.request.await_count == 1
 
     @pytest.mark.asyncio
     async def test_authentication_replay_is_limited_to_one_attempt(self):

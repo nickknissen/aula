@@ -8,11 +8,12 @@ except PackageNotFoundError:
     __version__ = "0.1.0"
 
 from .api_client import AulaApiClient
-from .auth_flow import authenticate, create_client
+from .auth_flow import authenticate, authenticate_and_create_client, create_client
 from .http import (
     AulaApiVersionError,
     AulaAuthenticationError,
     AulaConnectionError,
+    AulaLoginRequiredError,
     AulaNotFoundError,
     AulaRateLimitError,
     AulaRejectedError,
@@ -49,10 +50,12 @@ __all__ = [
     "AulaApiClient",
     "AulaWidgetsClient",
     "authenticate",
+    "authenticate_and_create_client",
     "create_client",
     "AulaApiVersionError",
     "AulaAuthenticationError",
     "AulaConnectionError",
+    "AulaLoginRequiredError",
     "AulaNotFoundError",
     "AulaRateLimitError",
     "AulaRejectedError",

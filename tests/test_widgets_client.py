@@ -27,7 +27,7 @@ from aula.const import (
     WIDGET_MIN_UDDANNELSE_TASKS,
     WIDGET_MIN_UDDANNELSE_UGEPLAN,
 )
-from aula.http import AulaNotFoundError, AulaServerError, HttpResponse
+from aula.http import AulaLoginRequiredError, AulaNotFoundError, AulaServerError, HttpResponse
 from aula.widgets import EasyIQChildNotInPortal, EasyIQWrongChildSession
 from aula.widgets.client import _EasyIQContext
 from tests.fakes import FakeHttpClient
@@ -1114,6 +1114,22 @@ class TestWidgetsClientMalformedResponses:
         assert len(http.requests_to(_token_prefix(client))) == 1
         assert len(http.requests_to(MEEBOOK_URL)) == 1
         assert "Meebook weekplan JWT expired and could not be renewed" in caplog.text
+
+    @pytest.mark.asyncio
+    async def test_meebook_weekplan_raises_when_aula_needs_a_new_login(self, http):
+        refresh = AsyncMock(side_effect=AulaLoginRequiredError("refresh rejected", 400))
+        client = _aula_client(http, on_token_refresh=refresh)
+        http.route(MEEBOOK_URL, HttpResponse(200, self.JWT_EXPIRED))
+
+        with pytest.raises(AulaLoginRequiredError):
+            await client.widgets.get_meebook_weekplan(
+                child_filter=["child-1"],
+                institution_filter=["inst-1"],
+                week="2026-W09",
+                session_uuid="session-1",
+            )
+
+        assert len(http.requests_to(MEEBOOK_URL)) == 1
 
     @pytest.mark.asyncio
     async def test_meebook_weekplan_retries_only_once_when_jwt_stays_expired(self, http, caplog):
