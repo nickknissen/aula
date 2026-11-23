@@ -152,3 +152,27 @@ async def test_download_stops_reading_once_the_body_passes_max_bytes():
 
     assert sent == [b"1234", b"5678", b"9"]
     assert str(exc_info.value) == "Download from media.aula.dk is larger than 8 bytes"
+
+
+@pytest.mark.asyncio
+async def test_reset_cookies_replaces_the_aula_cookies_and_keeps_other_hosts():
+    sent = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        sent[request.url.host] = request.headers.get("cookie")
+        return httpx.Response(200)
+
+    httpx_client = httpx.AsyncClient(transport=httpx.MockTransport(handler))
+    httpx_client.cookies.set("PHPSESSID", "session0002", domain="www.aula.dk")
+    httpx_client.cookies.set("Late", "received-after-login", domain=".aula.dk")
+    httpx_client.cookies.set("Provider", "provider0001", domain="api.minuddannelse.net")
+    client = HttpxHttpClient(httpx_client=httpx_client)
+
+    client.reset_cookies({"PHPSESSID": "session0001"})
+    await client.request("get", "https://www.aula.dk/api/v25/")
+    await client.request("get", "https://api.minuddannelse.net/aula/opgaver")
+
+    assert sent == {
+        "www.aula.dk": "PHPSESSID=session0001",
+        "api.minuddannelse.net": "Provider=provider0001",
+    }

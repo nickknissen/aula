@@ -236,4 +236,11 @@ class HttpClient(Protocol):
         """
         return None
 
+    def reset_cookies(self, cookies: dict[str, str]) -> None:
+        """Replace every Aula cookie with ``cookies``.
+
+        Optional. Without it, a refreshed client that Aula refuses cannot start a new session.
+        """
+        ...
+
     async def close(self) -> None: ...

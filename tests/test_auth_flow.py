@@ -1,5 +1,6 @@
 """Tests for aula.auth_flow — authenticate, create_client, authenticate_and_create_client."""
 
+import copy
 import time
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -13,14 +14,16 @@ from aula.auth_flow import (
     authenticate_and_create_client,
     create_client,
 )
-from aula.const import CSRF_TOKEN_COOKIE, OAUTH_TOKEN_PATH
+from aula.const import API_URL, API_VERSION, CSRF_TOKEN_COOKIE, OAUTH_TOKEN_PATH
 from aula.http import (
     AulaAuthenticationError,
     AulaConnectionError,
     AulaLoginRequiredError,
+    AulaRejectedError,
     AulaServerError,
     HttpResponse,
 )
+from tests.fakes import FakeHttpClient
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -153,6 +156,7 @@ class TestCreateClient:
             },
             "cookies": {"PHPSESSID": "session-1"},
         }
+        original_token_data = copy.deepcopy(token_data)
         token_storage = AsyncMock()
 
         client = await create_client(
@@ -198,7 +202,9 @@ class TestCreateClient:
 
             assert first_profile.display_name == "Test"
             refresh_via_oidc.assert_awaited_once_with("refresh-1")
-            assert token_data == {
+            token_storage.save.assert_awaited_once()
+            saved = token_storage.save.await_args.args[0]
+            assert saved == {
                 "timestamp": 100.0,
                 "created_at": "created-after-first",
                 "username": "user",
@@ -210,7 +216,6 @@ class TestCreateClient:
                 },
                 "cookies": {"PHPSESSID": "session-1"},
             }
-            token_storage.save.assert_awaited_once_with(token_data)
 
             second_profile = await client.get_profile()
 
@@ -219,16 +224,17 @@ class TestCreateClient:
             ("refresh-1",),
             ("refresh-2",),
         ]
-        assert token_data["tokens"] == {
+        assert saved["tokens"] == {
             "access_token": "access-3",
             "refresh_token": "refresh-2",
             "scope": "openid",
             "expires_at": 3_000.0,
         }
-        assert token_data["timestamp"] == 200.0
-        assert token_data["created_at"] == "created-after-second"
+        assert saved["timestamp"] == 200.0
+        assert saved["created_at"] == "created-after-second"
         assert token_storage.save.await_count == 2
-        assert token_storage.save.await_args.args[0] is token_data
+        assert token_storage.save.await_args.args[0] is saved
+        assert token_data == original_token_data
 
     @pytest.mark.asyncio
     @pytest.mark.parametrize(
@@ -277,6 +283,57 @@ class TestCreateClient:
         assert type(raised.value.__cause__) is AulaAuthenticationError
         assert raised.value.__cause__.status_code == 401
         token_storage.save.assert_not_awaited()
+
+    STORED_COOKIES = {"PHPSESSID": "session0001", CSRF_TOKEN_COOKIE: "csrf-token"}
+    REFUSED = HttpResponse(200, {"status": {"code": 10}})
+    OK = HttpResponse(200, {"status": {"code": 0}, "data": {"ok": True}})
+
+    async def _refreshed_client(self, http: FakeHttpClient, *answers: HttpResponse):
+        api = f"{API_URL}{API_VERSION}"
+        http.route(f"{api}?method=profiles.getProfilesByLogin", _profile_response())
+        http.route(f"{api}?method=profiles.getProfileContext", _profile_context_response())
+        http.route(f"{api}?method=messaging.getThreads", HttpResponse(401), *answers)
+        http.cookies = dict(self.STORED_COOKIES)
+        token_data = {
+            "tokens": {"access_token": "access-1", "refresh_token": "refresh-1"},
+            "cookies": self.STORED_COOKIES,
+        }
+        client = await create_client(token_data, http_client=http)
+        http.cookies["SessionCookie"] = "received-after-login"
+        return client, f"{api}?method=messaging.getThreads"
+
+    @pytest.mark.asyncio
+    async def test_refused_refreshed_client_starts_a_new_session_from_the_stored_cookies(self):
+        http = FakeHttpClient()
+        client, url = await self._refreshed_client(http, self.REFUSED, self.OK)
+
+        with patch(
+            "aula.auth_flow._refresh_token_via_oidc",
+            new_callable=AsyncMock,
+            return_value={"access_token": "access-2"},
+        ):
+            response = await client._request_with_version_retry("get", url)
+
+        assert response.json()["data"] == {"ok": True}
+        assert len(http.requests_to(url)) == 3
+        assert http.cookies == self.STORED_COOKIES
+
+    @pytest.mark.asyncio
+    async def test_refused_new_session_raises(self):
+        http = FakeHttpClient()
+        client, url = await self._refreshed_client(http, self.REFUSED)
+
+        with (
+            patch(
+                "aula.auth_flow._refresh_token_via_oidc",
+                new_callable=AsyncMock,
+                return_value={"access_token": "access-2"},
+            ),
+            pytest.raises(AulaRejectedError),
+        ):
+            await client._request_with_version_retry("get", url)
+
+        assert len(http.requests_to(url)) == 3
 
 
 class TestRefreshTokenViaOidc:

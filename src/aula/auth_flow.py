@@ -9,6 +9,7 @@ Provides two entry points:
   load cached tokens) and return a ready client.  Used by the CLI.
 """
 
+import copy
 import time
 from collections.abc import Awaitable, Callable
 from typing import Any
@@ -116,8 +117,9 @@ async def create_client(
             protocol. When *None*, an ``HttpxHttpClient`` is created with the
             session cookies from ``token_data``.
         token_storage: Optional storage backend. When supplied, automatic
-            refresh merges rotated credentials into ``token_data`` and saves
-            the complete credential blob before the request is retried.
+            refresh merges rotated credentials into a copy of ``token_data``
+            and saves the complete credential blob before the request is
+            retried. The caller's ``token_data`` is never changed.
 
     Returns:
         A ready-to-use ``AulaApiClient`` (``init()`` has been called).
@@ -128,6 +130,7 @@ async def create_client(
         ValueError: If ``token_data`` has no ``access_token`` (compatibility
             requirement for stored credential schema).
     """
+    token_data = copy.deepcopy(token_data)
     tokens = token_data.get("tokens") or {}
     access_token = tokens.get("access_token")
     if not access_token:
@@ -172,6 +175,7 @@ async def create_client(
         access_token=access_token,
         csrf_token=csrf_token,
         on_token_refresh=on_token_refresh,
+        session_cookies=cookies,
     )
     await client.init()
     return client

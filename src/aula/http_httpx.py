@@ -14,6 +14,17 @@ def _connection_error(url: str, err: httpx.TransportError) -> AulaConnectionErro
     )
 
 
+def _aula_cookies(cookies: dict[str, str]) -> httpx.Cookies:
+    scoped = httpx.Cookies()
+    for name, value in cookies.items():
+        scoped.set(name, value, domain=AULA_COOKIE_DOMAIN)
+    return scoped
+
+
+def _is_aula_domain(domain: str) -> bool:
+    return f".{domain.lstrip('.')}".endswith(AULA_COOKIE_DOMAIN)
+
+
 async def _read_at_most(response: httpx.Response, max_bytes: int) -> bytes:
     too_large = DownloadTooLargeError(
         f"Download from {response.url.host} is larger than {max_bytes} bytes",
@@ -47,13 +58,10 @@ class HttpxHttpClient:
         httpx_client: httpx.AsyncClient | None = None,
     ) -> None:
         self._owns_client = httpx_client is None
-        scoped_cookies = httpx.Cookies()
-        for name, value in (cookies or {}).items():
-            scoped_cookies.set(name, value, domain=AULA_COOKIE_DOMAIN)
         self._client = httpx_client or httpx.AsyncClient(
             follow_redirects=True,
             headers={"User-Agent": USER_AGENT},
-            cookies=scoped_cookies,
+            cookies=_aula_cookies(cookies or {}),
             timeout=httpx.Timeout(30.0, read=60.0),
         )
 
@@ -101,6 +109,14 @@ class HttpxHttpClient:
     def get_cookie(self, name: str) -> str | None:
         """Read a cookie from the underlying httpx session."""
         return self._client.cookies.get(name)
+
+    def reset_cookies(self, cookies: dict[str, str]) -> None:
+        """Replace every aula.dk cookie with ``cookies``; cookies for other hosts stay."""
+        jar = _aula_cookies(cookies)
+        for cookie in self._client.cookies.jar:
+            if not _is_aula_domain(cookie.domain):
+                jar.jar.set_cookie(cookie)
+        self._client.cookies = jar
 
     async def close(self) -> None:
         if self._owns_client:
