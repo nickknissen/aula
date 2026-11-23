@@ -254,7 +254,9 @@ class TestRequestWithVersionRetry:
         messages = [r.message for r in caplog.records]
         assert any("method=notifications.getNotificationsForActiveProfile" in m for m in messages)
         assert any(
-            "Response method=notifications.getNotificationsForActiveProfile" in m for m in messages
+            "Response method=notifications.getNotificationsForActiveProfile" in m
+            and '{"data":{"ok":true}}' in m
+            for m in messages
         )
 
     @pytest.mark.asyncio
