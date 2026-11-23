@@ -1,5 +1,6 @@
 """Tests for aula.utils.atomic_write."""
 
+import json
 import os
 from unittest.mock import patch
 
@@ -13,6 +14,13 @@ def test_serialisation_failure_leaves_no_temp_file_and_reraises(tmp_path):
     with pytest.raises(TypeError):
         write_json_atomic(target, {"bad": object()})
     assert list(tmp_path.iterdir()) == []
+
+
+def test_still_writes_when_chmod_fails(tmp_path):
+    target = tmp_path / "out.json"
+    with patch("aula.utils.atomic_write.os.chmod", side_effect=OSError("not permitted")):
+        write_json_atomic(target, {"a": 1})
+    assert json.loads(target.read_text()) == {"a": 1}
 
 
 def test_fsync_runs_before_replace(tmp_path):

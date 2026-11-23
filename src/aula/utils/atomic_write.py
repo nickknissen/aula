@@ -1,5 +1,6 @@
 """Atomic JSON file writes."""
 
+import contextlib
 import json
 import os
 import sys
@@ -18,7 +19,8 @@ def write_json_atomic(path: Path, data: Any) -> None:
             f.flush()
             os.fsync(f.fileno())
         if sys.platform != "win32":
-            os.chmod(tmp_path, 0o600)
+            with contextlib.suppress(OSError):
+                os.chmod(tmp_path, 0o600)
         os.replace(tmp_path, path)
     except BaseException:
         Path(tmp_path).unlink(missing_ok=True)
