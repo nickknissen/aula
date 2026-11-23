@@ -684,7 +684,7 @@ class AulaApiClient:
                     continue
                 known_ids.add(child.id)
                 children.append(child)
-        skipped.raise_if_none_parsed(children, 200)
+        skipped.raise_if_none_parsed(known_ids, 200)
         return children
 
     async def is_logged_in(self) -> bool:

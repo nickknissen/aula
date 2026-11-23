@@ -621,6 +621,18 @@ class TestGetProfile:
         assert [c.id for c in profile.children] == [1]
 
     @pytest.mark.asyncio
+    async def test_unparsable_extended_access_child_keeps_own_children(self, client):
+        context = {"data": {"institutions": [{"name": "Skole Et", "children": [{"id": 2}]}]}}
+        client._request_with_version_retry = AsyncMock(
+            side_effect=[
+                self._make_profile_response([self._profile_with_own_child()]),
+                HttpResponse(status_code=200, data=context),
+            ]
+        )
+        profile = await client.get_profile()
+        assert [c.id for c in profile.children] == [1]
+
+    @pytest.mark.asyncio
     async def test_get_profile_context_without_institutions(self, client):
         client._request_with_version_retry = AsyncMock(
             side_effect=[
