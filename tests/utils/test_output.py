@@ -463,6 +463,10 @@ class TestFormatMessageLines:
             "  Body",
         ]
 
+    def test_subject_prints_without_escape_sequence(self):
+        lines = format_message_lines("Hi\x1b[2J", "Lærer Et", "", "Body")
+        assert lines[0] == "Hi[2J"
+
 
 class TestFormatPostLines:
     def test_formats_post_with_metadata_and_body(self):
@@ -579,8 +583,3 @@ class TestFormatReportIntroLines:
             "  Generated: 2026-03-02",
             "  Period: Mon-Fri",
         ]
-
-
-def test_message_subject_prints_without_escape_sequence():
-    lines = format_message_lines("Hi\x1b[2J", "Lærer Et", "", "Body")
-    assert lines[0] == "Hi[2J"

@@ -46,6 +46,7 @@ from .models import (
 )
 from .token_storage import FileTokenStorage
 from .utils.dates import aula_today
+from .utils.html import strip_control_chars
 from .utils.json import to_json
 from .utils.mapping import get_in
 from .utils.output import (
@@ -3035,7 +3036,7 @@ async def weekly_summary(ctx, child, week, providers):
                     meta.append(", ".join(participants))
                 if last_updated:
                     meta.append(last_updated)
-                click.echo(thread.subject)
+                click.echo(strip_control_chars(thread.subject))
                 if meta:
                     click.echo(f"  Meta: {' | '.join(meta)}")
                 click.echo()
@@ -4726,7 +4727,7 @@ async def daily_summary(ctx, child, target_date):
                     meta.append(", ".join(participants))
                 if last_updated:
                     meta.append(last_updated)
-                click.echo(thread.subject)
+                click.echo(strip_control_chars(thread.subject))
                 if meta:
                     click.echo(f"  Meta: {' | '.join(meta)}")
                 click.echo()
