@@ -135,6 +135,11 @@ def _broker_page_error(soup: BeautifulSoup, response: httpx.Response) -> SAMLErr
     )
 
 
+def _is_aula_domain(domain: str) -> bool:
+    host = domain.lstrip(".").lower()
+    return host == "aula.dk" or host.endswith(".aula.dk")
+
+
 class MitIDAuthClient:
     """Main client for Aula platform authentication with MitID integration.
 
@@ -176,16 +181,25 @@ class MitIDAuthClient:
         self._on_password = self._pass_async_errors_through(on_password)
         self._on_otp_code = self._pass_errors_through(on_otp_code)
 
-        # The real Android app just sends User-Agent: Android — the server
-        # doesn't validate browser-style headers (sec-ch-ua, etc.).
-        self._client.headers["User-Agent"] = USER_AGENT
-
         # Session state
         self._code_verifier: str | None = None
         self._code_challenge: str | None = None
         self._state: str | None = None
         self._tokens: dict[str, Any] | None = None
         self._mitid_client: BrowserClient | None = None
+
+    async def _get(self, url: str, **kwargs: Any) -> httpx.Response:
+        headers = self._with_user_agent(kwargs.pop("headers", None))
+        return await self._client.get(url, headers=headers, **kwargs)
+
+    async def _post(self, url: str, **kwargs: Any) -> httpx.Response:
+        headers = self._with_user_agent(kwargs.pop("headers", None))
+        return await self._client.post(url, headers=headers, **kwargs)
+
+    @staticmethod
+    def _with_user_agent(headers: dict[str, str] | None) -> dict[str, str]:
+        """The Android app sends only User-Agent; the caller's client keeps its own."""
+        return {"User-Agent": USER_AGENT, **(headers or {})}
 
     def _pass_errors_through[**P, R](
         self, callback: Callable[P, R] | None
@@ -285,9 +299,13 @@ class MitIDAuthClient:
         self._tokens = value
 
     @property
-    def cookies(self) -> httpx.Cookies:
-        """The HTTP client's cookie jar."""
-        return self._client.cookies
+    def cookies(self) -> dict[str, str]:
+        """Cookies of aula.dk and its subdomains; other domains are left out."""
+        return {
+            cookie.name: cookie.value
+            for cookie in self._client.cookies.jar
+            if cookie.value is not None and _is_aula_domain(cookie.domain)
+        }
 
     @property
     def mitid_client(self) -> BrowserClient | None:
@@ -326,7 +344,7 @@ class MitIDAuthClient:
             auth_url = f"{AUTH_BASE_URL}{OAUTH_AUTHORIZE_PATH}"
             full_auth_url = f"{auth_url}?{urlencode(auth_params)}"
 
-            response = await self._client.get(full_auth_url)
+            response = await self._get(full_auth_url)
 
             if response.is_redirect:
                 redirect_url = response.headers.get("Location")
@@ -354,7 +372,7 @@ class MitIDAuthClient:
 
         try:
             for redirect_count in range(1, max_redirects + 1):
-                response = await self._client.get(current_url)
+                response = await self._get(current_url)
                 _LOGGER.debug(
                     "Redirect %d: HTTP %d → %s",
                     redirect_count,
@@ -404,7 +422,7 @@ class MitIDAuthClient:
         _LOGGER.debug("Submitting MitID selection form to %s", diagnostic_url(action))
         form_data["selectedIdp"] = "nemlogin3"
 
-        post_response = await self._client.post(action, data=form_data)
+        post_response = await self._post(action, data=form_data)
 
         if post_response.is_redirect and "Location" in post_response.headers:
             current_url = post_response.headers["Location"]
@@ -426,7 +444,7 @@ class MitIDAuthClient:
             "x-requested-with": "XMLHttpRequest",
         }
 
-        resp_init = await self._client.post(
+        resp_init = await self._post(
             post_url,
             headers=post_headers,
             data={"__RequestVerificationToken": verification_token},
@@ -537,7 +555,7 @@ class MitIDAuthClient:
             # than one MitID identity are answered with 302 -> /loginoption here.
             # Without following it, response.url stays on /login/mitid, the check
             # below never fires, and we parse SAML out of an empty redirect body.
-            response = await self._client.post(
+            response = await self._post(
                 f"{MITID_BASE_URL}/login/mitid", data=params, follow_redirects=True
             )
 
@@ -632,7 +650,7 @@ class MitIDAuthClient:
 
         login_option_url = str(response.url)
         # Submitting the choice redirects on to the page carrying the SAML form.
-        return await self._client.post(login_option_url, data=form_data, follow_redirects=True)
+        return await self._post(login_option_url, data=form_data, follow_redirects=True)
 
     async def _step5_saml_broker_flow(self, saml_data: dict[str, str]) -> dict[str, str]:
         """Step 5: Complete SAML broker authentication."""
@@ -644,7 +662,7 @@ class MitIDAuthClient:
                 "SAMLResponse": saml_data["saml_response"],
             }
 
-            broker_response = await self._client.post(
+            broker_response = await self._post(
                 f"{BROKER_URL}/auth/realms/broker/broker/nemlogin3/endpoint",
                 data=params,
             )
@@ -653,7 +671,7 @@ class MitIDAuthClient:
                 raise SAMLError("No redirect from broker endpoint")
 
             action_url = broker_response.headers["Location"]
-            final_request = await self._client.get(action_url)
+            final_request = await self._get(action_url)
 
             return await self._process_broker_response(final_request)
 
@@ -679,7 +697,7 @@ class MitIDAuthClient:
             ", ".join(sorted(form_data)),
         )
 
-        post_broker_response = await self._client.post(action, data=form_data)
+        post_broker_response = await self._post(action, data=form_data)
 
         if post_broker_response.status_code == httpx.codes.OK:
             post_broker_response = await self._submit_confirmation(post_broker_response)
@@ -693,7 +711,7 @@ class MitIDAuthClient:
             )
 
         after_url = post_broker_response.headers["Location"]
-        after_response = await self._client.get(after_url)
+        after_response = await self._get(after_url)
 
         after_soup = BeautifulSoup(after_response.text, "html.parser")
         saml_form = after_soup.find("form")
@@ -731,7 +749,7 @@ class MitIDAuthClient:
         action, form_data = _form_data(form)
         action = urljoin(str(response.url), action)
         _LOGGER.debug("Submitting broker confirmation page to %s", diagnostic_url(action))
-        return await self._client.post(action, data=form_data)
+        return await self._post(action, data=form_data)
 
     async def _step6_complete_aula_login(self, saml_data: dict[str, str]) -> str:
         """Step 6: Complete Aula login with SAML response."""
@@ -748,7 +766,7 @@ class MitIDAuthClient:
                 f"{AUTH_BASE_URL}/simplesaml/module.php/saml/sp/saml2-acs.php/uni-sp",
             )
 
-            aula_response = await self._client.post(saml_endpoint, data=aula_saml_data)
+            aula_response = await self._post(saml_endpoint, data=aula_saml_data)
 
             if not aula_response.is_redirect:
                 raise OAuthError("No redirect from Aula SAML endpoint")
@@ -764,7 +782,7 @@ class MitIDAuthClient:
         max_redirects = 10
 
         for _ in range(max_redirects):
-            redirect_response = await self._client.get(redirect_url)
+            redirect_response = await self._get(redirect_url)
 
             # Check if this is the OAuth callback
             response_url = str(redirect_response.url)
@@ -815,7 +833,7 @@ class MitIDAuthClient:
                 "code_verifier": self._code_verifier,
             }
 
-            response = await self._client.post(
+            response = await self._post(
                 token_url,
                 data=token_data,
                 headers={
@@ -865,7 +883,7 @@ class MitIDAuthClient:
         token_url = f"{AUTH_BASE_URL}{OAUTH_TOKEN_PATH}"
 
         try:
-            response = await self._client.post(
+            response = await self._post(
                 token_url,
                 data={
                     "grant_type": "refresh_token",
