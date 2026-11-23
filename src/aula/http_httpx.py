@@ -4,7 +4,7 @@ from typing import Any
 
 import httpx
 
-from .const import USER_AGENT
+from .const import AULA_COOKIE_DOMAIN, USER_AGENT
 from .http import AulaConnectionError, DownloadTooLargeError, HttpResponse
 
 
@@ -34,7 +34,8 @@ class HttpxHttpClient:
     """HttpClient implementation backed by httpx.AsyncClient.
 
     Args:
-        cookies: Optional cookies to set on a new internal client.
+        cookies: Optional Aula session cookies to set on a new internal client.
+            They are sent to aula.dk hosts only.
         httpx_client: Optional pre-configured ``httpx.AsyncClient``.  When
             provided, the caller retains ownership and must close it.
             The *cookies* parameter is ignored when *httpx_client* is given.
@@ -46,10 +47,13 @@ class HttpxHttpClient:
         httpx_client: httpx.AsyncClient | None = None,
     ) -> None:
         self._owns_client = httpx_client is None
+        scoped_cookies = httpx.Cookies()
+        for name, value in (cookies or {}).items():
+            scoped_cookies.set(name, value, domain=AULA_COOKIE_DOMAIN)
         self._client = httpx_client or httpx.AsyncClient(
             follow_redirects=True,
             headers={"User-Agent": USER_AGENT},
-            cookies=cookies,
+            cookies=scoped_cookies,
             timeout=httpx.Timeout(30.0, read=60.0),
         )
 

@@ -1,5 +1,6 @@
 DOMAIN = "aula"
 API_URL = "https://www.aula.dk/api/v"
+AULA_COOKIE_DOMAIN = ".aula.dk"
 API_VERSION = "25"
 # Aula can change the web portal's hash routes without notice.
 WEB_PORTAL_URL = "https://www.aula.dk/portal/#"
