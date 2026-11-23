@@ -24,6 +24,7 @@ from .http import (
     AulaConnectionError,
     AulaInvalidTokenError,
     AulaLoginRequiredError,
+    AulaRefreshTokenConflictError,
     AulaRejectedError,
     AulaResponseError,
     AulaServerError,
@@ -448,6 +449,7 @@ class AulaApiClient:
         ``AulaConnectionError`` is raised instead of returning the 401. When the
         refresh callback raises ``AulaLoginRequiredError``, that error is raised
         with the original authentication error as its cause.
+        ``AulaRefreshTokenConflictError`` from the callback is raised unchanged.
 
         When Aula answers status code 10 after a refresh, starts a new session
         once (see ``_start_new_session``) and replays the request. Once a call
@@ -564,7 +566,12 @@ class AulaApiClient:
                 self._auth_generation += 1
                 self._new_session_access_token = new_token
                 return True
-            except AulaServerError, AulaConnectionError, AulaLoginRequiredError:
+            except (
+                AulaServerError,
+                AulaConnectionError,
+                AulaLoginRequiredError,
+                AulaRefreshTokenConflictError,
+            ):
                 self._access_token = previous_access_token
                 raise
             except Exception as e:

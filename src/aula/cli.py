@@ -29,6 +29,7 @@ from .const import (
     WIDGET_HUSKELISTEN,
     WIDGET_MEEBOOK,
 )
+from .http import AulaRefreshTokenConflictError
 from .models import (
     Child,
     DailyOverview,
@@ -123,8 +124,21 @@ def get_mitid_username(ctx: click.Context) -> str:
     return username
 
 
+class _AulaGroup(click.Group):
+    """Command group that stops with a short message when the token file is shared."""
+
+    def invoke(self, ctx: click.Context) -> Any:
+        try:
+            return super().invoke(ctx)
+        except AulaRefreshTokenConflictError:
+            raise click.ClickException(
+                f"another process is using the token file {_token_file(ctx)}. "
+                "Stop it, or give the second process its own file with --token-file."
+            ) from None
+
+
 # Define the main group
-@click.group()
+@click.group(cls=_AulaGroup)
 @click.version_option(
     __version__,
     "--version",

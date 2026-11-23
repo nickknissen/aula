@@ -19,6 +19,7 @@ from aula.http import (
     AulaAuthenticationError,
     AulaConnectionError,
     AulaLoginRequiredError,
+    AulaRefreshTokenConflictError,
     AulaRejectedError,
     AulaServerError,
     HttpResponse,
@@ -365,6 +366,176 @@ class TestRefreshTokenViaOidc:
     async def test_unreachable_server_raises(self):
         with _token_server(_unreachable), pytest.raises(AulaConnectionError):
             await _refresh_token_via_oidc("refresh-1")
+
+
+def _stored(refresh_token: str) -> dict:
+    return {
+        "tokens": {"access_token": "access-0", "refresh_token": refresh_token},
+        "cookies": {},
+    }
+
+
+class TestRefreshTokenConflict:
+    """Another process that shares the token storage has rotated the refresh token."""
+
+    @pytest.fixture
+    def token_server_requests(self) -> list[httpx.Request]:
+        return []
+
+    def _token_server(self, requests: list[httpx.Request], response: httpx.Response):
+        def handler(request: httpx.Request) -> httpx.Response:
+            requests.append(request)
+            return response
+
+        return _token_server(handler)
+
+    async def _client_with_expired_access(self, token_storage=None):
+        http = _mock_http_client()
+        token_data = {
+            "tokens": {"access_token": "access-1", "refresh_token": "refresh-1"},
+            "cookies": {},
+        }
+        client = await create_client(token_data, http_client=http, token_storage=token_storage)
+        http.request = AsyncMock(return_value=HttpResponse(status_code=401))
+        return client, http
+
+    @pytest.mark.asyncio
+    async def test_rotated_storage_raises_before_contacting_the_token_server(
+        self, token_server_requests
+    ):
+        token_storage = AsyncMock()
+        token_storage.load.return_value = _stored("refresh-2")
+        client, _ = await self._client_with_expired_access(token_storage)
+
+        with (
+            self._token_server(token_server_requests, httpx.Response(200)),
+            pytest.raises(AulaRefreshTokenConflictError),
+        ):
+            await client.get_profile()
+
+        assert token_server_requests == []
+        token_storage.save.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    async def test_rotation_during_a_rejected_refresh_raises_with_the_rejection_as_cause(
+        self, token_server_requests
+    ):
+        token_storage = AsyncMock()
+        token_storage.load.side_effect = [_stored("refresh-1"), _stored("refresh-2")]
+        client, _ = await self._client_with_expired_access(token_storage)
+
+        with (
+            self._token_server(
+                token_server_requests, httpx.Response(400, json={"error": "invalid_grant"})
+            ),
+            pytest.raises(AulaRefreshTokenConflictError) as raised,
+        ):
+            await client.get_profile()
+
+        assert len(token_server_requests) == 1
+        assert isinstance(raised.value.__cause__, AulaLoginRequiredError)
+        assert raised.value.__cause__.status_code == 400
+        assert "refresh-" not in str(raised.value)
+
+    @pytest.mark.asyncio
+    async def test_rejected_refresh_with_unchanged_storage_requires_login(
+        self, token_server_requests
+    ):
+        token_storage = AsyncMock()
+        token_storage.load.return_value = _stored("refresh-1")
+        client, _ = await self._client_with_expired_access(token_storage)
+
+        with (
+            self._token_server(
+                token_server_requests, httpx.Response(400, json={"error": "invalid_grant"})
+            ),
+            pytest.raises(AulaLoginRequiredError) as raised,
+        ):
+            await client.get_profile()
+
+        assert type(raised.value.__cause__) is AulaAuthenticationError
+        assert token_storage.load.await_count == 2
+
+    @pytest.mark.asyncio
+    async def test_token_server_outage_is_not_checked_against_storage(self, token_server_requests):
+        token_storage = AsyncMock()
+        token_storage.load.side_effect = [_stored("refresh-1"), _stored("refresh-2")]
+        client, _ = await self._client_with_expired_access(token_storage)
+
+        with (
+            self._token_server(token_server_requests, httpx.Response(503)),
+            pytest.raises(AulaServerError),
+        ):
+            await client.get_profile()
+
+        assert token_storage.load.await_count == 1
+
+    @pytest.mark.asyncio
+    async def test_client_without_storage_refreshes_as_before(self, token_server_requests):
+        client, http = await self._client_with_expired_access()
+        http.request = AsyncMock(
+            side_effect=[
+                HttpResponse(status_code=401),
+                _profile_response(),
+                _profile_response(),
+                _profile_response(),
+                _profile_context_response(),
+            ]
+        )
+
+        with self._token_server(
+            token_server_requests,
+            httpx.Response(200, json={"access_token": "access-2", "refresh_token": "refresh-2"}),
+        ):
+            profile = await client.get_profile()
+
+        assert profile.display_name == "Test"
+        assert len(token_server_requests) == 1
+        assert b"refresh_token=refresh-1" in token_server_requests[0].content
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        "loads",
+        [
+            [_stored("refresh-1"), _stored("refresh-2")],
+            [_stored("refresh-1"), _stored("refresh-1"), _stored("refresh-2")],
+        ],
+        ids=["before-refresh", "after-rejection"],
+    )
+    async def test_startup_refresh_conflict_sends_no_mitid_request(self, loads):
+        loads[0]["tokens"]["expires_at"] = time.time() - 100
+        token_storage = AsyncMock()
+        token_storage.load.side_effect = loads
+        requests: list[httpx.Request] = []
+
+        def server(request: httpx.Request) -> httpx.Response:
+            requests.append(request)
+            if request.url.path == OAUTH_TOKEN_PATH:
+                return httpx.Response(400, json={"error": "invalid_grant"})
+            return httpx.Response(500)
+
+        async with httpx.AsyncClient(transport=httpx.MockTransport(server)) as http:
+            with pytest.raises(AulaRefreshTokenConflictError):
+                await authenticate("user", token_storage, httpx_client=http)
+
+        assert all(request.url.path == OAUTH_TOKEN_PATH for request in requests)
+        token_storage.save.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    async def test_conflict_while_creating_the_client_does_not_start_mitid(self):
+        with (
+            patch("aula.auth_flow.authenticate", new_callable=AsyncMock) as mock_authenticate,
+            patch(
+                "aula.auth_flow.create_client",
+                new_callable=AsyncMock,
+                side_effect=AulaRefreshTokenConflictError(),
+            ),
+            pytest.raises(AulaRefreshTokenConflictError),
+        ):
+            mock_authenticate.return_value = _stored("refresh-1")
+            await authenticate_and_create_client("user", AsyncMock())
+
+        mock_authenticate.assert_awaited_once()
 
 
 # ---------------------------------------------------------------------------

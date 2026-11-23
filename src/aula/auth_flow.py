@@ -25,6 +25,7 @@ from .http import (
     AulaAuthenticationError,
     AulaConnectionError,
     AulaLoginRequiredError,
+    AulaRefreshTokenConflictError,
     AulaServerError,
     HttpClient,
 )
@@ -96,6 +97,14 @@ async def _refresh_token_via_oidc(refresh_token: str) -> dict[str, Any] | None:
         return None
 
 
+async def _rotated_elsewhere(token_storage: TokenStorage, held_refresh_token: str) -> bool:
+    """Return whether the storage now holds a different refresh token than ``held``."""
+    stored = await token_storage.load()
+    tokens = stored.get("tokens") if isinstance(stored, dict) else None
+    stored_refresh_token = tokens.get("refresh_token") if isinstance(tokens, dict) else None
+    return isinstance(stored_refresh_token, str) and stored_refresh_token != held_refresh_token
+
+
 async def create_client(
     token_data: dict[str, Any],
     http_client: HttpClient | None = None,
@@ -119,7 +128,9 @@ async def create_client(
         token_storage: Optional storage backend. When supplied, automatic
             refresh merges rotated credentials into a copy of ``token_data``
             and saves the complete credential blob before the request is
-            retried. The caller's ``token_data`` is never changed.
+            retried. The caller's ``token_data`` is never changed. A refresh
+            raises ``AulaRefreshTokenConflictError`` when another process has
+            rotated the refresh token in the storage.
 
     Returns:
         A ready-to-use ``AulaApiClient`` (``init()`` has been called).
@@ -154,7 +165,16 @@ async def create_client(
             if not current_refresh_token:
                 return None
 
-            result = await _refresh_token_via_oidc(current_refresh_token)
+            if token_storage and await _rotated_elsewhere(token_storage, current_refresh_token):
+                raise AulaRefreshTokenConflictError()
+            try:
+                result = await _refresh_token_via_oidc(current_refresh_token)
+            except AulaLoginRequiredError as rejected:
+                if token_storage and await _rotated_elsewhere(token_storage, current_refresh_token):
+                    raise AulaRefreshTokenConflictError(
+                        status_code=rejected.status_code
+                    ) from rejected
+                raise
             if not result or not result.get("access_token"):
                 return None
 
@@ -234,6 +254,8 @@ async def authenticate(
     Raises:
         AulaLoginRequiredError: If ``allow_login`` is ``False`` and the stored
             tokens cannot be used or refreshed.
+        AulaRefreshTokenConflictError: If another process has rotated the stored
+            refresh token.
     """
     async with MitIDAuthClient(
         mitid_username=mitid_username,
@@ -271,8 +293,11 @@ async def authenticate(
                 _LOGGER.info("Loaded cached authentication tokens")
             elif tokens.get("refresh_token"):
                 _LOGGER.info("Cached tokens expired, attempting refresh")
+                stored_refresh_token = tokens["refresh_token"]
+                if token_storage and await _rotated_elsewhere(token_storage, stored_refresh_token):
+                    raise AulaRefreshTokenConflictError()
                 try:
-                    new_tokens = await auth_client.refresh_access_token(tokens["refresh_token"])
+                    new_tokens = await auth_client.refresh_access_token(stored_refresh_token)
                     cookies = token_data.get("cookies") or {}
                     result_data = _build_token_data(mitid_username, new_tokens, cookies)
                     if token_storage:
@@ -280,6 +305,12 @@ async def authenticate(
                     tokens_valid = True
                     _LOGGER.info("Token refresh successful, tokens saved")
                 except (OAuthError, RuntimeError) as e:
+                    if (
+                        isinstance(e, OAuthError)
+                        and token_storage
+                        and await _rotated_elsewhere(token_storage, stored_refresh_token)
+                    ):
+                        raise AulaRefreshTokenConflictError() from e
                     refresh_error = e
                     _LOGGER.warning("Token refresh failed, will require full authentication: %s", e)
             else:
@@ -367,6 +398,8 @@ async def authenticate_and_create_client(
     )
     try:
         return await create_client(token_data, token_storage=token_storage)
+    except AulaRefreshTokenConflictError:
+        raise
     except AulaAuthenticationError as err:
         if not allow_login:
             if isinstance(err, AulaLoginRequiredError):

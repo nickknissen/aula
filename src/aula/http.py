@@ -60,6 +60,17 @@ class AulaLoginRequiredError(AulaAuthenticationError):
     """Raised when stored credentials cannot be used and a new MitID login is needed."""
 
 
+class AulaRefreshTokenConflictError(AulaAuthenticationError):
+    """Raised when another process has rotated the refresh token in the shared token storage."""
+
+    def __init__(
+        self,
+        message: str = "Another process has used the stored credentials",
+        status_code: int = 0,
+    ) -> None:
+        super().__init__(message, status_code)
+
+
 class AulaRateLimitError(HttpRequestError):
     """Raised when the API rate limit is exceeded (429 Too Many Requests).
 
