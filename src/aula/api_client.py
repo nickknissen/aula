@@ -88,6 +88,21 @@ MAX_PAGES = 100
 _API_VERSION_PATTERN = re.compile(rf"{re.escape(API_URL)}(\d+)")
 
 
+def _describe_body(response: HttpResponse) -> str:
+    """Render a response for the debug log without failing on a body that is not JSON."""
+    try:
+        payload = response.json()
+    except ValueError:
+        payload = None
+    if payload is not None:
+        return compact_payload_for_log(payload)
+    headers = {name.lower(): value for name, value in response.headers.items()}
+    return (
+        f"<non-JSON body content-type={headers.get('content-type', 'unknown')} "
+        f"length={headers.get('content-length', 'unknown')}>"
+    )
+
+
 def _api_version_of(url: str) -> int | None:
     match = _API_VERSION_PATTERN.match(url)
     return int(match.group(1)) if match else None
@@ -460,9 +475,7 @@ class AulaApiClient:
 
             if _LOGGER.isEnabledFor(logging.DEBUG):
                 _LOGGER.debug(
-                    "Response method=%s: %s",
-                    api_method or "unknown",
-                    compact_payload_for_log(response.json()),
+                    "Response method=%s: %s", api_method or "unknown", _describe_body(response)
                 )
 
             failed_version = _api_version_of(url)
