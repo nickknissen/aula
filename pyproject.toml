@@ -23,7 +23,7 @@ dependencies = [
     "html2text>=2025.4.15",
     "qrcode>=8.0",
     "cryptography>=43.0",
-    "tzdata>=2024.1",
+    "tzdata>=2024.1; sys_platform == 'win32'",
 ]
 
 [project.optional-dependencies]

@@ -1,13 +1,24 @@
-import aula.utils.widget_vue_extract as widget_vue_extract
-from aula.utils.widget_vue_extract import (
-    extract_endpoint_candidates,
-    extract_js_asset_urls_from_html,
-    extract_sourcemap_url_from_js,
-    extract_sourcemap_urls_from_portal_html,
-    extract_widget_summary,
-    find_widget_source,
-    render_widget_summary,
-)
+import importlib.util
+from pathlib import Path
+
+_ROOT = Path(__file__).parent.parent
+_SCRIPT = _ROOT / "scripts" / "widget_vue_extract.py"
+_spec = importlib.util.spec_from_file_location("widget_vue_extract", _SCRIPT)
+assert _spec is not None and _spec.loader is not None
+widget_vue_extract = importlib.util.module_from_spec(_spec)
+_spec.loader.exec_module(widget_vue_extract)
+
+extract_endpoint_candidates = widget_vue_extract.extract_endpoint_candidates
+extract_js_asset_urls_from_html = widget_vue_extract.extract_js_asset_urls_from_html
+extract_sourcemap_url_from_js = widget_vue_extract.extract_sourcemap_url_from_js
+extract_sourcemap_urls_from_portal_html = widget_vue_extract.extract_sourcemap_urls_from_portal_html
+extract_widget_summary = widget_vue_extract.extract_widget_summary
+find_widget_source = widget_vue_extract.find_widget_source
+render_widget_summary = widget_vue_extract.render_widget_summary
+
+
+def test_extractor_is_not_part_of_the_package() -> None:
+    assert not (_ROOT / "src" / "aula" / "utils" / "widget_vue_extract.py").exists()
 
 
 def test_find_widget_source_matches_exact_component_path() -> None:

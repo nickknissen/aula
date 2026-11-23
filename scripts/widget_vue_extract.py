@@ -207,7 +207,7 @@ def render_widget_summary(summary: WidgetSummary) -> str:
 
 def _build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
-        prog="python -m aula.utils.widget_vue_extract",
+        prog="python scripts/widget_vue_extract.py",
         description="Extract widget Vue endpoint summary from sourcemaps using widget id/key",
     )
     parser.add_argument(

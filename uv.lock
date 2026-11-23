@@ -25,7 +25,7 @@ dependencies = [
     { name = "html2text" },
     { name = "httpx" },
     { name = "qrcode" },
-    { name = "tzdata" },
+    { name = "tzdata", marker = "sys_platform == 'win32'" },
 ]
 
 [package.optional-dependencies]
@@ -52,7 +52,7 @@ requires-dist = [
     { name = "httpx", specifier = ">=0.28.1" },
     { name = "qrcode", specifier = ">=8.0" },
     { name = "rich", marker = "extra == 'rich'", specifier = ">=13.0" },
-    { name = "tzdata", specifier = ">=2024.1" },
+    { name = "tzdata", marker = "sys_platform == 'win32'", specifier = ">=2024.1" },
 ]
 provides-extras = ["rich"]
 
