@@ -13,6 +13,12 @@ class MitIDError(MitIDAuthError):
     pass
 
 
+class MitIDTimeoutError(MitIDError):
+    """Exception raised when the MitID app is not approved before the poll deadline."""
+
+    pass
+
+
 class NetworkError(MitIDAuthError):
     """Exception raised for network-related errors."""
 

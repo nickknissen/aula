@@ -425,7 +425,7 @@ class MitIDAuthClient:
         post_response = await self._post(action, data=form_data)
 
         if post_response.is_redirect and "Location" in post_response.headers:
-            current_url = post_response.headers["Location"]
+            current_url = urljoin(str(post_response.url), post_response.headers["Location"])
             _LOGGER.debug("IdP selection redirected to: %s", diagnostic_url(current_url))
             return await self._step2_follow_redirect_to_mitid(current_url)
 
@@ -670,7 +670,7 @@ class MitIDAuthClient:
             if not broker_response.is_redirect:
                 raise SAMLError("No redirect from broker endpoint")
 
-            action_url = broker_response.headers["Location"]
+            action_url = urljoin(str(broker_response.url), broker_response.headers["Location"])
             final_request = await self._get(action_url)
 
             return await self._process_broker_response(final_request)
@@ -710,7 +710,7 @@ class MitIDAuthClient:
                 f"{detail}"
             )
 
-        after_url = post_broker_response.headers["Location"]
+        after_url = urljoin(str(post_broker_response.url), post_broker_response.headers["Location"])
         after_response = await self._get(after_url)
 
         after_soup = BeautifulSoup(after_response.text, "html.parser")

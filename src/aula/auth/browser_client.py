@@ -15,7 +15,7 @@ import qrcode
 
 from ..const import USER_AGENT
 from ._utils import bytes_to_hex
-from .exceptions import MitIDError, PasswordInvalidError, TokenInvalidError
+from .exceptions import MitIDError, MitIDTimeoutError, PasswordInvalidError, TokenInvalidError
 from .srp import CustomSRP
 
 _LOGGER = logging.getLogger(__name__)
@@ -23,6 +23,7 @@ _LOGGER = logging.getLogger(__name__)
 _HEADERS = {"User-Agent": USER_AGENT}
 
 _POLL_SECONDS = 0.5
+_POLL_DEADLINE_SECONDS = 300.0
 _QR_POLL_SECONDS = 1.0
 
 # Authenticator mapping tables
@@ -289,12 +290,17 @@ class BrowserClient:
         Returns:
             Tuple of (response, response_signature) from the app payload.
         """
-        while True:
+        deadline = time.monotonic() + _POLL_DEADLINE_SECONDS
+        while time.monotonic() < deadline:
             r = await self._post(poll_url, json={"ticket": ticket})
-            data = r.json()
 
             if not r.is_success:
-                raise MitIDError("Login request was not accepted")
+                raise MitIDError(f"Login request was not accepted: HTTP {r.status_code}")
+
+            try:
+                data = r.json()
+            except ValueError as e:
+                raise MitIDError("MitID poll returned a response that is not JSON") from e
 
             if data["status"] == "OK" and data["confirmation"] is True:
                 self._end_qr_phase()
@@ -333,6 +339,10 @@ class BrowserClient:
                 continue
 
             raise MitIDError(f"Unexpected poll status: {status}")
+
+        raise MitIDTimeoutError(
+            f"MitID app confirmation not received within {_POLL_DEADLINE_SECONDS:.0f} seconds"
+        )
 
     def _end_qr_phase(self) -> None:
         """Retire the codes once the app has read them; they no longer scan."""
