@@ -16,7 +16,7 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from ..utils.dates import parse_api_datetime
-from ..utils.diagnostics import credential_logger
+from ..utils.diagnostics import credential_logger, warn_skipped
 from .base import AulaDataClass
 from .institution_profile import InstitutionProfile
 
@@ -197,5 +197,5 @@ def parse_attachments(raw_attachments: Any) -> list[Attachment]:
         try:
             attachments.append(Attachment.from_dict(raw))
         except (TypeError, ValueError, KeyError) as e:
-            _LOGGER.warning("Skipping attachment due to parsing error: %s - Data: %s", e, raw)
+            warn_skipped(_LOGGER, "attachment", raw, e)
     return attachments
