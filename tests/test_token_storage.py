@@ -1,6 +1,9 @@
 """Tests for aula.token_storage."""
 
 import json
+import threading
+from pathlib import Path
+from unittest.mock import patch
 
 import pytest
 
@@ -60,6 +63,29 @@ async def test_save_atomic_write(token_file):
     # File should contain valid JSON after save
     data = json.loads(token_file.read_text())
     assert data["tokens"]["key"] == "val"
+
+
+@pytest.mark.asyncio
+async def test_load_reads_in_worker_thread(token_file):
+    token_file.write_text(json.dumps({"tokens": {}}))
+    threads = []
+    real_read_text = Path.read_text
+
+    def read_text(self, *args, **kwargs):
+        threads.append(threading.current_thread())
+        return real_read_text(self, *args, **kwargs)
+
+    with patch.object(Path, "read_text", read_text):
+        await FileTokenStorage(token_file).load()
+    assert threads
+    assert all(t is not threading.main_thread() for t in threads)
+
+
+@pytest.mark.asyncio
+async def test_save_failure_leaves_no_temp_file(tmp_path, token_file):
+    with pytest.raises(TypeError):
+        await FileTokenStorage(token_file).save({"tokens": object()})
+    assert list(tmp_path.iterdir()) == []
 
 
 @pytest.mark.asyncio
