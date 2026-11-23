@@ -10,6 +10,7 @@ import sys
 from collections import defaultdict
 from collections.abc import Awaitable, Callable, Iterable, Sequence
 from pathlib import Path
+from typing import Any
 from zoneinfo import ZoneInfo
 
 import click
@@ -1953,7 +1954,7 @@ async def meetings(ctx, child_id, start_date, end_date):
                     f"unknown child ID(s): {', '.join(map(str, sorted(unknown)))}",
                     param_hint="--child-id",
                 )
-            rows = []
+            rows: list[dict[str, Any]] = []
             for child in children:
                 bookings = await client.get_meeting_bookings(child.id, start, end)
                 rows.extend({**dict(booking), "child_name": child.name} for booking in bookings)
