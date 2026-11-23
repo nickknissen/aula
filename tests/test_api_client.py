@@ -16,6 +16,7 @@ from aula.http import (
     AulaAuthenticationError,
     AulaConnectionError,
     AulaRejectedError,
+    AulaResponseError,
     AulaServerError,
     AulaSessionExpiredError,
     DownloadTooLargeError,
@@ -497,6 +498,17 @@ class TestGetProfile:
             await client.get_profile()
 
     @pytest.mark.asyncio
+    @pytest.mark.parametrize("profiles", [{"profileId": 900001}, ["profile"], "profile"])
+    async def test_profiles_that_are_not_a_list_of_objects_are_an_aula_response_error(
+        self, client, profiles
+    ):
+        client._request_with_version_retry = AsyncMock(
+            return_value=self._make_profile_response(profiles)
+        )
+        with pytest.raises(AulaResponseError):
+            await client.get_profile()
+
+    @pytest.mark.asyncio
     async def test_get_profile_no_children(self, client):
         """Profile with no children returns empty children list."""
         profile_data = {
@@ -694,6 +706,38 @@ class TestGetDailyOverview:
             return_value=HttpResponse(status_code=500, data=None)
         )
         with pytest.raises(AulaServerError):
+            await client.get_daily_overview(456)
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("data", [{"status": 1}, "overview", [None], [["status", 1]]])
+    async def test_data_that_is_not_a_list_of_overviews_is_an_aula_response_error(
+        self, client, data
+    ):
+        client._request_with_version_retry = AsyncMock(
+            return_value=HttpResponse(status_code=200, data={"data": data})
+        )
+        with pytest.raises(AulaResponseError):
+            await client.get_daily_overview(456)
+
+    @pytest.mark.asyncio
+    async def test_an_overview_that_fails_to_parse_keeps_the_cause(self, client):
+        client._request_with_version_retry = AsyncMock(
+            return_value=HttpResponse(status_code=200, data={"data": [{"location": 5}]})
+        )
+        with (
+            patch("aula.api_client.DailyOverview.from_dict", side_effect=KeyError("institution")),
+            pytest.raises(AulaResponseError) as exc_info,
+        ):
+            await client.get_daily_overview(456)
+        assert isinstance(exc_info.value.__cause__, KeyError)
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("body", [None, ["overview"], "overview"])
+    async def test_a_body_that_is_not_an_envelope_is_an_aula_response_error(self, client, body):
+        client._request_with_version_retry = AsyncMock(
+            return_value=HttpResponse(status_code=200, data=body)
+        )
+        with pytest.raises(AulaResponseError):
             await client.get_daily_overview(456)
 
 
@@ -1396,6 +1440,37 @@ class TestGetWidgetToken:
 
         with pytest.raises(AulaAuthenticationError):
             await client.get_widget_token("0030")
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("body", [{}, {"data": None}, {"data": ""}, None, ["token-123"]])
+    async def test_an_answer_without_a_token_is_an_aula_response_error(self, body):
+        http = FakeHttpClient()
+        client = AulaApiClient(http)
+        http.route(f"{client.api_url}?method=aulaToken.getAulaToken", HttpResponse(200, body))
+
+        with pytest.raises(AulaResponseError) as exc_info:
+            await client.get_widget_token("0030")
+        assert exc_info.value.status_code == 200
+
+
+class TestAnswerThatIsNotAJsonObject:
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        "call",
+        [
+            lambda client: client.get_message_folders(),
+            lambda client: client.get_presence_templates([1000001], date.today(), date.today()),
+            lambda client: client.get_group(1000001),
+        ],
+    )
+    @pytest.mark.parametrize("body", [None, ["data"]])
+    async def test_is_an_aula_response_error(self, call, body):
+        client = AulaApiClient(AsyncMock(), access_token="test_token")
+        client._request_with_version_retry = AsyncMock(
+            return_value=HttpResponse(status_code=200, data=body)
+        )
+        with pytest.raises(AulaResponseError):
+            await call(client)
 
 
 class TestDownloadFile:

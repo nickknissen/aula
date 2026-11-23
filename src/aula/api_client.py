@@ -24,6 +24,7 @@ from .http import (
     AulaConnectionError,
     AulaInvalidTokenError,
     AulaRejectedError,
+    AulaResponseError,
     AulaServerError,
     AulaSessionExpiredError,
     AulaStepUpRequiredError,
@@ -101,6 +102,17 @@ def _describe_body(response: HttpResponse) -> str:
         f"<non-JSON body content-type={headers.get('content-type', 'unknown')} "
         f"length={headers.get('content-length', 'unknown')}>"
     )
+
+
+def _response_body(response: HttpResponse) -> dict[str, Any]:
+    """Return the JSON object Aula answered with, or raise ``AulaResponseError``."""
+    body = response.json()
+    if not isinstance(body, dict):
+        raise AulaResponseError(
+            f"Expected a JSON object from Aula, got {type(body).__name__}",
+            response.status_code,
+        )
+    return body
 
 
 def _api_version_of(url: str) -> int | None:
@@ -511,6 +523,7 @@ class AulaApiClient:
         Raises:
             HttpRequestError: If the API returns a 4xx/5xx error.
             ValueError: If no profile data is found.
+            AulaResponseError: If the profiles are not a list of objects.
         """
         resp = await self._request_with_version_retry(
             "get", f"{self.api_url}?method=profiles.getProfilesByLogin"
@@ -520,6 +533,11 @@ class AulaApiClient:
 
         if not raw_data_list:
             raise ValueError("No profile data found in API response")
+        if not isinstance(raw_data_list, list) or not isinstance(raw_data_list[0], dict):
+            raise AulaResponseError(
+                f"Expected a list of profiles, got {type(raw_data_list).__name__}",
+                resp.status_code,
+            )
 
         profile_dict = raw_data_list[0]
 
@@ -639,17 +657,28 @@ class AulaApiClient:
 
         Raises:
             HttpRequestError: If the API returns a 4xx/5xx error.
+            AulaResponseError: If the answer is not a list of daily overviews.
         """
         resp = await self._request_with_version_retry(
             "get",
             f"{self.api_url}?method=presence.getDailyOverview&childIds[]={child_id}",
         )
         resp.raise_for_status()
-        data = resp.json().get("data")
+        data = _response_body(resp).get("data")
         if not data:
             _LOGGER.debug("No daily overview data for child %d", child_id)
             return None
-        return DailyOverview.from_dict(data[0])
+        if not isinstance(data, list) or not isinstance(data[0], dict):
+            raise AulaResponseError(
+                f"Expected a list of daily overviews, got {type(data).__name__}",
+                resp.status_code,
+            )
+        try:
+            return DailyOverview.from_dict(data[0])
+        except (KeyError, TypeError, ValueError, AttributeError) as e:
+            raise AulaResponseError(
+                f"Failed to parse the daily overview for child {child_id}", resp.status_code
+            ) from e
 
     async def get_presence_templates(
         self,
@@ -671,7 +700,7 @@ class AulaApiClient:
         }
         resp = await self._request_with_version_retry("get", self.api_url, params=params)
         resp.raise_for_status()
-        data = resp.json().get("data")
+        data = _response_body(resp).get("data")
         if not isinstance(data, dict):
             return []
         templates = data.get("presenceWeekTemplates", [])
@@ -856,7 +885,7 @@ class AulaApiClient:
         resp.raise_for_status()
         # The endpoint answers with a bare boolean in "data". Older/proxied
         # responses omit it, so absence is not treated as failure.
-        data = resp.json().get("data")
+        data = _response_body(resp).get("data")
         return data if isinstance(data, bool) else True
 
     async def add_vacation(
@@ -925,7 +954,7 @@ class AulaApiClient:
         }
         resp = await self._request_with_version_retry("get", self.api_url, params=params)
         resp.raise_for_status()
-        data = resp.json().get("data")
+        data = _response_body(resp).get("data")
         if not isinstance(data, list):
             return []
         result = []
@@ -1005,7 +1034,7 @@ class AulaApiClient:
         }
         resp = await self._request_with_version_retry("get", self.api_url, params=params)
         resp.raise_for_status()
-        data = resp.json().get("data", [])
+        data = _response_body(resp).get("data", [])
         if not isinstance(data, list):
             return []
         result = []
@@ -1030,7 +1059,7 @@ class AulaApiClient:
         }
         resp = await self._request_with_version_retry("get", self.api_url, params=params)
         resp.raise_for_status()
-        data = resp.json().get("data")
+        data = _response_body(resp).get("data")
         if not isinstance(data, dict):
             return None
         return PresenceRegistrationDetail.from_dict(data)
@@ -1047,7 +1076,7 @@ class AulaApiClient:
             params["institutionProfileIds[]"] = institution_profile_ids
         resp = await self._request_with_version_retry("get", self.api_url, params=params)
         resp.raise_for_status()
-        data = resp.json().get("data", [])
+        data = _response_body(resp).get("data", [])
         if not isinstance(data, list):
             return []
         result = []
@@ -1073,7 +1102,7 @@ class AulaApiClient:
         }
         resp = await self._request_with_version_retry("get", self.api_url, params=params)
         resp.raise_for_status()
-        data = resp.json().get("data", [])
+        data = _response_body(resp).get("data", [])
         if not isinstance(data, list):
             return []
         result = []
@@ -1103,7 +1132,7 @@ class AulaApiClient:
         }
         resp = await self._request_with_version_retry("get", self.api_url, params=params)
         resp.raise_for_status()
-        data = resp.json().get("data")
+        data = _response_body(resp).get("data")
         if not isinstance(data, dict):
             return None
         return PresenceWeekOverview.from_dict(data)
@@ -1133,7 +1162,7 @@ class AulaApiClient:
         resp = await self._request_with_version_retry("get", self.api_url, params=params)
         resp.raise_for_status()
 
-        payload = resp.json().get("data", [])
+        payload = _response_body(resp).get("data", [])
         if not isinstance(payload, list):
             return []
 
@@ -1210,8 +1239,8 @@ class AulaApiClient:
         ``code`` 0 is success. A body that is not that envelope is not trusted either.
         """
         resp.raise_for_status()
-        body = resp.json()
-        status = body.get("status") if isinstance(body, dict) else None
+        body = _response_body(resp)
+        status = body.get("status")
         if not isinstance(status, dict) or status.get("code") != 0:
             code = status.get("code") if isinstance(status, dict) else None
             raise HttpRequestError(
@@ -1505,7 +1534,7 @@ class AulaApiClient:
         resp = await self._request_with_version_retry("get", self.api_url, params=params)
         resp.raise_for_status()
 
-        data = resp.json().get("data") or {}
+        data = _response_body(resp).get("data") or {}
         if not data or not isinstance(data, dict):
             return None
         return data
@@ -1521,7 +1550,7 @@ class AulaApiClient:
         resp = await self._request_with_version_retry("get", self.api_url, params=params)
         resp.raise_for_status()
 
-        data = resp.json().get("data", [])
+        data = _response_body(resp).get("data", [])
         if not isinstance(data, list):
             return []
         return data
@@ -1540,7 +1569,7 @@ class AulaApiClient:
         resp = await self._request_with_version_retry("get", self.api_url, params=params)
         resp.raise_for_status()
 
-        data = resp.json().get("data", [])
+        data = _response_body(resp).get("data", [])
         if not isinstance(data, list):
             return []
         return data
@@ -1559,7 +1588,7 @@ class AulaApiClient:
         resp = await self._request_with_version_retry("get", self.api_url, params=params)
         resp.raise_for_status()
 
-        data = resp.json().get("data", [])
+        data = _response_body(resp).get("data", [])
         if not isinstance(data, list):
             return []
         return data
@@ -1576,7 +1605,7 @@ class AulaApiClient:
         resp = await self._request_with_version_retry("get", self.api_url, params=params)
         resp.raise_for_status()
 
-        data = resp.json().get("data", [])
+        data = _response_body(resp).get("data", [])
         if not isinstance(data, list):
             return []
         return data
@@ -1595,7 +1624,7 @@ class AulaApiClient:
         resp = await self._request_with_version_retry("get", self.api_url, params=params)
         resp.raise_for_status()
 
-        data = resp.json().get("data", [])
+        data = _response_body(resp).get("data", [])
         if not isinstance(data, list):
             return []
         return data
@@ -1614,7 +1643,7 @@ class AulaApiClient:
         resp = await self._request_with_version_retry("get", self.api_url, params=params)
         resp.raise_for_status()
 
-        data = resp.json().get("data", [])
+        data = _response_body(resp).get("data", [])
         if not isinstance(data, list):
             return []
         return data
@@ -1633,7 +1662,7 @@ class AulaApiClient:
         resp = await self._request_with_version_retry("get", self.api_url, params=params)
         resp.raise_for_status()
 
-        data = resp.json().get("data", [])
+        data = _response_body(resp).get("data", [])
         if not isinstance(data, list):
             return []
         return data
@@ -1650,7 +1679,7 @@ class AulaApiClient:
         resp = await self._request_with_version_retry("get", self.api_url, params=params)
         resp.raise_for_status()
 
-        data = resp.json().get("data", [])
+        data = _response_body(resp).get("data", [])
         if not isinstance(data, list):
             return []
         return data
@@ -1687,7 +1716,7 @@ class AulaApiClient:
         resp = await self._request_with_version_retry("get", self.api_url, params=params)
         resp.raise_for_status()
 
-        data = resp.json().get("data")
+        data = _response_body(resp).get("data")
         raw_groups: list[Any] = []
         if isinstance(data, list):
             for context in data:
@@ -1722,7 +1751,7 @@ class AulaApiClient:
         resp = await self._request_with_version_retry("get", self.api_url, params=params)
         resp.raise_for_status()
 
-        data = resp.json().get("data") or {}
+        data = _response_body(resp).get("data") or {}
         if not data or not isinstance(data, dict):
             return None
         return Group.from_dict(data)
@@ -1743,7 +1772,7 @@ class AulaApiClient:
         resp = await self._request_with_version_retry("get", self.api_url, params=params)
         resp.raise_for_status()
 
-        raw_members = resp.json().get("data", [])
+        raw_members = _response_body(resp).get("data", [])
         if not isinstance(raw_members, list):
             return []
 
@@ -1823,7 +1852,7 @@ class AulaApiClient:
         resp = await self._request_with_version_retry("get", self.api_url, params=params)
         resp.raise_for_status()
 
-        data = resp.json().get("data") or {}
+        data = _response_body(resp).get("data") or {}
         if not data:
             return None
 
@@ -1848,7 +1877,7 @@ class AulaApiClient:
         resp = await self._request_with_version_retry("get", self.api_url, params=params)
         resp.raise_for_status()
 
-        comments_data = resp.json().get("data", [])
+        comments_data = _response_body(resp).get("data", [])
         comments = []
 
         for item in comments_data:
@@ -2025,7 +2054,7 @@ class AulaApiClient:
 
         resp = await self._request_with_version_retry("get", self.api_url, params=params)
         resp.raise_for_status()
-        data = resp.json().get("data", [])
+        data = _response_body(resp).get("data", [])
         if isinstance(data, list):
             return data
         return data.get("albums", [])
@@ -2047,7 +2076,7 @@ class AulaApiClient:
 
         resp = await self._request_with_version_retry("get", self.api_url, params=params)
         resp.raise_for_status()
-        data = resp.json().get("data", [])
+        data = _response_body(resp).get("data", [])
         if isinstance(data, list):
             return data
         return data.get("results", [])
@@ -2125,7 +2154,7 @@ class AulaApiClient:
                 json=payload,
             )
             resp.raise_for_status()
-            data = resp.json().get("data") or {}
+            data = _response_body(resp).get("data") or {}
             state.observe_total(data)
             rows = data.get("results", [])
             if not rows:
@@ -2170,7 +2199,7 @@ class AulaApiClient:
                 f"{self.api_url}?method=messaging.getThreads&sortOn=date&orderDirection=desc&page={page}",
             )
             resp.raise_for_status()
-            data = resp.json().get("data") or {}
+            data = _response_body(resp).get("data") or {}
             state.observe_total(data)
             threads = data.get("threads", [])
             if not threads:
@@ -2209,7 +2238,7 @@ class AulaApiClient:
                 f"{self.api_url}?method=messaging.getMessagesForThread&threadId={thread_id}&page={page}",
             )
             resp.raise_for_status()
-            data = resp.json().get("data") or {}
+            data = _response_body(resp).get("data") or {}
             state.observe_total(data)
             messages = data.get("messages", [])
             if not messages:
@@ -2229,14 +2258,17 @@ class AulaApiClient:
         """Mint a widget token for ``widget_id`` from the Aula session.
 
         Returns the raw JWT, with no ``Bearer `` prefix: each provider puts it
-        in its own header.
+        in its own header. Raises ``AulaResponseError`` when the answer holds no token.
         """
         resp = await self._request_with_version_retry(
             "get",
             f"{self.api_url}?method=aulaToken.getAulaToken&widgetId={widget_id}",
         )
         resp.raise_for_status()
-        return str(resp.json()["data"])
+        token = _response_body(resp).get("data")
+        if not isinstance(token, str) or not token:
+            raise AulaResponseError("Aula answered without a widget token", resp.status_code)
+        return token
 
     def _parse_date(self, date_str: str) -> datetime:
         return datetime.fromisoformat(date_str).astimezone(ZoneInfo("Europe/Copenhagen"))
@@ -2257,7 +2289,7 @@ class AulaApiClient:
         }
         resp = await self._request_with_version_retry("get", self.api_url, params=params)
         resp.raise_for_status()
-        raw = resp.json().get("data", [])
+        raw = _response_body(resp).get("data", [])
         if not isinstance(raw, list):
             return []
         folders: list[MessageFolder] = []
@@ -2281,7 +2313,7 @@ class AulaApiClient:
             params["InstitutionProfileIds[]"] = institution_profile_ids
         resp = await self._request_with_version_retry("get", self.api_url, params=params)
         resp.raise_for_status()
-        data = resp.json().get("data", [])
+        data = _response_body(resp).get("data", [])
         if not isinstance(data, list):
             return []
         return data
@@ -2294,7 +2326,7 @@ class AulaApiClient:
         }
         resp = await self._request_with_version_retry("get", self.api_url, params=params)
         resp.raise_for_status()
-        raw = resp.json().get("data", [])
+        raw = _response_body(resp).get("data", [])
         if not isinstance(raw, list):
             return []
         threads: list[MessageThread] = []
@@ -2316,7 +2348,7 @@ class AulaApiClient:
         }
         resp = await self._request_with_version_retry("get", self.api_url, params=params)
         resp.raise_for_status()
-        data = resp.json().get("data") or {}
+        data = _response_body(resp).get("data") or {}
         if not data or not isinstance(data, dict):
             return None
         return data
@@ -2356,7 +2388,7 @@ class AulaApiClient:
         }
         resp = await self._request_with_version_retry("get", self.api_url, params=params)
         resp.raise_for_status()
-        return resp.json().get("data") or {}
+        return _response_body(resp).get("data") or {}
 
     async def search(
         self, text: str, doc_type: str | None = None, limit: int = 20, offset: int = 0
@@ -2373,7 +2405,7 @@ class AulaApiClient:
             params["DocType"] = doc_type
         resp = await self._request_with_version_retry("get", self.api_url, params=params)
         resp.raise_for_status()
-        return resp.json().get("data") or {}
+        return _response_body(resp).get("data") or {}
 
     async def get_contact_list(
         self,
@@ -2410,7 +2442,7 @@ class AulaApiClient:
         }
         resp = await self._request_with_version_retry("get", self.api_url, params=params)
         resp.raise_for_status()
-        data = resp.json().get("data", [])
+        data = _response_body(resp).get("data", [])
         if not isinstance(data, list):
             return []
         return data
@@ -2432,7 +2464,7 @@ class AulaApiClient:
         }
         resp = await self._request_with_version_retry("get", self.api_url, params=params)
         resp.raise_for_status()
-        data = resp.json().get("data", [])
+        data = _response_body(resp).get("data", [])
         if not isinstance(data, list):
             return []
         return data
@@ -2445,7 +2477,7 @@ class AulaApiClient:
         }
         resp = await self._request_with_version_retry("get", self.api_url, params=params)
         resp.raise_for_status()
-        data = resp.json().get("data") or {}
+        data = _response_body(resp).get("data") or {}
         if not data or not isinstance(data, dict):
             return None
         return data
@@ -2461,7 +2493,7 @@ class AulaApiClient:
         }
         resp = await self._request_with_version_retry("get", self.api_url, params=params)
         resp.raise_for_status()
-        data = resp.json().get("data", [])
+        data = _response_body(resp).get("data", [])
         if not isinstance(data, list):
             return []
         return data
@@ -2488,7 +2520,7 @@ class AulaApiClient:
         }
         resp = await self._request_with_version_retry("get", self.api_url, params=params)
         resp.raise_for_status()
-        data = resp.json().get("data")
+        data = _response_body(resp).get("data")
         if not data or not isinstance(data, dict):
             return None
         try:
@@ -2507,7 +2539,7 @@ class AulaApiClient:
         }
         resp = await self._request_with_version_retry("get", self.api_url, params=params)
         resp.raise_for_status()
-        data = resp.json().get("data", [])
+        data = _response_body(resp).get("data", [])
         if not isinstance(data, list):
             return []
         result: list[ConsentResponse] = []
@@ -2527,7 +2559,7 @@ class AulaApiClient:
         }
         resp = await self._request_with_version_retry("get", self.api_url, params=params)
         resp.raise_for_status()
-        data = resp.json().get("data")
+        data = _response_body(resp).get("data")
         if not data or not isinstance(data, dict):
             return None
         try:
@@ -2545,7 +2577,7 @@ class AulaApiClient:
         }
         resp = await self._request_with_version_retry("get", self.api_url, params=params)
         resp.raise_for_status()
-        data = resp.json().get("data") or {}
+        data = _response_body(resp).get("data") or {}
         results = data.get("results", []) if isinstance(data, dict) else []
         if not isinstance(results, list):
             return []
@@ -2651,7 +2683,7 @@ class AulaApiClient:
         }
         resp = await self._request_with_version_retry("get", self.api_url, params=params)
         resp.raise_for_status()
-        data = resp.json().get("data", [])
+        data = _response_body(resp).get("data", [])
         if not isinstance(data, list):
             return []
         result: list[VacationRegistration] = []
@@ -2679,7 +2711,7 @@ class AulaApiClient:
         }
         resp = await self._request_with_version_retry("get", self.api_url, params=params)
         resp.raise_for_status()
-        data = resp.json().get("data", [])
+        data = _response_body(resp).get("data", [])
         if not isinstance(data, list):
             return []
         result: list[NotificationSetting] = []
