@@ -1,5 +1,6 @@
 from dataclasses import dataclass, field
-from html.parser import HTMLParser
+
+from bs4 import BeautifulSoup
 
 from ..const import WEB_PORTAL_URL
 from .base import AulaDataClass
@@ -7,11 +8,7 @@ from .base import AulaDataClass
 
 def _strip_html(text: str) -> str:
     """Strip HTML tags and return plain text."""
-    parts: list[str] = []
-    parser = HTMLParser()
-    parser.handle_data = parts.append  # type: ignore[assignment]
-    parser.feed(text)
-    return "".join(parts).strip()
+    return BeautifulSoup(text, "html.parser").get_text().strip()
 
 
 @dataclass

@@ -54,8 +54,8 @@ def _print_rows_with_rich(
 ) -> bool:
     """Render a row table with ``rich``. Returns ``False`` if rich is not installed."""
     try:
-        from rich.console import Console  # type: ignore[import-not-found]
-        from rich.table import Table  # type: ignore[import-not-found]
+        from rich.console import Console
+        from rich.table import Table
     except ImportError:
         return False
 
@@ -110,8 +110,8 @@ def _print_with_rich(
 ) -> bool:
     """Render the table with ``rich``. Returns ``False`` if rich is not installed."""
     try:
-        from rich.console import Console  # type: ignore[import-not-found]
-        from rich.table import Table  # type: ignore[import-not-found]
+        from rich.console import Console
+        from rich.table import Table
     except ImportError:
         return False
 
@@ -180,10 +180,10 @@ def _print_card_with_rich(
 ) -> bool:
     """Render a card with ``rich``. Returns ``False`` if rich is not installed."""
     try:
-        from rich import box  # type: ignore[import-not-found]
-        from rich.console import Console  # type: ignore[import-not-found]
-        from rich.table import Table  # type: ignore[import-not-found]
-        from rich.text import Text  # type: ignore[import-not-found]
+        from rich import box
+        from rich.console import Console
+        from rich.table import Table
+        from rich.text import Text
     except ImportError:
         return False
 
