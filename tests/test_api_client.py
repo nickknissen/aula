@@ -1461,6 +1461,7 @@ class TestAnswerThatIsNotAJsonObject:
             lambda client: client.get_message_folders(),
             lambda client: client.get_presence_templates([1000001], date.today(), date.today()),
             lambda client: client.get_group(1000001),
+            lambda client: client.get_calendar_events([1000001], datetime.now(), datetime.now()),
         ],
     )
     @pytest.mark.parametrize("body", [None, ["data"]])
@@ -1471,6 +1472,41 @@ class TestAnswerThatIsNotAJsonObject:
         )
         with pytest.raises(AulaResponseError):
             await call(client)
+
+
+class TestDataThatIsNotTheExpectedObject:
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        "call",
+        [
+            lambda client: client.get_all_message_threads_result(date.today()),
+            lambda client: client.get_all_messages_for_thread_result("1000001"),
+        ],
+    )
+    async def test_a_paginated_read_is_an_aula_response_error(self, call):
+        client = AulaApiClient(AsyncMock(), access_token="test_token")
+        client._request_with_version_retry = AsyncMock(
+            return_value=HttpResponse(status_code=200, data={"data": ["page"]})
+        )
+        with pytest.raises(AulaResponseError):
+            await call(client)
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        "call",
+        [
+            lambda client: client.get_gallery_albums([1000001]),
+            lambda client: client.get_album_pictures([1000001], 1000001),
+            lambda client: client.get_comments("post", 1000001),
+        ],
+    )
+    @pytest.mark.parametrize("data", [None, "data"])
+    async def test_a_list_read_returns_nothing(self, call, data):
+        client = AulaApiClient(AsyncMock(), access_token="test_token")
+        client._request_with_version_retry = AsyncMock(
+            return_value=HttpResponse(status_code=200, data={"data": data})
+        )
+        assert await call(client) == []
 
 
 class TestDownloadFile:

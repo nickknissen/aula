@@ -115,6 +115,17 @@ def _response_body(response: HttpResponse) -> dict[str, Any]:
     return body
 
 
+def _response_data_object(response: HttpResponse) -> dict[str, Any]:
+    """Return the object in ``data``, ``{}`` when empty, or raise ``AulaResponseError``."""
+    data = _response_body(response).get("data") or {}
+    if not isinstance(data, dict):
+        raise AulaResponseError(
+            f"Expected a JSON object in data, got {type(data).__name__}",
+            response.status_code,
+        )
+    return data
+
+
 def _api_version_of(url: str) -> int | None:
     match = _API_VERSION_PATTERN.match(url)
     return int(match.group(1)) if match else None
@@ -1372,10 +1383,8 @@ class AulaApiClient:
         )
 
         resp.raise_for_status()
-        response_data = resp.json()
-
         events = []
-        raw_events = response_data.get("data", [])
+        raw_events = _response_body(resp).get("data", [])
         if not isinstance(raw_events, list):
             _LOGGER.warning("Unexpected data format for calendar events: %s", raw_events)
             return []
@@ -1878,6 +1887,8 @@ class AulaApiClient:
         resp.raise_for_status()
 
         comments_data = _response_body(resp).get("data", [])
+        if not isinstance(comments_data, list):
+            return []
         comments = []
 
         for item in comments_data:
@@ -2057,7 +2068,7 @@ class AulaApiClient:
         data = _response_body(resp).get("data", [])
         if isinstance(data, list):
             return data
-        return data.get("albums", [])
+        return data.get("albums", []) if isinstance(data, dict) else []
 
     async def get_album_pictures(
         self, institution_profile_ids: list[int], album_id: int, limit: int = 1000
@@ -2079,7 +2090,7 @@ class AulaApiClient:
         data = _response_body(resp).get("data", [])
         if isinstance(data, list):
             return data
-        return data.get("results", [])
+        return data.get("results", []) if isinstance(data, dict) else []
 
     async def search_messages(
         self,
@@ -2154,7 +2165,7 @@ class AulaApiClient:
                 json=payload,
             )
             resp.raise_for_status()
-            data = _response_body(resp).get("data") or {}
+            data = _response_data_object(resp)
             state.observe_total(data)
             rows = data.get("results", [])
             if not rows:
@@ -2199,7 +2210,7 @@ class AulaApiClient:
                 f"{self.api_url}?method=messaging.getThreads&sortOn=date&orderDirection=desc&page={page}",
             )
             resp.raise_for_status()
-            data = _response_body(resp).get("data") or {}
+            data = _response_data_object(resp)
             state.observe_total(data)
             threads = data.get("threads", [])
             if not threads:
@@ -2238,7 +2249,7 @@ class AulaApiClient:
                 f"{self.api_url}?method=messaging.getMessagesForThread&threadId={thread_id}&page={page}",
             )
             resp.raise_for_status()
-            data = _response_body(resp).get("data") or {}
+            data = _response_data_object(resp)
             state.observe_total(data)
             messages = data.get("messages", [])
             if not messages:
