@@ -74,6 +74,7 @@ class FakeBroker:
 
     ``roles`` is how many roles the user has. With more than one, an empty role is
     refused with 400. ``confirm`` puts the confirmation page in front of the redirect.
+    ``relative`` sends redirects with a path-only ``Location``.
     """
 
     def __init__(
@@ -84,10 +85,10 @@ class FakeBroker:
         confirm: bool = False,
         relative: bool = False,
     ):
-        self.relative = relative
         self.page = page
         self.roles = roles
         self.confirm = confirm
+        self.relative = relative
         self.posted: list[dict[str, str]] = []
         self.confirmed = False
 
