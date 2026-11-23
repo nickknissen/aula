@@ -1,7 +1,7 @@
 from dataclasses import dataclass, field
 from typing import Any
 
-from ..utils.diagnostics import credential_logger
+from ..utils.diagnostics import credential_logger, describe_payload
 from .base import AulaDataClass
 
 _LOGGER = credential_logger(__name__)
@@ -55,5 +55,5 @@ class PresenceLocation(AulaDataClass):
         if isinstance(value, str):
             return cls(name=value) if value else None
 
-        _LOGGER.warning("Unexpected location value received: %r", value)
+        _LOGGER.warning("Unexpected location value received: %s", describe_payload(value))
         return None
