@@ -1,3 +1,5 @@
+import functools
+
 import httpx
 import pytest
 
@@ -69,6 +71,39 @@ async def test_connection_error_names_the_error_type_when_httpx_gives_no_message
 
     with pytest.raises(AulaConnectionError, match="Could not reach www.aula.dk: ReadTimeout"):
         await client.request("get", API_URL)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("url", "expected_cookie"),
+    [
+        ("https://www.aula.dk/api/v25/", "PHPSESSID=session0001"),
+        ("https://media.aula.dk/file.pdf", "PHPSESSID=session0001"),
+        ("https://api.minuddannelse.net/aula/opgaver", None),
+        ("https://files.example.com/file.pdf", None),
+        ("https://evilaula.dk/", None),
+    ],
+)
+async def test_stored_cookies_are_only_sent_to_aula(monkeypatch, url, expected_cookie):
+    """Stored cookies carry no domain, and httpx sends those to every host."""
+    sent = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        sent[request.url.host] = request.headers.get("cookie")
+        return httpx.Response(200)
+
+    monkeypatch.setattr(
+        httpx,
+        "AsyncClient",
+        functools.partial(httpx.AsyncClient, transport=httpx.MockTransport(handler)),
+    )
+    client = HttpxHttpClient(cookies={"PHPSESSID": "session0001"})
+
+    await client.request("get", url)
+
+    assert sent[httpx.URL(url).host] == expected_cookie
+    assert client.get_cookie("PHPSESSID") == "session0001"
+    await client.close()
 
 
 @pytest.mark.asyncio
