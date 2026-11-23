@@ -2664,9 +2664,16 @@ async def momo_reminders(ctx):
     multiple=True,
     help="Filter gallery images by tag (can be specified multiple times).",
 )
+@click.option(
+    "--max-size",
+    type=click.IntRange(min=1),
+    default=100,
+    show_default=True,
+    help="Largest file to download, in MB. Larger files count as failed.",
+)
 @click.pass_context
 @async_cmd
-async def download_images(ctx, output, since, source, tags):
+async def download_images(ctx, output, since, source, tags, max_size):
     """Download images from Aula (gallery, posts, messages)."""
     from pathlib import Path
 
@@ -2696,75 +2703,85 @@ async def download_images(ctx, output, since, source, tags):
 
         total_downloaded = 0
         total_skipped = 0
+        total_failed = 0
         message_issues: list[str] = []
         on_progress = echo if not is_json else lambda _msg: None
+        max_bytes = max_size * 1024 * 1024
+
+        def tally(counts) -> None:
+            nonlocal total_downloaded, total_skipped, total_failed
+            total_downloaded += counts.downloaded
+            total_skipped += counts.skipped
+            total_failed += counts.failed
+            if not is_json:
+                echo(f"  Downloaded: {counts.downloaded}")
+                echo(f"  Skipped: {counts.skipped}")
+                echo(f"  Failed: {counts.failed}")
+                echo()
 
         if source in ("all", "gallery"):
             if not is_json:
                 echo("Gallery")
-            dl, sk = await download_gallery_images(
-                client,
-                institution_profile_ids,
-                output_path,
-                cutoff,
-                tag_list,
-                on_progress=on_progress,
+            tally(
+                await download_gallery_images(
+                    client,
+                    institution_profile_ids,
+                    output_path,
+                    cutoff,
+                    tag_list,
+                    on_progress=on_progress,
+                    max_bytes=max_bytes,
+                )
             )
-            if not is_json:
-                echo(f"  Downloaded: {dl}")
-                echo(f"  Skipped: {sk}")
-                echo()
-            total_downloaded += dl
-            total_skipped += sk
 
         if source in ("all", "posts"):
             if not is_json:
                 echo("Posts")
-            dl, sk = await download_post_images(
-                client,
-                institution_profile_ids,
-                output_path,
-                cutoff,
-                on_progress=on_progress,
+            tally(
+                await download_post_images(
+                    client,
+                    institution_profile_ids,
+                    output_path,
+                    cutoff,
+                    on_progress=on_progress,
+                    max_bytes=max_bytes,
+                )
             )
-            if not is_json:
-                echo(f"  Downloaded: {dl}")
-                echo(f"  Skipped: {sk}")
-                echo()
-            total_downloaded += dl
-            total_skipped += sk
 
         if source in ("all", "messages"):
             if not is_json:
                 echo("Messages")
-            dl, sk = await download_message_images(
-                client,
-                children_inst_ids,
-                institution_codes,
-                output_path,
-                cutoff,
-                on_progress=on_progress,
-                on_incomplete=message_issues.append,
+            tally(
+                await download_message_images(
+                    client,
+                    children_inst_ids,
+                    institution_codes,
+                    output_path,
+                    cutoff,
+                    on_progress=on_progress,
+                    on_incomplete=message_issues.append,
+                    max_bytes=max_bytes,
+                )
             )
-            if not is_json:
-                echo(f"  Downloaded: {dl}")
-                echo(f"  Skipped: {sk}")
-                echo()
-            total_downloaded += dl
-            total_skipped += sk
 
-        report: dict[str, object] = {"downloaded": total_downloaded, "skipped": total_skipped}
+        failed_run = bool(message_issues) or total_failed > 0
+        report: dict[str, object] = {
+            "downloaded": total_downloaded,
+            "skipped": total_skipped,
+            "failed": total_failed,
+        }
         if source in ("all", "messages"):
             report["message_export"] = {"complete": not message_issues, "issues": message_issues}
         if output_json(ctx, report):
-            if message_issues:
+            if failed_run:
                 ctx.exit(1)
             return
 
         echo("Total")
         echo(f"  Downloaded: {total_downloaded}")
         echo(f"  Skipped: {total_skipped}")
-        if message_issues:
+        echo(f"  Failed: {total_failed}")
+        if failed_run:
             ctx.exit(1)
 
 
