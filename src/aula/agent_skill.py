@@ -1,5 +1,9 @@
 """Generate the SKILL.md content for AI agent integration."""
 
+COMMANDS_LEFT_OUT = frozenset(
+    {"agent-setup", "mark-read", "register-absence", "report-sick", "update-presence"}
+)
+
 
 def generate_skill_md() -> str:
     return """\
@@ -21,8 +25,10 @@ machine-readable JSON instead of human-formatted text.
 ## Authentication
 
 Authentication uses MitID (Danish national identity).  The CLI caches
-tokens automatically.  If the session has expired the CLI will prompt
-interactively — there is no way to authenticate non-interactively.
+tokens automatically.  If the session has expired the CLI asks the user to
+approve the login in the MitID app.  Another program can drive that login
+instead; see `aula login` in the README and the `--token-file` and
+`--identity` options below.
 
 Set the username once so it is not prompted every time:
 
@@ -38,6 +44,8 @@ aula --username "<username>" <command>
 |------|-------------|
 | `--output json` | **Always use this.** Returns structured JSON. |
 | `--username TEXT` | MitID username (or `AULA_MITID_USERNAME` env var). |
+| `--token-file PATH` | Where the session is saved (or `AULA_TOKEN_FILE`). |
+| `--identity N` | MitID identity, 1 being the first (or `AULA_MITID_IDENTITY`). |
 | `--auth-method [app\\|token]` | MitID method: `app` (QR/push) or `token`. |
 | `-v` / `-vv` / `-vvv` | Increase log verbosity. |
 | `--version` | Print the installed version and the Python it runs on. |
@@ -109,6 +117,85 @@ aula --output json presence-templates
 aula --output json presence-templates --from-date 2026-03-10 --to-date 2026-03-14
 ```
 Returns: list of presence template objects with day templates.
+
+#### `profile-details` — Contact details
+```bash
+aula --output json profile-details --institution-profile-id 1000001
+```
+Returns: email, phone and address for the profile.
+
+#### `search` — Search posts, messages and more
+```bash
+aula --output json search "field trip" --limit 10
+aula --output json search "field trip" --type Message
+```
+Returns: list of search results.
+
+#### `contacts` — Contacts and other parents
+```bash
+aula --output json contacts
+aula --output json contacts --group-id 1000001 --profile-type guardian
+aula --output json contacts --parents --page 1
+```
+Without `--group-id` it lists the available group IDs.
+
+#### `groups` — Groups and members
+```bash
+aula --output json groups
+aula --output json groups --search "Klasse"
+aula --output json groups --group-id 1000001 --members
+```
+
+#### `documents` — Secure documents and common files
+```bash
+aula --output json documents
+aula --output json documents --common
+```
+
+#### `birthdays` — Birthday events
+```bash
+aula --output json birthdays
+aula --output json birthdays --group-id 1000001 --start-date 2026-03-01 --end-date 2026-03-31
+```
+
+#### `important-dates` — Upcoming important dates
+```bash
+aula --output json important-dates --limit 10
+```
+
+#### `meetings` — Booked parent meetings
+```bash
+aula --output json meetings
+aula --output json meetings --child-id 1000001 --start-date 2026-03-10
+```
+
+#### `presence` — Registrations, states and weekly overview
+```bash
+aula --output json presence
+aula --output json presence --from-date 2026-03-10 --to-date 2026-03-14
+aula --output json presence --states
+aula --output json presence --week 2026-W10
+```
+
+#### `vacations` — Vacation registrations
+```bash
+aula --output json vacations
+```
+
+#### `consents` — Consent responses
+```bash
+aula --output json consents
+```
+
+#### `auto-reply` — Auto-reply status
+```bash
+aula --output json auto-reply
+```
+
+#### `notification-settings` — Notification settings
+```bash
+aula --output json notification-settings
+```
 
 ### Homework & weekly plan providers
 

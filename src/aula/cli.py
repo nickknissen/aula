@@ -4767,33 +4767,49 @@ async def daily_summary(ctx, child, target_date):
     "install_global",
     is_flag=True,
     default=False,
-    help="Install skill globally (~/.claude/skills/) instead of in the current project.",
+    help="Install skill globally (~/.claude/skills/ or ~/.config/opencode/skills/) "
+    "instead of in the current project.",
 )
-def agent_setup(install_global):
+@click.option(
+    "--force",
+    is_flag=True,
+    default=False,
+    help="Overwrite an existing skill file without asking.",
+)
+def agent_setup(install_global, force):
     """Install an agent skill so Claude Code / OpenCode can use the Aula CLI.
 
     Creates a SKILL.md file that teaches AI agents how to query Aula for
     school data.  Works with any tool that follows the Agent Skills standard
     (Claude Code, OpenCode, etc.).
     """
-    from pathlib import Path
-
     from .agent_skill import generate_skill_md
 
-    # ── Detect tools ────────────────────────────────────────────────────────
     home = Path.home()
     has_claude = (home / ".claude").is_dir()
     has_opencode = (home / ".config" / "opencode").is_dir()
 
-    if install_global:
-        skill_dir = home / ".claude" / "skills" / "aula" / "SKILL.md"
-    else:
-        skill_dir = Path.cwd() / ".claude" / "skills" / "aula" / "SKILL.md"
+    skill_roots: list[Path] = []
+    if has_claude or not has_opencode:
+        skill_roots.append(home / ".claude" if install_global else Path.cwd() / ".claude")
+    if has_opencode:
+        skill_roots.append(
+            home / ".config" / "opencode" if install_global else Path.cwd() / ".opencode"
+        )
 
-    skill_dir.parent.mkdir(parents=True, exist_ok=True)
-    skill_dir.write_text(generate_skill_md())
-
-    echo(f"Skill installed: {skill_dir}")
+    content = generate_skill_md()
+    for root in skill_roots:
+        skill_file = root / "skills" / "aula" / "SKILL.md"
+        if (
+            skill_file.exists()
+            and not force
+            and not click.confirm(f"{skill_file} already exists. Overwrite?")
+        ):
+            echo(f"Skipped: {skill_file}")
+            continue
+        skill_file.parent.mkdir(parents=True, exist_ok=True)
+        skill_file.write_text(content)
+        echo(f"Skill installed: {skill_file}")
 
     agents: list[str] = []
     if has_claude:
