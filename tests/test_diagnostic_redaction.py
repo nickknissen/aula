@@ -156,3 +156,12 @@ async def test_model_parsing_warnings_redact_credentials_at_reader_entry_point(c
 def test_httpx_url_is_redacted_like_its_string_form():
     url = httpx.URL("https://www.aula.dk/api/v25/?method=x&access_token=SECRET")
     assert redact_credentials(url) == diagnostic_url(str(url))
+
+
+def test_object_that_only_mentions_a_url_is_left_alone():
+    class Note:
+        def __str__(self) -> str:
+            return "Note(link='https://www.aula.dk/?a=1')"
+
+    note = Note()
+    assert redact_credentials(note) is note

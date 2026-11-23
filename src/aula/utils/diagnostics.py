@@ -60,8 +60,11 @@ def _is_secret(key: object, item: object) -> bool:
 def _is_url_object(value: object) -> bool:
     if isinstance(value, (str, bytes, int, float, bool, type(None))):
         return False
-    text = str(value)
-    return "://" in text and "?" in text
+    try:
+        parts = urlsplit(str(value))
+    except ValueError:
+        return False
+    return bool(parts.scheme and parts.netloc and parts.query)
 
 
 def redact_credentials(value: Any) -> Any:
