@@ -174,7 +174,7 @@ aula --output json library:status
 aula --output json download-images --since 2026-01-01
 aula --output json download-images --since 2026-01-01 --source gallery --tags "classphoto"
 ```
-Returns: `{downloaded: N, skipped: N}`
+Returns: `{downloaded: N, skipped: N, failed: N}`. Exits 1 when any file failed.
 
 #### `login` — Authenticate only
 ```bash
