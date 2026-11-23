@@ -98,7 +98,7 @@ async def _refresh_token_via_oidc(refresh_token: str) -> dict[str, Any] | None:
 
 
 async def _rotated_elsewhere(token_storage: TokenStorage, held_refresh_token: str) -> bool:
-    """Return whether the storage now holds a different refresh token than ``held``."""
+    """Return whether the storage holds a different refresh token than ``held_refresh_token``."""
     stored = await token_storage.load()
     tokens = stored.get("tokens") if isinstance(stored, dict) else None
     stored_refresh_token = tokens.get("refresh_token") if isinstance(tokens, dict) else None
