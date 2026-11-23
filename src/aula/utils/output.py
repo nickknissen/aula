@@ -6,6 +6,7 @@ from typing import Any, NamedTuple
 import click
 
 from ..models.notification import Notification
+from .html import strip_control_chars
 from .json import to_json
 
 
@@ -45,6 +46,7 @@ def print_error(message: str, err: bool = False) -> None:
 
 def clip(text: str, max_len: int = 120) -> str:
     """Clip long text with ellipsis for compact output rows."""
+    text = strip_control_chars(text)
     if len(text) <= max_len:
         return text
     if max_len <= 3:

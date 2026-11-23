@@ -1,6 +1,11 @@
 """Tests for aula.utils.html."""
 
-from aula.utils.html import html_to_blocks, html_to_markdown, html_to_plain
+from aula.utils.html import (
+    html_to_blocks,
+    html_to_markdown,
+    html_to_plain,
+    strip_control_chars,
+)
 
 
 def test_html_to_plain_strips_tags():
@@ -62,3 +67,14 @@ class TestHtmlToBlocks:
 
     def test_html_without_block_tags(self):
         assert html_to_blocks("just <b>text</b>") == ["just text"]
+
+
+def test_strip_control_chars_keeps_newline_and_tab():
+    assert strip_control_chars("a\x1b[2Jb\n\tc\x07\x9bd\x7f") == "a[2Jb\n\tcd"
+
+
+def test_html_converters_drop_escape_sequences():
+    html = "<p>Hello\x1b[2J</p><p>Next\x07</p>"
+    assert "\x1b" not in html_to_plain(html)
+    assert "\x1b" not in html_to_markdown(html)
+    assert html_to_blocks(html) == ["Hello[2J", "Next"]

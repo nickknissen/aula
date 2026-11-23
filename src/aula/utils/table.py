@@ -8,6 +8,7 @@ from typing import TypedDict
 import click
 
 from ..models import CalendarEvent
+from .html import strip_control_chars
 
 
 class CalendarTableData(TypedDict):
@@ -56,14 +57,19 @@ def _print_rows_with_rich(
     try:
         from rich.console import Console
         from rich.table import Table
+        from rich.text import Text
     except ImportError:
         return False
 
-    table = Table(title=title, show_header=True, header_style="bold magenta")
+    table = Table(
+        title=Text(strip_control_chars(title)) if title else None,
+        show_header=True,
+        header_style="bold magenta",
+    )
     for header in headers:
-        table.add_column(header, overflow="fold")
+        table.add_column(Text(strip_control_chars(header)), overflow="fold")
     for row in rows:
-        table.add_row(*row)
+        table.add_row(*(Text(strip_control_chars(cell)) for cell in row))
     Console().print(table)
     return True
 
@@ -102,7 +108,11 @@ def print_row_table(
     if not rows:
         return
     if not _print_rows_with_rich(headers, rows, title):
-        _print_rows_plain(headers, rows, title)
+        _print_rows_plain(
+            [strip_control_chars(h) for h in headers],
+            [[strip_control_chars(cell) for cell in row] for row in rows],
+            strip_control_chars(title) if title else title,
+        )
 
 
 def _print_with_rich(
@@ -112,15 +122,16 @@ def _print_with_rich(
     try:
         from rich.console import Console
         from rich.table import Table
+        from rich.text import Text
     except ImportError:
         return False
 
     table = Table(show_header=True, header_style="bold magenta")
     table.add_column("Time")
     for header in date_headers:
-        table.add_column(header)
+        table.add_column(Text(header))
     for slot_label, row in zip(slot_labels, matrix, strict=True):
-        table.add_row(slot_label, *row)
+        table.add_row(slot_label, *(Text(strip_control_chars(cell)) for cell in row))
     Console().print(table)
     return True
 
@@ -146,7 +157,11 @@ def print_calendar_table(table_data: CalendarTableData) -> None:
     matrix = table_data["matrix"]
 
     if not _print_with_rich(date_headers, slot_labels, matrix):
-        _print_plain(date_headers, slot_labels, matrix)
+        _print_plain(
+            date_headers,
+            slot_labels,
+            [[strip_control_chars(cell) for cell in row] for row in matrix],
+        )
 
 
 CARD_MAX_WIDTH = 100
@@ -227,6 +242,8 @@ def print_text_card(
     """
     box_width = width if width is not None else card_width()
     inner = box_width - 4
+    header_lines = [strip_control_chars(line) for line in header_lines]
+    body_blocks = [strip_control_chars(block) for block in body_blocks]
 
     body_lines: list[str] = []
     previous_block = ""
@@ -324,5 +341,8 @@ def print_wrapped_row_table(
         return
     if not _print_rows_with_rich(headers, rows, title):
         _print_rows_plain_wrapped(
-            headers, rows, title, width if width is not None else card_width()
+            [strip_control_chars(h) for h in headers],
+            [[strip_control_chars(cell) for cell in row] for row in rows],
+            strip_control_chars(title) if title else title,
+            width if width is not None else card_width(),
         )

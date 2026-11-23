@@ -394,3 +394,34 @@ class TestPrintWrappedRowTable:
 
         assert "Tur i skoven" in out
         assert "Barn Et" in out
+
+
+class TestServerTextIsInert:
+    def test_rich_row_table_renders_markup_literally(self, capsys):
+        pytest.importorskip("rich")
+        print_row_table(["Title"], [["Math [/] test"]])
+        assert "Math [/] test" in capsys.readouterr().out
+
+    def test_rich_calendar_table_renders_markup_literally(self, capsys):
+        pytest.importorskip("rich")
+        print_calendar_table(
+            {"dates": [date(2026, 3, 2)], "slots": [time(8, 0)], "matrix": [["Math [/] test"]]}
+        )
+        assert "Math [/] test" in capsys.readouterr().out
+
+    def test_plain_tables_render_markup_literally_and_drop_escapes(self, monkeypatch, capsys):
+        monkeypatch.setattr("aula.utils.table._print_rows_with_rich", lambda *a: False)
+        monkeypatch.setattr("aula.utils.table._print_with_rich", lambda *a: False)
+        print_row_table(["Title"], [["Math [/] test\x1b[2J"]])
+        print_wrapped_row_table(["Title"], [["Math [/] test\x1b[2J"]], width=40)
+        print_calendar_table(
+            {"dates": [date(2026, 3, 2)], "slots": [time(8, 0)], "matrix": [["Math [/] test\x1b"]]}
+        )
+        out = capsys.readouterr().out
+        assert "\x1b" not in out
+        assert out.count("Math [/] test") == 3
+
+    def test_card_drops_escapes(self, monkeypatch, capsys):
+        monkeypatch.setattr("aula.utils.table._print_card_with_rich", lambda *a: False)
+        print_text_card(["Subject\x1b[2J"], ["Body\x1b]8;;x\x07"])
+        assert "\x1b" not in capsys.readouterr().out

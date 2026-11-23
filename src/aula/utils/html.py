@@ -1,6 +1,7 @@
 """HTML content conversion utilities."""
 
 import logging
+import re
 
 import html2text
 from bs4 import BeautifulSoup
@@ -8,6 +9,14 @@ from bs4 import BeautifulSoup
 _LOGGER = logging.getLogger(__name__)
 
 _BLOCK_TAGS = ("p", "div", "li", "h1", "h2", "h3", "h4", "h5", "h6", "blockquote", "pre", "tr")
+
+
+_CONTROL_CHARS = re.compile(r"[\x00-\x08\x0b-\x1f\x7f-\x9f]")
+
+
+def strip_control_chars(text: str) -> str:
+    """Remove C0 and C1 control characters except newline and tab."""
+    return _CONTROL_CHARS.sub("", text)
 
 
 def html_to_plain(html: str) -> str:
@@ -23,10 +32,10 @@ def html_to_plain(html: str) -> str:
         h.ignore_links = True
         h.ignore_images = True
         h.ignore_tables = True
-        return h.handle(html).strip()
+        return strip_control_chars(h.handle(html)).strip()
     except (ValueError, AttributeError, UnicodeError) as e:
         _LOGGER.warning("Error converting HTML to plain text: %s", e)
-        return html
+        return strip_control_chars(html)
 
 
 def html_to_markdown(html: str) -> str:
@@ -36,10 +45,10 @@ def html_to_markdown(html: str) -> str:
     try:
         h = html2text.HTML2Text()
         h.unicode_snob = True
-        return h.handle(html).strip()
+        return strip_control_chars(h.handle(html)).strip()
     except (ValueError, AttributeError, UnicodeError) as e:
         _LOGGER.warning("Error converting HTML to Markdown: %s", e)
-        return html
+        return strip_control_chars(html)
 
 
 def _normalize_block(text: str) -> str:
@@ -68,7 +77,7 @@ def html_to_blocks(html: str) -> list[str]:
 
     elements = soup.find_all(_BLOCK_TAGS)
     if not elements:
-        text = _normalize_block(soup.get_text())
+        text = _normalize_block(strip_control_chars(soup.get_text()))
         return [text] if text else []
 
     blocks = []
@@ -76,7 +85,7 @@ def html_to_blocks(html: str) -> list[str]:
         if element.find(_BLOCK_TAGS):
             # A container; its descendants contribute the text instead.
             continue
-        text = _normalize_block(element.get_text())
+        text = _normalize_block(strip_control_chars(element.get_text()))
         if not text:
             continue
         if element.name == "li" and not text.startswith(("-", "*", "•")):
