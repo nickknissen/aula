@@ -10,6 +10,7 @@ except PackageNotFoundError:
 from .api_client import AulaApiClient
 from .auth_flow import authenticate, create_client
 from .http import (
+    AulaApiVersionError,
     AulaAuthenticationError,
     AulaConnectionError,
     AulaNotFoundError,
@@ -48,6 +49,7 @@ __all__ = [
     "AulaWidgetsClient",
     "authenticate",
     "create_client",
+    "AulaApiVersionError",
     "AulaAuthenticationError",
     "AulaConnectionError",
     "AulaNotFoundError",

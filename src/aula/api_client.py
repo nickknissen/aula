@@ -1,6 +1,7 @@
 import asyncio
 import inspect
 import logging
+import re
 import time
 import warnings
 from collections.abc import Awaitable, Callable
@@ -18,6 +19,7 @@ from .const import (
     CSRF_TOKEN_HEADER,
 )
 from .http import (
+    AulaApiVersionError,
     AulaAuthenticationError,
     AulaConnectionError,
     AulaInvalidTokenError,
@@ -82,6 +84,13 @@ _LOGGER = credential_logger(__name__)
 
 # Safety limit for paginated requests to prevent infinite loops
 MAX_PAGES = 100
+
+_API_VERSION_PATTERN = re.compile(rf"{re.escape(API_URL)}(\d+)")
+
+
+def _api_version_of(url: str) -> int | None:
+    match = _API_VERSION_PATTERN.match(url)
+    return int(match.group(1)) if match else None
 
 
 def _extract_api_method(url: str, params: dict[str, Any] | None) -> str | None:
@@ -200,6 +209,7 @@ class AulaApiClient:
             "aula_auth_refresh_context", default=False
         )
         self.api_url = f"{API_URL}{API_VERSION}"
+        self._api_version_lock = asyncio.Lock()
         self.widgets: AulaWidgetsClient = AulaWidgetsClient(self)
 
     @property
@@ -455,23 +465,32 @@ class AulaApiClient:
                     compact_payload_for_log(response.json()),
                 )
 
-            if response.status_code == 410 and url.startswith(API_URL):
-                current_version = int(self.api_url.split("/v")[-1])
-                new_version = current_version + 1
-
-                _LOGGER.warning(
-                    "API version v%d is deprecated (410 Gone), automatically switching to v%d",
-                    current_version,
-                    new_version,
-                )
-
-                self.api_url = f"{API_URL}{new_version}"
-                url = url.replace(f"/v{current_version}", f"/v{new_version}")
+            failed_version = _api_version_of(url)
+            if response.status_code == 410 and failed_version is not None:
+                next_version = await self._move_past_api_version(failed_version)
+                url = url.replace(f"{API_URL}{failed_version}", f"{API_URL}{next_version}", 1)
                 continue
 
             return response
 
-        raise RuntimeError(f"Failed to find working API version after {max_retries} attempts")
+        raise AulaApiVersionError(
+            f"Failed to find working API version after {max_retries} attempts"
+        )
+
+    async def _move_past_api_version(self, failed_version: int) -> int:
+        """Bump ``api_url`` past a version that answered 410 and return the version to retry."""
+        async with self._api_version_lock:
+            current_version = _api_version_of(self.api_url)
+            if current_version is None or failed_version >= current_version:
+                new_version = failed_version + 1
+                _LOGGER.warning(
+                    "API version v%d is deprecated (410 Gone), automatically switching to v%d",
+                    failed_version,
+                    new_version,
+                )
+                self.api_url = f"{API_URL}{new_version}"
+                return new_version
+            return current_version
 
     async def get_profile(self) -> Profile:
         """Fetch the authenticated user's profile with children.
