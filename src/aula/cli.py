@@ -4798,6 +4798,7 @@ def agent_setup(install_global, force):
         )
 
     content = generate_skill_md()
+    installed = False
     for root in skill_roots:
         skill_file = root / "skills" / "aula" / "SKILL.md"
         if (
@@ -4810,6 +4811,10 @@ def agent_setup(install_global, force):
         skill_file.parent.mkdir(parents=True, exist_ok=True)
         skill_file.write_text(content)
         echo(f"Skill installed: {skill_file}")
+        installed = True
+
+    if not installed:
+        return
 
     agents: list[str] = []
     if has_claude:

@@ -30,6 +30,7 @@ def test_second_run_asks_before_overwriting(home, tmp_path):
     skill.write_text("edited")
     second = runner.invoke(agent_setup, [], input="n\n")
     assert "Overwrite?" in second.output
+    assert "Agents can now use" not in second.output
     assert skill.read_text() == "edited"
 
     third = runner.invoke(agent_setup, [], input="y\n")

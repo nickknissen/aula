@@ -27,8 +27,13 @@ machine-readable JSON instead of human-formatted text.
 Authentication uses MitID (Danish national identity).  The CLI caches
 tokens automatically.  If the session has expired the CLI asks the user to
 approve the login in the MitID app.  Another program can drive that login
-instead; see `aula login` in the README and the `--token-file` and
-`--identity` options below.
+and then use the saved session:
+
+```bash
+aula --token-file ./tokens.json --identity 1 --output json login --force
+```
+
+`--force` logs in through MitID even when the saved session still works.
 
 Set the username once so it is not prompted every time:
 
