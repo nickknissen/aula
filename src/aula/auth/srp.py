@@ -1,6 +1,7 @@
 """Custom SRP (Secure Remote Password) implementation for MitID authentication."""
 
 import hashlib
+import hmac
 import secrets
 
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM
@@ -92,7 +93,7 @@ class CustomSRP:
                 "utf-8"
             )
         )
-        return expected == m2_hex
+        return hmac.compare_digest(expected, m2_hex)
 
     def auth_enc(self, plain_text: bytes) -> bytes:
         """Encrypt data with AES-256-GCM using the derived session key.

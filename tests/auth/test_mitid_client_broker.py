@@ -11,6 +11,7 @@ from urllib.parse import parse_qsl
 
 import httpx
 import pytest
+from bs4 import BeautifulSoup
 
 from aula.auth.exceptions import SAMLError
 from aula.auth.mitid_client import MitIDAuthClient
@@ -73,20 +74,33 @@ class FakeBroker:
 
     ``roles`` is how many roles the user has. With more than one, an empty role is
     refused with 400. ``confirm`` puts the confirmation page in front of the redirect.
+    ``relative`` sends redirects with a path-only ``Location``.
     """
 
-    def __init__(self, page: str = ROLE_FORM, *, roles: int = 1, confirm: bool = False):
+    def __init__(
+        self,
+        page: str = ROLE_FORM,
+        *,
+        roles: int = 1,
+        confirm: bool = False,
+        relative: bool = False,
+    ):
         self.page = page
         self.roles = roles
         self.confirm = confirm
+        self.relative = relative
         self.posted: list[dict[str, str]] = []
         self.confirmed = False
+
+    def _redirect(self, url: str) -> httpx.Response:
+        location = url.removeprefix(BROKER) if self.relative else url
+        return httpx.Response(302, headers={"Location": location})
 
     async def __call__(self, request: httpx.Request) -> httpx.Response:
         path = request.url.path
 
         if path == "/auth/realms/broker/broker/nemlogin3/endpoint":
-            return httpx.Response(302, headers={"Location": POST_BROKER_LOGIN})
+            return self._redirect(POST_BROKER_LOGIN)
 
         if path == "/auth/realms/broker/login-actions/post-broker-login":
             if request.method == "GET":
@@ -97,7 +111,7 @@ class FakeBroker:
                 return httpx.Response(400, text=REJECTION_PAGE)
             if self.confirm:
                 return httpx.Response(200, text=CONFIRMATION_PAGE)
-            return httpx.Response(302, headers={"Location": AFTER_POST_BROKER_LOGIN})
+            return self._redirect(AFTER_POST_BROKER_LOGIN)
 
         if path == "/auth/realms/broker/login-actions/confirm" and request.method == "POST":
             self.confirmed = dict(parse_qsl(request.content.decode())) == {"confirmed": "true"}
@@ -123,6 +137,37 @@ class TestStep5SamlBrokerFlow:
         client = _client(FakeBroker(roles=1))
 
         assert await client._step5_saml_broker_flow(SAML_DATA) == SAML_FOR_AULA
+
+    @pytest.mark.asyncio
+    async def test_relative_redirects_are_followed(self):
+        client = _client(FakeBroker(relative=True))
+
+        assert await client._step5_saml_broker_flow(SAML_DATA) == SAML_FOR_AULA
+
+    @pytest.mark.asyncio
+    async def test_relative_idp_selection_redirect_is_followed(self):
+        mitid_page = (
+            '<html><body><input name="__RequestVerificationToken" value="tok"/></body></html>'
+        )
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            if request.method == "POST":
+                return httpx.Response(302, headers={"Location": "/auth/next?x=1"})
+            if request.url.path == "/auth/next":
+                return httpx.Response(302, headers={"Location": "https://www.mitid.dk/login"})
+            return httpx.Response(200, text=mitid_page)
+
+        client = MitIDAuthClient(
+            mitid_username="tester",
+            httpx_client=httpx.AsyncClient(
+                transport=httpx.MockTransport(handler), follow_redirects=False
+            ),
+        )
+        soup = BeautifulSoup(f'<form action="{BROKER}/select" method="post"></form>', "html.parser")
+
+        result = await client._handle_broker_page(soup)
+
+        assert result["verification_token"] == "tok"
 
     @pytest.mark.asyncio
     async def test_user_with_several_roles_logs_in_as_guardian(self):

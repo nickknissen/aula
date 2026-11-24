@@ -10,7 +10,12 @@ import pytest
 
 from aula.auth import browser_client as browser_client_module
 from aula.auth.browser_client import _COMBINATION_ID_TO_NAME, BrowserClient
-from aula.auth.exceptions import MitIDError, PasswordInvalidError, TokenInvalidError
+from aula.auth.exceptions import (
+    MitIDError,
+    MitIDTimeoutError,
+    PasswordInvalidError,
+    TokenInvalidError,
+)
 from aula.const import USER_AGENT
 
 SESSION_ID = "auth-session-1"
@@ -524,6 +529,40 @@ class TestAppQrCodes:
         await client._poll_for_app_confirmation(POLL_URL, "ticket")
 
         assert events == []
+
+
+class TestPollDeadline:
+    @pytest.mark.asyncio
+    async def test_raises_when_the_server_answers_timeout_forever(
+        self, _no_poll_waiting, monkeypatch
+    ):
+        monkeypatch.setattr(browser_client_module, "_POLL_DEADLINE_SECONDS", 0.05)
+        client = _polling_client([{"status": "timeout"}])
+
+        with pytest.raises(MitIDTimeoutError, match="not received within"):
+            await client._poll_for_app_confirmation(POLL_URL, "ticket")
+
+    @pytest.mark.asyncio
+    async def test_non_json_error_page_raises_mitid_error(self):
+        def handler(request: httpx.Request) -> httpx.Response:
+            return httpx.Response(500, text="<html>Bad gateway</html>")
+
+        http_client = httpx.AsyncClient(transport=httpx.MockTransport(handler))
+        client = BrowserClient("client-hash", SESSION_ID, http_client)
+
+        with pytest.raises(MitIDError, match="HTTP 500"):
+            await client._poll_for_app_confirmation(POLL_URL, "ticket")
+
+    @pytest.mark.asyncio
+    async def test_non_json_success_page_raises_mitid_error(self):
+        def handler(request: httpx.Request) -> httpx.Response:
+            return httpx.Response(200, text="<html>Maintenance</html>")
+
+        http_client = httpx.AsyncClient(transport=httpx.MockTransport(handler))
+        client = BrowserClient("client-hash", SESSION_ID, http_client)
+
+        with pytest.raises(MitIDError, match="not JSON"):
+            await client._poll_for_app_confirmation(POLL_URL, "ticket")
 
 
 @pytest.mark.asyncio
