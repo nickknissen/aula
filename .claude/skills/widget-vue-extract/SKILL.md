@@ -43,7 +43,7 @@ Do not dump full component source unless the user explicitly asks.
 1. Run extractor against the live portal entrypoint:
 
 ```bash
-uv run python -m aula.utils.widget_vue_extract 0030 --portal "https://www.aula.dk/portal/#/login"
+uv run python scripts/widget_vue_extract.py 0030 --portal "https://www.aula.dk/portal/#/login"
 ```
 
 2. Return endpoint summary.
