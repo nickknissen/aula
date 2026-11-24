@@ -1835,3 +1835,29 @@ class TestSecureDocuments:
 
         assert result.exit_code == 0
         client.get_secure_documents.assert_awaited_once_with([10])
+
+
+class TestServerTextIsStripped:
+    def test_profile_prints_names_without_escape_sequences(self, monkeypatch):
+        child = Child(
+            id=1000001,
+            profile_id=2000001,
+            name="Barn Et\x1b[2J",
+            institution_name="Skole\x1b]8;;https://example.invalid\x07",
+            profile_picture="",
+        )
+        client = MagicMock()
+        client.get_profile = AsyncMock(
+            return_value=Profile(profile_id=1, display_name="Forælder\x9b2J", children=[child])
+        )
+        client.__aenter__ = AsyncMock(return_value=client)
+        client.__aexit__ = AsyncMock(return_value=None)
+        monkeypatch.setattr("aula.cli._get_client", AsyncMock(return_value=client))
+
+        result = CliRunner().invoke(cli.profile, [], obj={"OUTPUT_FORMAT": "text"})
+
+        assert result.exit_code == 0
+        assert "\x1b" not in result.output
+        assert "\x9b" not in result.output
+        assert "\x07" not in result.output
+        assert "Barn Et" in result.output
