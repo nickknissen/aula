@@ -450,7 +450,9 @@ class AulaApiClient:
         with the original authentication error as its cause.
 
         When Aula answers status code 10 after a refresh, starts a new session
-        once (see ``_start_new_session``) and replays the request.
+        once (see ``_start_new_session``) and replays the request. Once a call
+        on the refreshed session succeeds, code 10 is Aula's real answer and
+        is raised at once.
         """
         is_aula_call = url.startswith(API_URL)
         observed_generation = self._auth_generation
@@ -488,15 +490,17 @@ class AulaApiClient:
                         method, url, headers=headers, params=params, json=json
                     )
 
+        status_code = self._extract_status_code(response) if is_aula_call else None
         if (
-            is_aula_call
+            status_code == self._CODE_AUTHORIZATION_DENIED
             and not self._auth_refresh_context.get()
-            and self._extract_status_code(response) == self._CODE_AUTHORIZATION_DENIED
             and await self._start_new_session(observed_generation)
         ):
             response = await self._do_request(
                 method, url, headers=headers, params=params, json=json
             )
+        elif status_code == 0 and observed_generation == self._auth_generation:
+            self._new_session_access_token = None
 
         # After retry (or no retry), check for sub-code errors on the final response.
         sub_code = self._extract_sub_code(response) if is_aula_call else None

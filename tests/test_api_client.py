@@ -1561,9 +1561,9 @@ class TestNewSessionAfterRefusedRefresh:
         return [r.url for r in http.requests_to(f"{self.API}?method=profiles.getProfilesByLogin")]
 
     async def _refresh(self, client: AulaApiClient, http: FakeHttpClient) -> None:
+        """Refresh the client without any call answered on the refreshed session yet."""
         await client.init()
-        http.route(f"{self.API}?method=refresh", HttpResponse(401), self.OK)
-        await client._request_with_version_retry("get", f"{self.API}?method=refresh")
+        assert await client._refresh_authentication(client._auth_generation)
         http.cookies["SessionCookie"] = "received-after-login"
 
     @pytest.mark.asyncio
@@ -1625,6 +1625,20 @@ class TestNewSessionAfterRefusedRefresh:
 
         assert len(http.requests_to(f"{self.API}?method=refused")) == 1
         assert len(self._logins(http)) == 1
+
+    @pytest.mark.asyncio
+    async def test_refusal_after_the_refreshed_session_worked_raises_at_once(self, client, http):
+        await self._refresh(client, http)
+        http.route(f"{self.API}?method=works", self.OK)
+        http.route(f"{self.API}?method=refused", self.REFUSED, self.OK)
+        await client._request_with_version_retry("get", f"{self.API}?method=works")
+
+        with pytest.raises(AulaRejectedError):
+            await client._request_with_version_retry("get", f"{self.API}?method=refused")
+
+        assert len(http.requests_to(f"{self.API}?method=refused")) == 1
+        assert len(self._logins(http)) == 2
+        assert http.cookies["SessionCookie"] == "received-after-login"
 
     @pytest.mark.asyncio
     async def test_one_new_session_per_refresh(self, client, http):
