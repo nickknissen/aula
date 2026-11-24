@@ -254,8 +254,50 @@ class TestRequestWithVersionRetry:
         messages = [r.message for r in caplog.records]
         assert any("method=notifications.getNotificationsForActiveProfile" in m for m in messages)
         assert any(
-            "Response method=notifications.getNotificationsForActiveProfile" in m for m in messages
+            "Response method=notifications.getNotificationsForActiveProfile" in m
+            and '{"data":{"ok":true}}' in m
+            for m in messages
         )
+
+    @pytest.mark.asyncio
+    async def test_debug_logging_survives_a_non_json_error_page(self, caplog):
+        """A 503 HTML page returns and raises the same error with DEBUG on as off."""
+
+        class HtmlResponse(HttpResponse):
+            def json(self):
+                raise ValueError("not JSON")
+
+        http = FakeHttpClient()
+        url = "https://maintenance.example.invalid/page"
+        http.route(
+            url,
+            HtmlResponse(
+                status_code=503,
+                headers={"Content-Type": "text/html", "Content-Length": "42"},
+            ),
+        )
+        client = AulaApiClient(http_client=http)
+
+        with caplog.at_level("DEBUG"):
+            response = await client._request_with_version_retry("get", url)
+        with pytest.raises(AulaServerError):
+            response.raise_for_status()
+
+        messages = [r.message for r in caplog.records]
+        assert any("content-type=text/html" in m and "length=42" in m for m in messages)
+
+    @pytest.mark.asyncio
+    async def test_debug_logging_notes_an_empty_body(self, client, caplog):
+        """A 204 without a body logs its content type and length instead of null."""
+        client._client.request = AsyncMock(return_value=HttpResponse(status_code=204, data=None))
+
+        with caplog.at_level("DEBUG"):
+            response = await client._request_with_version_retry(
+                "get", f"{API_URL}{API_VERSION}?method=test"
+            )
+
+        assert response.status_code == 204
+        assert any("non-JSON body" in r.message for r in caplog.records)
 
     @pytest.mark.asyncio
     async def test_access_token_appended_during_init(self, client):
