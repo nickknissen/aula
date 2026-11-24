@@ -39,6 +39,7 @@ from ..models import (
     MUWeeklyPerson,
     UserReminders,
 )
+from ..utils.diagnostics import compact_payload_for_log, describe_payload
 from ..utils.week import monday_of_week
 from ._transport import ProviderTransport
 
@@ -95,11 +96,11 @@ def _as_list(data: Any, provider: str) -> list[Any]:
     """
     if not isinstance(data, list):
         _LOGGER.warning(
-            "%s returned %s instead of a list, treating as empty: %s",
+            "%s returned %s instead of a list, treating as empty",
             provider,
-            type(data).__name__,
-            data,
+            describe_payload(data),
         )
+        _LOGGER.debug("%s payload: %s", provider, compact_payload_for_log(data))
         return []
 
     items = [item for item in data if isinstance(item, dict)]
@@ -180,18 +181,16 @@ def _log_unreadable_body(source: str, payload: Any, **context: str) -> None:
     body is the only place the reason appears. Without a warning it is
     indistinguishable from a genuinely empty week, which has cost people hours.
     The envelope is undocumented and differs between EasyIQ's two backends, so
-    the keys and a truncated body are logged rather than named fields.
+    the keys are logged rather than named fields, and the body at DEBUG.
     """
-    body = repr(payload)
-    if len(body) > _BODY_LOG_LIMIT:
-        body = body[:_BODY_LOG_LIMIT] + "..."
-
     _LOGGER.warning(
-        "%s returned no readable data (%s): keys=%s body=%s",
+        "%s returned no readable data (%s): %s",
         source,
         ", ".join(f"{name}={value}" for name, value in context.items()),
-        sorted(payload) if isinstance(payload, dict) else None,
-        body,
+        describe_payload(payload),
+    )
+    _LOGGER.debug(
+        "%s body: %s", source, compact_payload_for_log(payload, max_chars=_BODY_LOG_LIMIT)
     )
 
 
@@ -1078,9 +1077,8 @@ class AulaWidgetsClient:
         )
         if not isinstance(data, dict):
             _LOGGER.warning(
-                "Library status returned %s instead of an object, treating as empty: %s",
+                "Library status returned %s instead of an object, treating as empty",
                 type(data).__name__,
-                data,
             )
             return LibraryStatus()
         return LibraryStatus.from_dict(data)

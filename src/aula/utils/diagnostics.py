@@ -120,3 +120,21 @@ def credential_logger(name: str) -> logging.Logger:
     if not any(isinstance(filter_, _CredentialFilter) for filter_ in logger.filters):
         logger.addFilter(_CredentialFilter())
     return logger
+
+
+def describe_payload(payload: Any) -> str:
+    """Name a payload's type and keys without any of its values."""
+    if isinstance(payload, dict):
+        return f"dict with keys {sorted(str(key) for key in payload)}"
+    if isinstance(payload, (list, tuple)):
+        return f"{type(payload).__name__} of {len(payload)} items"
+    return type(payload).__name__
+
+
+def warn_skipped(
+    logger: logging.Logger, what: str, payload: Any, error: BaseException | None = None
+) -> None:
+    """Warn that ``what`` was skipped, with the payload's shape; the values go to DEBUG."""
+    reason = type(error).__name__ if error else "unexpected shape"
+    logger.warning("Skipping %s (%s): %s", what, reason, describe_payload(payload))
+    logger.debug("Skipped %s payload: %s", what, compact_payload_for_log(payload))

@@ -39,6 +39,24 @@ async def test_request_raises_connection_error_for_network_failures(error):
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("status", [403, 404])
+async def test_download_raises_http_request_error_without_the_signed_url(status):
+    """httpx's status error message carries the whole signed URL."""
+    client = _client_serving(httpx.Response(status))
+
+    with pytest.raises(HttpRequestError) as exc_info:
+        await client.download_bytes(DOWNLOAD_URL)
+
+    error = exc_info.value
+    assert error.status_code == status
+    assert "media.aula.dk" in str(error)
+    assert "signature" not in str(error)
+    assert "file.pdf" not in str(error)
+    assert error.__cause__ is None
+    assert error.__context__ is None
+
+
+@pytest.mark.asyncio
 @pytest.mark.parametrize("error", [httpx.ConnectError, httpx.ReadTimeout])
 async def test_download_raises_connection_error_for_network_failures(error):
     """Attachment downloads fail the same way when the network drops."""

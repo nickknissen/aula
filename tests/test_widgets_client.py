@@ -1,6 +1,7 @@
 """Tests for widget provider endpoints."""
 
 import asyncio
+import logging
 from unittest.mock import AsyncMock
 
 import pytest
@@ -675,17 +676,20 @@ class TestWidgetsClient:
         envelope = {"ErrorCode": "1", "ErrorDescription": "No license for this school"}
         http.route(EASYIQ_HOMEWORK_URL, HttpResponse(200, envelope))
 
-        homework = await client.widgets.get_easyiq_homework(
-            week="2026-W09",
-            session_uuid="guardian-1",
-            institution_filter=["inst-1"],
-            child_id="child-user-1",
-            child_profile_id="4242",
-        )
+        with caplog.at_level(logging.DEBUG):
+            homework = await client.widgets.get_easyiq_homework(
+                week="2026-W09",
+                session_uuid="guardian-1",
+                institution_filter=["inst-1"],
+                child_id="child-user-1",
+                child_profile_id="4242",
+            )
 
         assert homework == []
         assert "returned no readable data" in caplog.text
         assert "ErrorDescription" in caplog.text
+        warnings = [r.getMessage() for r in caplog.records if r.levelno >= logging.WARNING]
+        assert all("No license for this school" not in message for message in warnings)
         assert "No license for this school" in caplog.text
         # The context needed to tell which child and week went missing.
         assert "child=child-user-1" in caplog.text
@@ -712,13 +716,14 @@ class TestWidgetsClient:
     async def test_easyiq_calendar_truncates_a_long_body(self, client, http, caplog):
         http.route(EASYIQ_HOMEWORK_URL, HttpResponse(200, {"error": "x" * 5000}))
 
-        await client.widgets.get_easyiq_homework(
-            week="2026-W09",
-            session_uuid="guardian-1",
-            institution_filter=["inst-1"],
-            child_id="child-user-1",
-            child_profile_id="4242",
-        )
+        with caplog.at_level(logging.DEBUG, logger="aula.widgets.client"):
+            await client.widgets.get_easyiq_homework(
+                week="2026-W09",
+                session_uuid="guardian-1",
+                institution_filter=["inst-1"],
+                child_id="child-user-1",
+                child_profile_id="4242",
+            )
 
         assert "..." in caplog.text
         assert len(caplog.text) < 1000
@@ -743,7 +748,7 @@ class TestWidgetsClient:
         # The portal fallback still answers; the warning explains the first leg.
         assert [a.title for a in appointments] == ["Idræt"]
         assert "EasyIQ weekplaninfo returned no readable data" in caplog.text
-        assert "Not licensed" in caplog.text
+        assert "ErrorDescription" in caplog.text
 
     @pytest.mark.asyncio
     async def test_weekplaninfo_stays_quiet_on_an_explicit_null_envelope(
@@ -1167,7 +1172,9 @@ class TestWidgetsClientMalformedResponses:
 
         assert plans == []
         refresh.assert_not_awaited()
-        assert "Meebook weekplan returned dict instead of a list" in caplog.text
+        assert (
+            "Meebook weekplan returned dict with keys ['message'] instead of a list" in caplog.text
+        )
 
     @pytest.mark.asyncio
     async def test_meebook_weekplan_skips_non_dict_items(self, client, http, caplog):
@@ -1210,7 +1217,7 @@ class TestWidgetsClientMalformedResponses:
         )
 
         assert courses == []
-        assert "Huskelisten courses returned dict instead of a list" in caplog.text
+        assert "Huskelisten courses returned dict with keys" in caplog.text
 
     @pytest.mark.asyncio
     async def test_momo_reminders_returns_empty_on_error_object(self, client, http, caplog):
@@ -1225,7 +1232,7 @@ class TestWidgetsClientMalformedResponses:
         )
 
         assert reminders == []
-        assert "Huskelisten reminders returned dict instead of a list" in caplog.text
+        assert "Huskelisten reminders returned dict with keys" in caplog.text
 
     @pytest.mark.asyncio
     async def test_library_status_returns_empty_on_list_body(self, client, http, caplog):

@@ -71,6 +71,12 @@ def test_parse_unexpected_type(caplog):
     assert "Unexpected location value" in caplog.text
 
 
+def test_parse_unexpected_list_is_logged_without_its_values(caplog):
+    assert PresenceLocation.parse(["Barn Et"]) is None
+    assert "list of 1 items" in caplog.text
+    assert "Barn Et" not in caplog.text
+
+
 def test_dict_conversion_excludes_raw():
     location = PresenceLocation.from_dict({"id": 1, "name": "Ude"})
     result = dict(location)

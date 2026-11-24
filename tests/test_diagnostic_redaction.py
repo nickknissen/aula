@@ -13,7 +13,7 @@ from aula.auth.exceptions import SAMLError
 from aula.auth.mitid_client import MitIDAuthClient
 from aula.auth_flow import authenticate
 from aula.http import AulaResponseError, HttpRequestError, HttpResponse
-from aula.utils.diagnostics import diagnostic_url, redact_credentials
+from aula.utils.diagnostics import describe_payload, diagnostic_url, redact_credentials
 
 
 @pytest.mark.asyncio
@@ -165,3 +165,9 @@ def test_object_that_only_mentions_a_url_is_left_alone():
 
     note = Note()
     assert redact_credentials(note) is note
+
+
+def test_describe_payload_names_keys_and_not_values():
+    assert describe_payload({"name": "Barn Et", "id": 1}) == "dict with keys ['id', 'name']"
+    assert describe_payload(["Barn Et"]) == "list of 1 items"
+    assert describe_payload("Barn Et") == "str"

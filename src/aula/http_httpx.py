@@ -5,7 +5,7 @@ from typing import Any
 import httpx
 
 from .const import AULA_COOKIE_DOMAIN, USER_AGENT
-from .http import AulaConnectionError, DownloadTooLargeError, HttpResponse
+from .http import AulaConnectionError, DownloadTooLargeError, HttpRequestError, HttpResponse
 from .utils.diagnostics import credential_logger
 
 credential_logger("httpx")
@@ -102,7 +102,12 @@ class HttpxHttpClient:
             async with self._client.stream(
                 "GET", url, timeout=httpx.Timeout(30.0, read=120.0)
             ) as response:
-                response.raise_for_status()
+                if not response.is_success:
+                    raise HttpRequestError(
+                        f"Download from {response.url.host} failed with HTTP "
+                        f"{response.status_code}",
+                        response.status_code,
+                    )
                 if max_bytes is None:
                     return await response.aread()
                 return await _read_at_most(response, max_bytes)

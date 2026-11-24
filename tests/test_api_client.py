@@ -5168,3 +5168,83 @@ class TestMarkThreadRead:
         )
 
         assert await client.mark_thread_read("42") is False
+
+
+class TestSkippedItemsDoNotLogPayloads:
+    """Warnings and errors name what was wrong, never the names inside the item."""
+
+    @pytest.fixture
+    def client(self):
+        return AulaApiClient(http_client=AsyncMock(), access_token="test_token")
+
+    @staticmethod
+    def _answer(client, data):
+        client._request_with_version_retry = AsyncMock(
+            return_value=HttpResponse(status_code=200, data=data)
+        )
+
+    @staticmethod
+    def _assert_no_names(caplog):
+        records = [r for r in caplog.records if r.levelno >= logging.WARNING]
+        assert records
+        assert all("Barn Et" not in r.getMessage() for r in records)
+        assert all("Barn Et" not in str(r.args) for r in records)
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        ("method", "args", "data"),
+        [
+            ("get_group_members", (1,), {"data": [{"name": "Barn Et"}, "Barn Et"]}),
+            ("get_groups", (None, [1]), {"data": [{"groups": [{"name": "Barn Et"}]}]}),
+            ("get_groups", (None, [1]), {"data": [{"groups": [{"id": "x", "name": "Barn Et"}]}]}),
+            ("get_posts", ([1],), {"data": {"posts": [{"title": "Barn Et"}, "Barn Et"]}}),
+            (
+                "get_posts",
+                ([1],),
+                {"data": {"posts": [{"id": "x", "title": "Barn Et", "timestamp": "Barn Et"}]}},
+            ),
+            ("get_comments", ("post", 1), {"data": ["Barn Et", {"id": "x", "name": "Barn Et"}]}),
+            (
+                "get_widgets",
+                (),
+                {"data": {"pageConfiguration": {"widgetConfigurations": ["Barn Et"]}}},
+            ),
+        ],
+    )
+    async def test_invalid_items_are_logged_by_shape(self, client, caplog, method, args, data):
+        self._answer(client, data)
+
+        with caplog.at_level(logging.WARNING, logger="aula"):
+            try:
+                await getattr(client, method)(*args)
+            except AulaResponseError as e:
+                assert "Barn Et" not in str(e)
+
+        self._assert_no_names(caplog)
+
+    @pytest.mark.asyncio
+    async def test_unexpected_calendar_data_is_reported_by_type(self, client, caplog):
+        self._answer(client, {"data": {"name": "Barn Et"}})
+        day = datetime(2026, 1, 5, tzinfo=UTC)
+
+        with (
+            caplog.at_level(logging.WARNING, logger="aula"),
+            pytest.raises(AulaResponseError) as raised,
+        ):
+            await client.get_calendar_events([1], day, day)
+
+        assert "Barn Et" not in str(raised.value)
+        assert all("Barn Et" not in r.getMessage() for r in caplog.records)
+
+    @pytest.mark.asyncio
+    async def test_the_skipped_item_is_kept_for_debug(self, client, caplog):
+        self._answer(client, {"data": [{"name": "Barn Et"}]})
+
+        with (
+            caplog.at_level(logging.DEBUG, logger="aula"),
+            pytest.raises(AulaResponseError),
+        ):
+            await client.get_group_members(1)
+
+        debug = [r for r in caplog.records if r.levelno == logging.DEBUG]
+        assert any("Barn Et" in r.getMessage() for r in debug)

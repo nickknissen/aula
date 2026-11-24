@@ -180,10 +180,10 @@ class _SkippedRecords:
             if isinstance(item, dict):
                 yield item
             else:
-                self.add(TypeError(f"expected an object, got {type(item).__name__}"))
+                self.add(TypeError(f"expected an object, got {type(item).__name__}"), item)
 
     def add(self, error: Exception, record: Any = None) -> None:
-        """Count a record that failed and log its error type and keys, not its values."""
+        """Count a record that failed and warn with its error type and keys; values go to DEBUG."""
         self.count += 1
         self.last_error = error
         keys = sorted(str(key) for key in record) if isinstance(record, dict) else []
@@ -193,6 +193,7 @@ class _SkippedRecords:
             type(error).__name__,
             ", ".join(keys) or "none",
         )
+        _LOGGER.debug("Skipped %s payload: %s", self.record_type, compact_payload_for_log(record))
 
     def raise_if_none_parsed(self, parsed: Sized, status_code: int) -> None:
         """Raise ``AulaResponseError`` when records were skipped and none parsed."""
