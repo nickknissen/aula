@@ -70,8 +70,11 @@ def meeting_bookings(rows: list[dict[str, Any]], child_id: int) -> list[MeetingB
     Meeting row timestamps can span the entire booking period. The answer's
     selectedTimeSlotIndex points into the explicit interval list, including
     breaks. Guardian answers and repeated rows can describe the same booking.
+    Raises ValueError when there were meetings and none of them parsed.
     """
     resolved: dict[tuple, MeetingBooking] = {}
+    parsed = 0
+    last_error: Exception | None = None
     for row in rows:
         if not isinstance(row, dict):
             continue
@@ -115,6 +118,10 @@ def meeting_bookings(rows: list[dict[str, Any]], child_id: int) -> list[MeetingB
                     _raw=row,
                 )
                 resolved[(booking.meeting_id, start, end)] = booking
-        except KeyError, TypeError, ValueError:
+            parsed += 1
+        except (KeyError, TypeError, ValueError) as e:
+            last_error = e
             _LOGGER.warning("Skipping malformed meeting %s", row.get("id"))
+    if last_error is not None and not parsed:
+        raise ValueError("Could not parse any meeting from Aula") from last_error
     return sorted(resolved.values(), key=lambda booking: booking.start_datetime)

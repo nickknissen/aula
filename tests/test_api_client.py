@@ -633,6 +633,19 @@ class TestGetProfile:
         assert [c.id for c in profile.children] == [1]
 
     @pytest.mark.asyncio
+    async def test_extended_access_children_that_all_fail_never_raise(self, client):
+        """The lookup is best effort, so its failures never cost the caller the profile."""
+        context = {"data": {"institutions": [{"name": "Skole Et", "children": [{"id": 2}, "2"]}]}}
+        client._request_with_version_retry = AsyncMock(
+            side_effect=[
+                self._make_profile_response([{"profileId": 900001, "children": []}]),
+                HttpResponse(status_code=200, data=context),
+            ]
+        )
+        profile = await client.get_profile()
+        assert profile.children == []
+
+    @pytest.mark.asyncio
     async def test_get_profile_context_without_institutions(self, client):
         client._request_with_version_retry = AsyncMock(
             side_effect=[
@@ -1711,109 +1724,167 @@ def _groups(*records):
 GOOD_GROUP = {"id": 1, "name": "Skole Et 3.A"}
 BAD_GROUP = {"id": "not-a-number"}
 
+
+def _parse_loop(name, call, target, wrap):
+    """A parse loop, the parser it calls, and how its answer wraps a list of records."""
+    return pytest.param(call, target, wrap, id=name)
+
+
 EVERY_PARSE_LOOP = [
-    (
+    _parse_loop(
+        "get_profile",
         lambda c: c.get_profile(),
         "Child.from_dict",
-        [{"data": {"profiles": [{"profileId": 1, "children": [{}]}]}}],
+        lambda records: {"data": {"profiles": [{"profileId": 1, "children": records}]}},
     ),
-    (
-        lambda c: c.get_profile(),
-        "Child.from_dict",
-        [
-            {"data": {"profiles": [{"profileId": 1, "children": []}]}},
-            {"data": {"institutions": [{"name": "Skole Et", "children": [{"id": 1}]}]}},
-        ],
+    _parse_loop(
+        "get_widgets",
+        lambda c: c.get_widgets(),
+        "WidgetConfiguration.from_dict",
+        lambda records: {"data": {"pageConfiguration": {"widgetConfigurations": records}}},
     ),
-    (
+    _parse_loop(
+        "get_presence_templates",
         lambda c: c.get_presence_templates([1000001], date.today(), date.today()),
         "PresenceWeekTemplate.from_dict",
-        [{"data": {"presenceWeekTemplates": [{}]}}],
+        lambda records: {"data": {"presenceWeekTemplates": records}},
     ),
-    (
+    _parse_loop(
+        "get_pickup_responsibles",
         lambda c: c.get_pickup_responsibles([1000001]),
         "ChildPickupResponsibles.from_dict",
-        [{"data": [{}]}],
+        lambda records: {"data": records},
     ),
-    (
+    _parse_loop(
+        "get_presence_registrations",
         lambda c: c.get_presence_registrations([1000001], date.today(), date.today()),
         "PresenceRegistration.from_dict",
-        [{"data": [{}]}],
+        lambda records: {"data": records},
     ),
-    (lambda c: c.get_presence_states(), "ChildPresenceState.from_dict", [{"data": [{}]}]),
-    (
+    _parse_loop(
+        "get_presence_states",
+        lambda c: c.get_presence_states(),
+        "ChildPresenceState.from_dict",
+        lambda records: {"data": records},
+    ),
+    _parse_loop(
+        "get_presence_configuration",
         lambda c: c.get_presence_configuration([1000001]),
         "PresenceConfiguration.from_dict",
-        [{"data": [{}]}],
+        lambda records: {"data": records},
     ),
-    (
+    _parse_loop(
+        "get_notifications_for_active_profile",
         lambda c: c.get_notifications_for_active_profile(),
         "Notification.from_dict",
-        [{"data": [{}]}],
+        lambda records: {"data": records},
     ),
-    (lambda c: c.get_message_threads(), "MessageThread", [{"data": {"threads": [{}]}}]),
-    (
+    _parse_loop(
+        "get_message_threads",
+        lambda c: c.get_message_threads(),
+        "MessageThread",
+        lambda records: {"data": {"threads": records}},
+    ),
+    _parse_loop(
+        "get_messages_for_thread",
         lambda c: c.get_messages_for_thread("1000001"),
         "Message.from_dict",
-        [{"data": {"messages": [{"messageType": "Message"}]}}],
+        lambda records: {"data": {"messages": records}},
     ),
-    (
+    _parse_loop(
+        "get_calendar_events",
         lambda c: c.get_calendar_events([1000001], datetime.now(), datetime.now()),
         "CalendarEvent",
-        [
-            {
-                "data": [
-                    {
-                        "startDateTime": "2026-11-23T08:00:00+01:00",
-                        "endDateTime": "2026-11-23T09:00:00+01:00",
-                    }
-                ]
-            }
-        ],
+        lambda records: {"data": records},
     ),
-    (
+    _parse_loop(
+        "get_groups",
         lambda c: c.get_groups(institution_codes=["G90001"]),
         "Group.from_dict",
-        [{"data": {"groups": [{"id": 1}]}}],
+        lambda records: {"data": {"groups": records}},
     ),
-    (
+    _parse_loop(
+        "get_group_members",
         lambda c: c.get_group_members(1000001),
         "GroupMember.from_dict",
-        [{"data": [{"institutionProfileId": 1000001}]}],
+        lambda records: {"data": records},
     ),
-    (
+    _parse_loop(
+        "get_posts",
         lambda c: c.get_posts([1000001]),
         "Post.from_dict",
-        [{"data": {"posts": [{"id": 1, "title": "Post"}]}}],
+        lambda records: {"data": {"posts": records}},
     ),
-    (lambda c: c.get_comments("post", 1), "Comment.from_dict", [{"data": [{}]}]),
-    (
+    _parse_loop(
+        "get_comments",
+        lambda c: c.get_comments("post", 1),
+        "Comment.from_dict",
+        lambda records: {"data": records},
+    ),
+    _parse_loop(
+        "search_messages_result",
+        lambda c: c.search_messages_result([1000001], ["G90001"]),
+        "Message.from_search_hit",
+        lambda records: {"data": {"results": records}},
+    ),
+    _parse_loop(
+        "get_message_folders",
+        lambda c: c.get_message_folders(),
+        "MessageFolder.from_dict",
+        lambda records: {"data": records},
+    ),
+    _parse_loop(
+        "get_threads_in_bundle",
+        lambda c: c.get_threads_in_bundle(1000001),
+        "MessageThread.from_dict",
+        lambda records: {"data": records},
+    ),
+    _parse_loop(
+        "get_consent_responses",
         lambda c: c.get_consent_responses([1000001]),
         "ConsentResponse.from_dict",
-        [{"data": [{}]}],
+        lambda records: {"data": records},
     ),
-    (lambda c: c.search_groups("3.A"), "Group.from_dict", [{"data": {"results": [{}]}}]),
-    (
+    _parse_loop(
+        "search_groups",
+        lambda c: c.search_groups("3.A"),
+        "Group.from_dict",
+        lambda records: {"data": {"results": records}},
+    ),
+    _parse_loop(
+        "get_secure_documents",
         lambda c: c.get_secure_documents([1000001]),
         "SecureDocument.from_dict",
-        [{"data": {"documents": [{}], "moreDocumentsExists": False}}],
+        lambda records: {"data": {"documents": records, "moreDocumentsExists": False}},
     ),
-    (
+    _parse_loop(
+        "get_common_files",
         lambda c: c.get_common_files(["G90001"]),
         "CommonFile.from_dict",
-        [{"data": {"commonFiles": [{}], "totalAmount": 1}}],
+        lambda records: {"data": {"commonFiles": records, "totalAmount": len(records)}},
     ),
-    (
+    _parse_loop(
+        "get_vacation_registrations",
         lambda c: c.get_vacation_registrations([1000001]),
         "VacationRegistration.from_dict",
-        [{"data": [{"child": {}, "vacationRegistrations": [{}]}]}],
+        lambda records: {"data": [{"child": {}, "vacationRegistrations": records}]},
     ),
-    (
+    _parse_loop(
+        "get_notification_settings",
         lambda c: c.get_notification_settings(),
         "NotificationSetting.from_dict",
-        [{"data": [{}]}],
+        lambda records: {"data": records},
     ),
 ]
+
+RECORD_THAT_REACHES_THE_PARSER = {
+    "id": 1,
+    "title": "Opslag",
+    "institutionProfileId": 1000001,
+    "messageType": "Message",
+    "startDateTime": "2026-11-23T08:00:00+01:00",
+    "endDateTime": "2026-11-23T09:00:00+01:00",
+}
 
 
 class TestRecordsThatFailToParse:
@@ -1848,7 +1919,8 @@ class TestRecordsThatFailToParse:
             groups = await AulaApiClient(http).search_groups("3.A")
 
         assert [group.id for group in groups] == [1, 1]
-        assert "Skipping group from search" in caplog.text
+        assert "Skipping group search result: ValueError" in caplog.text
+        assert "keys: id" in caplog.text
 
     @pytest.mark.asyncio
     async def test_an_empty_answer_is_an_empty_list(self):
@@ -1858,20 +1930,50 @@ class TestRecordsThatFailToParse:
         assert await AulaApiClient(http).search_groups("3.A") == []
 
     @pytest.mark.asyncio
-    @pytest.mark.parametrize(("call", "target", "bodies"), EVERY_PARSE_LOOP)
-    async def test_every_parse_loop_raises_when_nothing_parses(self, call, target, bodies):
-        client = AulaApiClient(AsyncMock(), access_token="test_token")
-        client._request_with_version_retry = AsyncMock(
-            side_effect=[HttpResponse(200, body) for body in bodies]
-        )
+    @pytest.mark.parametrize(("call", "target", "wrap"), EVERY_PARSE_LOOP)
+    async def test_every_parse_loop_raises_when_nothing_parses(self, call, target, wrap, caplog):
+        records = [{**RECORD_THAT_REACHES_THE_PARSER, "id": n} for n in (1, 2, 3)]
+        client = client_answering(HttpResponse(200, wrap(records)))
 
         with (
+            caplog.at_level(logging.WARNING, logger="aula"),
             patch(f"aula.api_client.{target}", side_effect=ValueError("bad record")),
             pytest.raises(AulaResponseError) as exc_info,
         ):
             await call(client)
 
         assert str(exc_info.value.__cause__) == "bad record"
+        assert "any of the 3 " in str(exc_info.value)
+        assert caplog.text.count("Skipping ") == 3
+        assert "Opslag" not in caplog.text
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize(("call", "target", "wrap"), EVERY_PARSE_LOOP)
+    async def test_every_parse_loop_raises_when_no_record_is_an_object(self, call, target, wrap):
+        client = client_answering(HttpResponse(200, wrap(["record", 1000001])))
+
+        with pytest.raises(AulaResponseError) as exc_info:
+            await call(client)
+
+        assert isinstance(exc_info.value.__cause__, TypeError)
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize(("call", "target", "wrap"), EVERY_PARSE_LOOP)
+    async def test_every_parse_loop_skips_a_failed_record_when_another_parses(
+        self, call, target, wrap, caplog
+    ):
+        records = [RECORD_THAT_REACHES_THE_PARSER, {**RECORD_THAT_REACHES_THE_PARSER, "id": 2}]
+        client = client_answering(HttpResponse(200, wrap(records)))
+        parsed = MagicMock(aggregated_display_mode="Shown", start_datetime=datetime.now())
+
+        with (
+            caplog.at_level(logging.WARNING, logger="aula"),
+            patch(f"aula.api_client.{target}", side_effect=[ValueError("bad record"), parsed]),
+            patch("aula.api_client.merge_duplicate_lessons", side_effect=lambda events: events),
+        ):
+            await call(client)
+
+        assert caplog.text.count("Skipping ") == 1
 
 
 class TestDownloadFile:
