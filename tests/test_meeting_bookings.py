@@ -11,7 +11,7 @@ from click.testing import CliRunner
 
 from aula.api_client import AulaApiClient
 from aula.cli import meetings
-from aula.http import HttpRequestError, HttpResponse
+from aula.http import AulaResponseError, HttpRequestError, HttpResponse
 from aula.models import CalendarEvent, Child, Profile
 from aula.models.meeting_booking import meeting_bookings, replace_booked_meetings
 
@@ -157,12 +157,28 @@ async def test_range_uses_booked_interval_and_exclusive_end(client):
     [
         {"status": {"code": 403}, "data": []},
         {"data": []},
-        {"status": {"code": 0}, "data": None},
     ],
 )
-async def test_invalid_or_rejected_response_raises(client, body):
+async def test_rejected_response_raises(client, body):
     client._request_with_version_retry.return_value = HttpResponse(status_code=200, data=body)
     with pytest.raises(HttpRequestError):
+        await client.get_meeting_bookings(
+            11, datetime(2026, 1, 1, tzinfo=UTC), datetime(2026, 2, 1, tzinfo=UTC)
+        )
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "body",
+    [
+        None,
+        {"status": {"code": 0}, "data": None},
+        {"status": {"code": 0}, "data": {"rows": []}},
+    ],
+)
+async def test_invalid_response_is_an_aula_response_error(client, body):
+    client._request_with_version_retry.return_value = HttpResponse(status_code=200, data=body)
+    with pytest.raises(AulaResponseError):
         await client.get_meeting_bookings(
             11, datetime(2026, 1, 1, tzinfo=UTC), datetime(2026, 2, 1, tzinfo=UTC)
         )
