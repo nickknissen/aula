@@ -16,6 +16,7 @@ from aula.http import (
     AulaAuthenticationError,
     AulaConnectionError,
     AulaRejectedError,
+    AulaResponseError,
     AulaServerError,
     AulaSessionExpiredError,
     DownloadTooLargeError,
@@ -497,6 +498,38 @@ class TestGetProfile:
             await client.get_profile()
 
     @pytest.mark.asyncio
+    @pytest.mark.parametrize("profiles", [{"profileId": 900001}, ["profile"], "profile"])
+    async def test_profiles_that_are_not_a_list_of_objects_are_an_aula_response_error(
+        self, client, profiles
+    ):
+        client._request_with_version_retry = AsyncMock(
+            return_value=self._make_profile_response(profiles)
+        )
+        with pytest.raises(AulaResponseError):
+            await client.get_profile()
+
+    @pytest.mark.asyncio
+    async def test_a_profile_that_does_not_parse_is_an_aula_response_error(self, client):
+        client._request_with_version_retry = AsyncMock(
+            return_value=self._make_profile_response([{"profileId": "not a number"}])
+        )
+        with pytest.raises(AulaResponseError, match="main profile") as exc_info:
+            await client.get_profile()
+        assert isinstance(exc_info.value.__cause__, ValueError)
+
+    @pytest.mark.asyncio
+    async def test_institution_profiles_that_are_not_a_list_are_an_aula_response_error(
+        self, client
+    ):
+        client._request_with_version_retry = AsyncMock(
+            return_value=self._make_profile_response(
+                [{"profileId": 900001, "institutionProfiles": "1000001"}]
+            )
+        )
+        with pytest.raises(AulaResponseError):
+            await client.get_profile()
+
+    @pytest.mark.asyncio
     async def test_get_profile_no_children(self, client):
         """Profile with no children returns empty children list."""
         profile_data = {
@@ -696,6 +729,38 @@ class TestGetDailyOverview:
         with pytest.raises(AulaServerError):
             await client.get_daily_overview(456)
 
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("data", [{"status": 1}, "overview", [None], [["status", 1]]])
+    async def test_data_that_is_not_a_list_of_overviews_is_an_aula_response_error(
+        self, client, data
+    ):
+        client._request_with_version_retry = AsyncMock(
+            return_value=HttpResponse(status_code=200, data={"data": data})
+        )
+        with pytest.raises(AulaResponseError):
+            await client.get_daily_overview(456)
+
+    @pytest.mark.asyncio
+    async def test_an_overview_that_fails_to_parse_keeps_the_cause(self, client):
+        client._request_with_version_retry = AsyncMock(
+            return_value=HttpResponse(status_code=200, data={"data": [{"location": 5}]})
+        )
+        with (
+            patch("aula.api_client.DailyOverview.from_dict", side_effect=KeyError("institution")),
+            pytest.raises(AulaResponseError) as exc_info,
+        ):
+            await client.get_daily_overview(456)
+        assert isinstance(exc_info.value.__cause__, KeyError)
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("body", [None, ["overview"], "overview"])
+    async def test_a_body_that_is_not_an_envelope_is_an_aula_response_error(self, client, body):
+        client._request_with_version_retry = AsyncMock(
+            return_value=HttpResponse(status_code=200, data=body)
+        )
+        with pytest.raises(AulaResponseError):
+            await client.get_daily_overview(456)
+
 
 class TestGetMessageThreads:
     """Tests for AulaApiClient.get_message_threads method."""
@@ -751,6 +816,17 @@ class TestGetMessageThreads:
         )
         threads = await client.get_message_threads()
         assert len(threads) == 2
+
+    @pytest.mark.asyncio
+    async def test_a_thread_that_is_not_an_object_is_skipped(self, client):
+        client._request_with_version_retry = AsyncMock(
+            return_value=HttpResponse(
+                status_code=200,
+                data={"data": {"threads": ["t1", {"id": "t2", "subject": "Good"}]}},
+            )
+        )
+        threads = await client.get_message_threads()
+        assert [thread.thread_id for thread in threads] == ["t2"]
 
 
 class TestGetMessagesForThread:
@@ -830,6 +906,24 @@ class TestGetMessagesForThread:
         )
         messages = await client.get_messages_for_thread("t1", limit=3)
         assert len(messages) == 3
+
+    @pytest.mark.asyncio
+    async def test_a_message_that_is_not_an_object_is_skipped(self, client):
+        client._request_with_version_retry = AsyncMock(
+            return_value=HttpResponse(
+                status_code=200,
+                data={
+                    "data": {
+                        "messages": [
+                            "m1",
+                            {"id": "m2", "messageType": "Message", "text": {"html": "<p>2</p>"}},
+                        ]
+                    }
+                },
+            )
+        )
+        messages = await client.get_messages_for_thread("t1", limit=5)
+        assert [message.id for message in messages] == ["m2"]
 
 
 class TestGetPresenceTemplates:
@@ -1015,8 +1109,7 @@ class TestGetPresenceTemplates:
         assert len(result) >= 2  # At least the two valid ones
 
     @pytest.mark.asyncio
-    async def test_get_presence_templates_non_dict_presenceWeekTemplates(self, mock_client):
-        """Test handling when presenceWeekTemplates is not a list."""
+    async def test_get_presence_templates_non_list_presenceWeekTemplates_raises(self, mock_client):
         response_data = {"data": {"presenceWeekTemplates": "not a list"}}
 
         mock_client._request_with_version_retry = AsyncMock()
@@ -1024,17 +1117,15 @@ class TestGetPresenceTemplates:
         mock_response.raise_for_status = MagicMock()  # type: ignore[assignment]
         mock_client._request_with_version_retry.return_value = mock_response
 
-        result = await mock_client.get_presence_templates(
-            [10],
-            date(2026, 2, 25),
-            date(2026, 2, 25),
-        )
-
-        assert result == []
+        with pytest.raises(AulaResponseError):
+            await mock_client.get_presence_templates(
+                [10],
+                date(2026, 2, 25),
+                date(2026, 2, 25),
+            )
 
     @pytest.mark.asyncio
-    async def test_get_presence_templates_string_data(self, mock_client):
-        """Test handling when data is a string instead of dict."""
+    async def test_get_presence_templates_string_data_raises(self, mock_client):
         response_data = {"data": "string instead of dict"}
 
         mock_client._request_with_version_retry = AsyncMock()
@@ -1042,13 +1133,12 @@ class TestGetPresenceTemplates:
         mock_response.raise_for_status = MagicMock()  # type: ignore[assignment]
         mock_client._request_with_version_retry.return_value = mock_response
 
-        result = await mock_client.get_presence_templates(
-            [10],
-            date(2026, 2, 25),
-            date(2026, 2, 25),
-        )
-
-        assert result == []
+        with pytest.raises(AulaResponseError):
+            await mock_client.get_presence_templates(
+                [10],
+                date(2026, 2, 25),
+                date(2026, 2, 25),
+            )
 
     @pytest.mark.asyncio
     async def test_get_presence_templates_non_dict_items(self, mock_client):
@@ -1397,6 +1487,210 @@ class TestGetWidgetToken:
         with pytest.raises(AulaAuthenticationError):
             await client.get_widget_token("0030")
 
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("body", [{}, {"data": None}, {"data": ""}, None, ["token-123"]])
+    async def test_an_answer_without_a_token_is_an_aula_response_error(self, body):
+        http = FakeHttpClient()
+        client = AulaApiClient(http)
+        http.route(f"{client.api_url}?method=aulaToken.getAulaToken", HttpResponse(200, body))
+
+        with pytest.raises(AulaResponseError) as exc_info:
+            await client.get_widget_token("0030")
+        assert exc_info.value.status_code == 200
+
+
+def client_answering(response):
+    """A client whose every request gets ``response``."""
+    client = AulaApiClient(AsyncMock(), access_token="test_token")
+    client._request_with_version_retry = AsyncMock(return_value=response)
+    return client
+
+
+LIST_READS = {
+    "get_pickup_responsibles": lambda c: c.get_pickup_responsibles([1000001]),
+    "get_presence_registrations": lambda c: c.get_presence_registrations(
+        [1000001], date.today(), date.today()
+    ),
+    "get_presence_states": lambda c: c.get_presence_states(),
+    "get_presence_configuration": lambda c: c.get_presence_configuration([1000001]),
+    "get_notifications_for_active_profile": lambda c: c.get_notifications_for_active_profile(),
+    "get_calendar_events": lambda c: c.get_calendar_events(
+        [1000001], datetime.now(), datetime.now()
+    ),
+    "get_important_dates": lambda c: c.get_important_dates(),
+    "get_birthday_events": lambda c: c.get_birthday_events(["G90001"], "2026-01-01", "2026-01-02"),
+    "get_birthday_events_for_group": lambda c: c.get_birthday_events_for_group(
+        1000001, "2026-01-01", "2026-01-02"
+    ),
+    "get_event_types": lambda c: c.get_event_types(),
+    "get_daily_aggregated_events": lambda c: c.get_daily_aggregated_events(
+        [1000001], "2026-01-01", "2026-01-02"
+    ),
+    "get_events_for_institutions": lambda c: c.get_events_for_institutions(
+        ["G90001"], "2026-01-01", "2026-01-02"
+    ),
+    "get_daily_event_count_for_group": lambda c: c.get_daily_event_count_for_group(
+        1000001, "2026-01-01", "2026-01-02"
+    ),
+    "get_events_by_group": lambda c: c.get_events_by_group(1000001, "2026-01-01", "2026-01-02"),
+    "get_groups": lambda c: c.get_groups(child_institution_profile_ids=[1000001]),
+    "get_group_members": lambda c: c.get_group_members(1000001),
+    "get_comments": lambda c: c.get_comments("post", 1000001),
+    "get_gallery_albums": lambda c: c.get_gallery_albums([1000001]),
+    "get_album_pictures": lambda c: c.get_album_pictures([1000001], 1000001),
+    "get_message_folders": lambda c: c.get_message_folders(),
+    "get_common_inboxes": lambda c: c.get_common_inboxes(),
+    "get_threads_in_bundle": lambda c: c.get_threads_in_bundle(1000001),
+    "get_contact_list": lambda c: c.get_contact_list(1000001),
+    "get_contact_parents": lambda c: c.get_contact_parents(),
+    "get_media_by_profile": lambda c: c.get_media_by_profile(1000001),
+    "get_consent_responses": lambda c: c.get_consent_responses([1000001]),
+    "get_vacation_registrations": lambda c: c.get_vacation_registrations([1000001]),
+    "get_notification_settings": lambda c: c.get_notification_settings(),
+}
+
+OBJECT_READS = {
+    "get_presence_templates": lambda c: c.get_presence_templates(
+        [1000001], date.today(), date.today()
+    ),
+    "get_presence_registration_detail": lambda c: c.get_presence_registration_detail(1000001),
+    "get_activity_overview": lambda c: c.get_activity_overview([1000001], 1, 2026),
+    "get_message_threads": lambda c: c.get_message_threads(),
+    "get_messages_for_thread": lambda c: c.get_messages_for_thread("1000001"),
+    "get_calendar_event": lambda c: c.get_calendar_event(1000001),
+    "get_group": lambda c: c.get_group(1000001),
+    "get_posts": lambda c: c.get_posts([1000001]),
+    "get_post": lambda c: c.get_post(1000001),
+    "get_message_info": lambda c: c.get_message_info("1000001", "1000001"),
+    "find_recipients": lambda c: c.find_recipients("Barn"),
+    "find_profiles_and_groups": lambda c: c.find_profiles_and_groups("Barn"),
+    "search": lambda c: c.search("Barn"),
+    "get_media_by_id": lambda c: c.get_media_by_id(1000001),
+    "get_profile_master_data": lambda c: c.get_profile_master_data(1000001),
+    "get_auto_reply": lambda c: c.get_auto_reply(),
+    "search_groups": lambda c: c.search_groups("Barn"),
+    "get_secure_documents": lambda c: c.get_secure_documents([1000001]),
+    "get_common_files": lambda c: c.get_common_files(["G90001"]),
+}
+
+NESTED_LIST_READS = [
+    pytest.param(lambda c: c.get_profile(), {"profiles": "profile"}, id="get_profile"),
+    pytest.param(
+        lambda c: c.get_widgets(),
+        {"pageConfiguration": {"widgetConfigurations": "widget"}},
+        id="get_widgets",
+    ),
+    pytest.param(
+        OBJECT_READS["get_presence_templates"],
+        {"presenceWeekTemplates": "template"},
+        id="get_presence_templates",
+    ),
+    pytest.param(OBJECT_READS["get_message_threads"], {"threads": "t1"}, id="get_message_threads"),
+    pytest.param(
+        OBJECT_READS["get_messages_for_thread"], {"messages": "m1"}, id="get_messages_for_thread"
+    ),
+    pytest.param(OBJECT_READS["get_posts"], {"posts": "post"}, id="get_posts"),
+    pytest.param(OBJECT_READS["find_recipients"], {"results": "hit"}, id="find_recipients"),
+    pytest.param(OBJECT_READS["search_groups"], {"results": "hit"}, id="search_groups"),
+    pytest.param(
+        OBJECT_READS["get_secure_documents"], {"documents": "doc"}, id="get_secure_documents"
+    ),
+    pytest.param(OBJECT_READS["get_common_files"], {"commonFiles": "file"}, id="get_common_files"),
+    pytest.param(LIST_READS["get_gallery_albums"], {"albums": "album"}, id="get_gallery_albums"),
+    pytest.param(LIST_READS["get_album_pictures"], {"results": "picture"}, id="get_album_pictures"),
+    pytest.param(
+        lambda c: c.search_messages_result([1000001], ["G90001"]),
+        {"results": "hit"},
+        id="search_messages_result",
+    ),
+    pytest.param(
+        lambda c: c.get_all_message_threads_result(date.today()),
+        {"threads": "t1"},
+        id="get_all_message_threads_result",
+    ),
+    pytest.param(
+        lambda c: c.get_all_messages_for_thread_result("1000001"),
+        {"messages": "m1"},
+        id="get_all_messages_for_thread_result",
+    ),
+]
+
+
+class TestAnswerThatIsNotAJsonObject:
+    """A body that is not a JSON object raises AulaResponseError on every read."""
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        "call",
+        [*LIST_READS.values(), *OBJECT_READS.values()],
+        ids=[*LIST_READS, *OBJECT_READS],
+    )
+    @pytest.mark.parametrize("body", [None, ["data"]])
+    async def test_is_an_aula_response_error(self, call, body):
+        with pytest.raises(AulaResponseError):
+            await call(client_answering(HttpResponse(status_code=200, data=body)))
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        "call",
+        [
+            lambda c: c.get_message_folders(),
+            lambda c: c.get_group(1000001),
+            lambda c: c.get_profile_context(),
+            lambda c: c.get_widget_token("0030"),
+        ],
+    )
+    async def test_a_body_that_is_not_json_is_an_aula_response_error(self, call):
+        class HtmlResponse(HttpResponse):
+            def json(self):
+                raise ValueError("not JSON")
+
+        with pytest.raises(AulaResponseError) as exc_info:
+            await call(client_answering(HtmlResponse(status_code=200)))
+        assert isinstance(exc_info.value.__cause__, ValueError)
+
+
+class TestDataThatIsNotTheExpectedObject:
+    """Data of the wrong type raises AulaResponseError; null data is empty."""
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        "call",
+        [*LIST_READS.values(), lambda c: c.get_daily_overview(1000001)],
+        ids=[*LIST_READS, "get_daily_overview"],
+    )
+    @pytest.mark.parametrize("data", ["data", 1000001])
+    async def test_a_list_read_is_an_aula_response_error(self, call, data):
+        with pytest.raises(AulaResponseError):
+            await call(client_answering(HttpResponse(status_code=200, data={"data": data})))
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("call", LIST_READS.values(), ids=LIST_READS.keys())
+    @pytest.mark.parametrize("body", [{}, {"data": None}])
+    async def test_a_list_read_of_null_data_returns_nothing(self, call, body):
+        assert await call(client_answering(HttpResponse(status_code=200, data=body))) == []
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("call", OBJECT_READS.values(), ids=OBJECT_READS.keys())
+    @pytest.mark.parametrize("data", ["data", ["data"]])
+    async def test_an_object_read_is_an_aula_response_error(self, call, data):
+        with pytest.raises(AulaResponseError):
+            await call(client_answering(HttpResponse(status_code=200, data={"data": data})))
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("call", OBJECT_READS.values(), ids=OBJECT_READS.keys())
+    @pytest.mark.parametrize("body", [{}, {"data": None}, {"data": []}])
+    async def test_an_object_read_of_null_data_returns_nothing(self, call, body):
+        assert not await call(client_answering(HttpResponse(status_code=200, data=body)))
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize(("call", "data"), NESTED_LIST_READS)
+    async def test_a_list_inside_data_that_is_not_a_list_is_an_aula_response_error(
+        self, call, data
+    ):
+        with pytest.raises(AulaResponseError):
+            await call(client_answering(HttpResponse(status_code=200, data={"data": data})))
+
 
 class TestDownloadFile:
     @pytest.mark.asyncio
@@ -1613,10 +1907,17 @@ class TestGetCalendarEvents:
         assert events[0].title == "Good"
 
     @pytest.mark.asyncio
-    async def test_non_list_data_returns_empty(self, client):
-        """Non-list data format returns empty list."""
+    async def test_non_list_data_raises(self, client):
         client._request_with_version_retry = AsyncMock(
             return_value=HttpResponse(status_code=200, data={"data": "unexpected"})
+        )
+        with pytest.raises(AulaResponseError):
+            await client.get_calendar_events([100], datetime(2026, 3, 1), datetime(2026, 3, 1))
+
+    @pytest.mark.asyncio
+    async def test_null_data_returns_empty(self, client):
+        client._request_with_version_retry = AsyncMock(
+            return_value=HttpResponse(status_code=200, data={"data": None})
         )
         events = await client.get_calendar_events([100], datetime(2026, 3, 1), datetime(2026, 3, 1))
         assert events == []
@@ -2020,13 +2321,13 @@ class TestGetNotificationsForActiveProfile:
         assert kwargs["params"]["module"] == "messaging"
 
     @pytest.mark.asyncio
-    async def test_non_list_data_returns_empty(self, client):
-        """Non-list data payload returns an empty list."""
+    async def test_non_list_data_raises(self, client):
         client._request_with_version_retry = AsyncMock(
             return_value=HttpResponse(status_code=200, data={"data": {"results": []}})
         )
 
-        assert await client.get_notifications_for_active_profile() == []
+        with pytest.raises(AulaResponseError):
+            await client.get_notifications_for_active_profile()
 
     @pytest.mark.asyncio
     async def test_malformed_items_are_skipped(self, client):

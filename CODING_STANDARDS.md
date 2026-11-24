@@ -9,7 +9,9 @@ The rules a reviewer checks by judgement. Ruff, ty and the pre-commit hooks enfo
 - Why a design was chosen goes in the commit message, the PR or an ADR, not in a comment or docstring.
 - API and auth code is async.
 - A model is a dataclass on `AulaDataClass`, one file per model in `models/`. It parses with a `from_dict()` classmethod and keeps the original response in `_raw`.
-- Parsing is defensive: a response that does not parse logs a warning and does not raise.
+- An answer that is not in the expected shape raises `AulaResponseError`. A missing or null `data` is empty, not an error.
+- A record that fails to parse is logged and skipped. A list item that is not an object counts as a record that failed.
+- When every record of a non-empty response fails, the method raises `AulaResponseError`.
 - `rich` is optional. Anything that renders with it keeps a plain-text fallback.
 
 ## Tests

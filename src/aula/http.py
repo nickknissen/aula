@@ -42,6 +42,10 @@ class AulaApiVersionError(HttpRequestError):
         super().__init__(message, status_code)
 
 
+class AulaResponseError(HttpRequestError):
+    """Raised when Aula answers, but not in the shape the client expects."""
+
+
 class AulaAuthenticationError(HttpRequestError):
     """Raised when authentication fails (401 Unauthorized, 403 Forbidden).
 
