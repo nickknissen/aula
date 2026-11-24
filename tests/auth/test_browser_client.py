@@ -11,6 +11,7 @@ import pytest
 from aula.auth import browser_client as browser_client_module
 from aula.auth.browser_client import _COMBINATION_ID_TO_NAME, BrowserClient
 from aula.auth.exceptions import MitIDError, PasswordInvalidError, TokenInvalidError
+from aula.const import USER_AGENT
 
 SESSION_ID = "auth-session-1"
 TOKEN_SESSION_ID = "token-session-1"
@@ -394,6 +395,29 @@ class TestFrontEndProcessingTime:
         await client.authenticate_with_token_and_password("123456", "hunter2")
 
         assert server.bodies["password-prove"]["frontEndProcessingTime"] > 0
+
+
+class TestSharedClient:
+    @pytest.mark.asyncio
+    async def test_requests_send_aula_user_agent_and_leave_client_headers(self):
+        server = FakeMitID()
+        seen: list[str] = []
+
+        def endpoint(request: httpx.Request) -> httpx.Response:
+            seen.append(request.headers["User-Agent"])
+            return server(request)
+
+        transport = httpx.MockTransport(endpoint)
+        http_client = httpx.AsyncClient(transport=transport, headers={"User-Agent": "shared/1.0"})
+        client = BrowserClient("client-hash", SESSION_ID, http_client)
+
+        await client.initialize()
+        await client.identify_as_user_and_get_available_authenticators("tester")
+        await client.authenticate_with_token_and_password("123456", "hunter2")
+
+        assert seen
+        assert set(seen) == {USER_AGENT}
+        assert http_client.headers["User-Agent"] == "shared/1.0"
 
 
 POLL_URL = "https://www.mitid.dk/mitid-code-app-auth/v1/authenticator-sessions/web/poll"
