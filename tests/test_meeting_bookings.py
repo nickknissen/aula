@@ -108,6 +108,18 @@ def test_nonmeeting_rows_are_ignored(value):
     assert meeting_bookings([value], 11) == []
 
 
+def test_a_malformed_meeting_is_skipped_when_another_parses(row):
+    broken = {key: value for key, value in row.items() if key != "id"}
+    assert [b.meeting_id for b in meeting_bookings([broken, row], 11)] == [42]
+
+
+def test_meetings_that_all_fail_raise(row):
+    broken = {key: value for key, value in row.items() if key != "id"}
+    with pytest.raises(ValueError, match="any meeting") as exc_info:
+        meeting_bookings([broken, broken], 11)
+    assert isinstance(exc_info.value.__cause__, KeyError)
+
+
 @pytest.fixture
 def client(row):
     api = AulaApiClient(http_client=AsyncMock())
@@ -182,6 +194,19 @@ async def test_invalid_response_is_an_aula_response_error(client, body):
         await client.get_meeting_bookings(
             11, datetime(2026, 1, 1, tzinfo=UTC), datetime(2026, 2, 1, tzinfo=UTC)
         )
+
+
+@pytest.mark.asyncio
+async def test_meetings_that_all_fail_are_an_aula_response_error(client, row):
+    broken = {key: value for key, value in row.items() if key != "id"}
+    client._request_with_version_retry.return_value = HttpResponse(
+        status_code=200, data={"status": {"code": 0}, "data": [broken]}
+    )
+    with pytest.raises(AulaResponseError) as exc_info:
+        await client.get_meeting_bookings(
+            11, datetime(2026, 11, 1, tzinfo=UTC), datetime(2026, 11, 10, tzinfo=UTC)
+        )
+    assert exc_info.value.status_code == 200
 
 
 @pytest.mark.asyncio
