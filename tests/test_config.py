@@ -65,13 +65,27 @@ def test_save_config_tightens_existing_file(tmp_path):
     assert json.loads(config_file.read_text()) == {"username": "test"}
 
 
-def test_save_config_still_saves_when_chmod_fails(tmp_path):
+def test_save_config_failure_keeps_existing_file(tmp_path):
     config_file = tmp_path / "config.json"
-    config_file.write_text("{}")
+    config_file.write_text('{"username": "old"}')
     with (
         patch("aula.config.CONFIG_FILE", config_file),
         patch("aula.config.CONFIG_DIR", tmp_path),
-        patch("aula.config.os.fchmod", side_effect=OSError("not permitted")),
+        patch("aula.utils.atomic_write.json.dump", side_effect=TypeError("boom")),
+        pytest.raises(TypeError),
     ):
-        save_config({"username": "test"})
-    assert json.loads(config_file.read_text()) == {"username": "test"}
+        save_config({"username": "new"})
+    assert json.loads(config_file.read_text()) == {"username": "old"}
+    assert list(tmp_path.iterdir()) == [config_file]
+
+
+def test_load_config_corrupt_file_logs_warning(tmp_path, caplog):
+    config_file = tmp_path / "config.json"
+    config_file.write_text("not json")
+    with (
+        patch("aula.config.CONFIG_FILE", config_file),
+        patch("aula.config.CONFIG_DIR", tmp_path),
+        caplog.at_level("WARNING", logger="aula.config"),
+    ):
+        assert load_config() == {}
+    assert "Failed to read config file" in caplog.text
