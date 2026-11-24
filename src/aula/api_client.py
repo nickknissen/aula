@@ -181,15 +181,14 @@ class _SkippedRecords:
                 self.add(TypeError(f"expected an object, got {type(item).__name__}"))
 
     def add(self, error: Exception, record: Any = None) -> None:
-        """Count a record that failed and log the error with the record's keys, not its values."""
+        """Count a record that failed and log its error type and keys, not its values."""
         self.count += 1
         self.last_error = error
         keys = sorted(str(key) for key in record) if isinstance(record, dict) else []
         _LOGGER.warning(
-            "Skipping %s: %s: %s (keys: %s)",
+            "Skipping %s: %s (keys: %s)",
             self.record_type,
             type(error).__name__,
-            error,
             ", ".join(keys) or "none",
         )
 

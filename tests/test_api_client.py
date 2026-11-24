@@ -1911,6 +1911,17 @@ class TestRecordsThatFailToParse:
         assert "Barn Et" not in str(exc_info.value)
 
     @pytest.mark.asyncio
+    async def test_the_warning_holds_no_record_values(self, caplog):
+        http = FakeHttpClient()
+        http.route(API_URL, _groups(GOOD_GROUP, {"id": "Barn Et"}))
+
+        with caplog.at_level(logging.WARNING, logger="aula"):
+            await AulaApiClient(http).search_groups("3.A")
+
+        assert "Skipping group search result: ValueError" in caplog.text
+        assert "Barn Et" not in caplog.text
+
+    @pytest.mark.asyncio
     async def test_some_records_failing_are_skipped_with_a_warning(self, caplog):
         http = FakeHttpClient()
         http.route(API_URL, _groups(GOOD_GROUP, BAD_GROUP, GOOD_GROUP))
