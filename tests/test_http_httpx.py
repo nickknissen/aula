@@ -1,4 +1,5 @@
 import functools
+import logging
 
 import httpx
 import pytest
@@ -176,3 +177,22 @@ async def test_reset_cookies_replaces_the_aula_cookies_and_keeps_other_hosts():
         "www.aula.dk": "PHPSESSID=session0001",
         "api.minuddannelse.net": "Provider=provider0001",
     }
+
+
+@pytest.mark.asyncio
+async def test_httpx_request_log_omits_query_values(caplog):
+    """httpx logs the URL as an object; the access token must not reach the log."""
+    client = _client_serving(httpx.Response(200, json={}))
+    with caplog.at_level(logging.INFO, logger="httpx"):
+        async with client._client as inner:
+            await inner.get("https://www.aula.dk/api/v25/?method=x&access_token=SECRET")
+    assert "SECRET" not in caplog.text
+    assert "www.aula.dk/api/v25/" in caplog.text
+    assert "access_token" in caplog.text
+
+
+def test_creating_clients_installs_one_httpx_log_filter():
+    HttpxHttpClient()
+    HttpxHttpClient()
+    filters = [f for f in logging.getLogger("httpx").filters if "Credential" in type(f).__name__]
+    assert len(filters) == 1

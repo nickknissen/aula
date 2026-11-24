@@ -6,6 +6,9 @@ import httpx
 
 from .const import AULA_COOKIE_DOMAIN, USER_AGENT
 from .http import AulaConnectionError, DownloadTooLargeError, HttpResponse
+from .utils.diagnostics import credential_logger
+
+credential_logger("httpx")
 
 
 def _connection_error(url: str, err: httpx.TransportError) -> AulaConnectionError:
