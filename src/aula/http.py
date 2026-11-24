@@ -35,6 +35,13 @@ class AulaRejectedError(HttpRequestError):
         self.api_method = api_method
 
 
+class AulaApiVersionError(HttpRequestError):
+    """Raised when every API version tried answers 410 Gone."""
+
+    def __init__(self, message: str, status_code: int = 410) -> None:
+        super().__init__(message, status_code)
+
+
 class AulaAuthenticationError(HttpRequestError):
     """Raised when authentication fails (401 Unauthorized, 403 Forbidden).
 

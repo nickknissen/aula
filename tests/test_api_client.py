@@ -12,6 +12,7 @@ import pytest
 from aula.api_client import AulaApiClient, ThreadScanLimitError, validate_vacation
 from aula.const import API_URL, API_VERSION, CSRF_TOKEN_HEADER
 from aula.http import (
+    AulaApiVersionError,
     AulaAuthenticationError,
     AulaConnectionError,
     AulaRejectedError,
@@ -82,14 +83,54 @@ class TestRequestWithVersionRetry:
         assert client.api_url == f"{API_URL}{int(API_VERSION) + 2}"
 
     @pytest.mark.asyncio
-    async def test_max_retries_exceeded_raises_runtime_error(self, client):
-        """5 consecutive 410s raises RuntimeError."""
+    async def test_max_retries_exceeded_raises_api_version_error(self, client):
         client._client.request = AsyncMock(return_value=HttpResponse(status_code=410, data=None))
-        with pytest.raises(RuntimeError, match="Failed to find working API version"):
+        with pytest.raises(AulaApiVersionError, match="Failed to find working API version") as exc:
             await client._request_with_version_retry(
                 "get", "https://www.aula.dk/api/v23?method=test"
             )
+        assert isinstance(exc.value, HttpRequestError)
+        assert exc.value.status_code == 410
         assert client._client.request.call_count == 5
+
+    @pytest.mark.asyncio
+    async def test_concurrent_410s_bump_once_and_both_retry_on_next_version(self):
+        http = FakeHttpClient()
+        http.route(f"{API_URL}25", HttpResponse(status_code=410, data=None))
+        http.route(f"{API_URL}26", HttpResponse(status_code=200, data={"ok": True}))
+        client = AulaApiClient(http_client=http)
+        client.api_url = f"{API_URL}25"
+
+        responses = await asyncio.gather(
+            client._request_with_version_retry("get", f"{API_URL}25?method=one"),
+            client._request_with_version_retry("get", f"{API_URL}25?method=two"),
+        )
+
+        assert [response.status_code for response in responses] == [200, 200]
+        assert client.api_url == f"{API_URL}26"
+        assert sorted(request.url for request in http.requests) == [
+            f"{API_URL}25?method=one",
+            f"{API_URL}25?method=two",
+            f"{API_URL}26?method=one",
+            f"{API_URL}26?method=two",
+        ]
+
+    @pytest.mark.asyncio
+    async def test_410_on_older_version_retries_on_current_without_bumping(self):
+        http = FakeHttpClient()
+        http.route(f"{API_URL}25", HttpResponse(status_code=410, data=None))
+        http.route(f"{API_URL}26", HttpResponse(status_code=200, data={"ok": True}))
+        client = AulaApiClient(http_client=http)
+        client.api_url = f"{API_URL}26"
+
+        response = await client._request_with_version_retry("get", f"{API_URL}25?method=test")
+
+        assert response.status_code == 200
+        assert client.api_url == f"{API_URL}26"
+        assert [request.url for request in http.requests] == [
+            f"{API_URL}25?method=test",
+            f"{API_URL}26?method=test",
+        ]
 
     @pytest.mark.asyncio
     async def test_non_410_error_returned_without_retry(self, client):
