@@ -56,6 +56,21 @@ class AulaAuthenticationError(HttpRequestError):
     pass
 
 
+class AulaLoginRequiredError(AulaAuthenticationError):
+    """Raised when stored credentials cannot be used and a new MitID login is needed."""
+
+
+class AulaRefreshTokenConflictError(AulaAuthenticationError):
+    """Raised when another process has rotated the refresh token in the shared token storage."""
+
+    def __init__(
+        self,
+        message: str = "Another process has used the stored credentials",
+        status_code: int = 0,
+    ) -> None:
+        super().__init__(message, status_code)
+
+
 class AulaRateLimitError(HttpRequestError):
     """Raised when the API rate limit is exceeded (429 Too Many Requests).
 
@@ -231,5 +246,12 @@ class HttpClient(Protocol):
         HTTP client (e.g. httpx) should override this.
         """
         return None
+
+    def reset_cookies(self, cookies: dict[str, str]) -> None:
+        """Replace every Aula cookie with ``cookies``.
+
+        Optional. Without it, a refreshed client that Aula refuses cannot start a new session.
+        """
+        ...
 
     async def close(self) -> None: ...

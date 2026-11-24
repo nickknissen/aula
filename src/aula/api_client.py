@@ -23,6 +23,8 @@ from .http import (
     AulaAuthenticationError,
     AulaConnectionError,
     AulaInvalidTokenError,
+    AulaLoginRequiredError,
+    AulaRefreshTokenConflictError,
     AulaRejectedError,
     AulaResponseError,
     AulaServerError,
@@ -295,7 +297,13 @@ class AulaApiClient:
     Authentication uses ``access_token`` as a query parameter during ``init()``
     to establish a server-side session, then relies on session cookies for all
     subsequent API requests.
+
+    ``session_cookies`` are the cookies saved at login. When Aula refuses a call
+    (status code 10) after an automatic token refresh, the client starts a new
+    session from them once and replays the call.
     """
+
+    _CODE_AUTHORIZATION_DENIED = 10
 
     # API response sub-codes from the Aula backend envelope (status.subCode).
     # Values match WebResponseStatusSubCodeConstants in the decompiled
@@ -311,11 +319,14 @@ class AulaApiClient:
         access_token: str | None = None,
         csrf_token: str | None = None,
         on_token_refresh: Callable[[], Awaitable[str | None]] | None = None,
+        session_cookies: dict[str, str] | None = None,
     ) -> None:
         self._client = http_client
         self._access_token = access_token
         self._csrf_token = csrf_token
         self._on_token_refresh = on_token_refresh
+        self._session_cookies = dict(session_cookies) if session_cookies is not None else None
+        self._new_session_access_token: str | None = None
         self._auth_refresh_lock = asyncio.Lock()
         self._auth_generation = 0
         self._auth_refresh_context: ContextVar[bool] = ContextVar(
@@ -378,6 +389,13 @@ class AulaApiClient:
         sub_code = status.get("subCode")
         return int(sub_code) if sub_code is not None else None
 
+    @staticmethod
+    def _extract_status_code(response: HttpResponse) -> object:
+        """Return ``status.code`` from the Aula API response envelope, if any."""
+        data = response.json()
+        status = data.get("status") if isinstance(data, dict) else None
+        return status.get("code") if isinstance(status, dict) else None
+
     def _raise_for_sub_code(self, sub_code: int, api_method: str | None) -> None:
         """Raise a specific error for known Aula API sub-codes."""
         method_info = f" (method={api_method})" if api_method else ""
@@ -394,6 +412,15 @@ class AulaApiClient:
             raise AulaInvalidTokenError(f"Invalid access token{method_info}", status_code=401)
         if sub_code == self._SUBCODE_SESSION_EXPIRED:
             raise AulaSessionExpiredError(f"Session expired{method_info}", status_code=401)
+
+    def _raise_for_auth_failure(
+        self, response: HttpResponse, url: str, params: dict[str, Any] | None
+    ) -> None:
+        """Raise the authentication error a response carries in its sub-code or status."""
+        sub_code = self._extract_sub_code(response)
+        if sub_code is not None:
+            self._raise_for_sub_code(sub_code, _extract_api_method(url, params))
+        response.raise_for_status()
 
     async def _request_with_version_retry(
         self,
@@ -419,7 +446,15 @@ class AulaApiClient:
         (if provided), re-inits the session, and retries the request. Widget
         provider URLs never trigger a refresh. When the refresh fails because
         a server is down or unreachable, that ``AulaServerError`` or
-        ``AulaConnectionError`` is raised instead of returning the 401.
+        ``AulaConnectionError`` is raised instead of returning the 401. When the
+        refresh callback raises ``AulaLoginRequiredError``, that error is raised
+        with the original authentication error as its cause.
+        ``AulaRefreshTokenConflictError`` from the callback is raised unchanged.
+
+        When Aula answers status code 10 after a refresh, starts a new session
+        once (see ``_start_new_session``) and replays the request. Once a call
+        on the refreshed session succeeds, code 10 is Aula's real answer and
+        is raised at once.
         """
         is_aula_call = url.startswith(API_URL)
         observed_generation = self._auth_generation
@@ -441,10 +476,33 @@ class AulaApiClient:
                     "Auth failure (HTTP %d), attempting token refresh and retry",
                     response.status_code,
                 )
-                if await self._refresh_authentication(observed_generation):
+                try:
+                    refreshed = await self._refresh_authentication(observed_generation)
+                except AulaLoginRequiredError as rejected:
+                    try:
+                        self._raise_for_auth_failure(response, url, params)
+                    except AulaAuthenticationError as original:
+                        raise AulaLoginRequiredError(
+                            str(rejected), original.status_code
+                        ) from original
+                    raise
+                if refreshed:
+                    observed_generation = self._auth_generation
                     response = await self._do_request(
                         method, url, headers=headers, params=params, json=json
                     )
+
+        status_code = self._extract_status_code(response) if is_aula_call else None
+        if (
+            status_code == self._CODE_AUTHORIZATION_DENIED
+            and not self._auth_refresh_context.get()
+            and await self._start_new_session(observed_generation)
+        ):
+            response = await self._do_request(
+                method, url, headers=headers, params=params, json=json
+            )
+        elif status_code == 0 and observed_generation == self._auth_generation:
+            self._new_session_access_token = None
 
         # After retry (or no retry), check for sub-code errors on the final response.
         sub_code = self._extract_sub_code(response) if is_aula_call else None
@@ -506,8 +564,14 @@ class AulaApiClient:
                 self._access_token = new_token
                 await self.init()
                 self._auth_generation += 1
+                self._new_session_access_token = new_token
                 return True
-            except AulaServerError, AulaConnectionError:
+            except (
+                AulaServerError,
+                AulaConnectionError,
+                AulaLoginRequiredError,
+                AulaRefreshTokenConflictError,
+            ):
                 self._access_token = previous_access_token
                 raise
             except Exception as e:
@@ -516,6 +580,31 @@ class AulaApiClient:
                 return False
             finally:
                 self._auth_refresh_context.reset(refresh_context_token)
+
+    async def _start_new_session(self, observed_generation: int) -> bool:
+        """Start one new session from the login cookies and return whether to replay."""
+        async with self._auth_refresh_lock:
+            if observed_generation != self._auth_generation:
+                return True
+
+            access_token = self._new_session_access_token
+            reset_cookies = getattr(self._client, "reset_cookies", None)
+            if access_token is None or self._session_cookies is None or not callable(reset_cookies):
+                return False
+
+            _LOGGER.warning("Aula refused the refreshed session; starting a new session")
+            self._new_session_access_token = None
+            reset_cookies(self._session_cookies)
+            self._csrf_token = self._session_cookies.get(CSRF_TOKEN_COOKIE)
+            self._access_token = access_token
+            refresh_context_token = self._auth_refresh_context.set(True)
+            try:
+                await self.init()
+            finally:
+                self._access_token = None
+                self._auth_refresh_context.reset(refresh_context_token)
+            self._auth_generation += 1
+            return True
 
     async def _do_request(
         self,

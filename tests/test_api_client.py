@@ -15,6 +15,8 @@ from aula.http import (
     AulaApiVersionError,
     AulaAuthenticationError,
     AulaConnectionError,
+    AulaInvalidTokenError,
+    AulaLoginRequiredError,
     AulaRejectedError,
     AulaResponseError,
     AulaServerError,
@@ -25,6 +27,14 @@ from aula.http import (
 )
 from aula.http_httpx import HttpxHttpClient
 from tests.fakes import FakeHttpClient
+
+
+class _InterleavingHttpClient(FakeHttpClient):
+    """Yields before every answer, so concurrent callers really do interleave."""
+
+    async def request(self, method, url, **kwargs):
+        await asyncio.sleep(0)
+        return await super().request(method, url, **kwargs)
 
 
 def search_hit(message):
@@ -214,6 +224,36 @@ class TestRequestWithVersionRetry:
         assert response.json() == {"data": {"ok": True}}
         on_token_refresh.assert_awaited_once_with()
         assert http_client.request.await_count == 4
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        ("response", "original"),
+        [
+            (HttpResponse(status_code=401), AulaAuthenticationError),
+            (HttpResponse(status_code=200, data={"status": {"subCode": 9}}), AulaInvalidTokenError),
+        ],
+    )
+    async def test_rejected_refresh_raises_login_required_from_original_error(
+        self, response, original
+    ):
+        http_client = AsyncMock()
+        http_client.request = AsyncMock(return_value=response)
+        rejected = AulaLoginRequiredError("Token server rejected the refresh token", 400)
+        client = AulaApiClient(
+            http_client=http_client,
+            access_token="old-token",
+            on_token_refresh=AsyncMock(side_effect=rejected),
+        )
+
+        with pytest.raises(AulaLoginRequiredError) as raised:
+            await client._request_with_version_retry(
+                "get", f"{API_URL}{API_VERSION}?method=rejected-refresh"
+            )
+
+        assert type(raised.value.__cause__) is original
+        assert raised.value.status_code == 401
+        assert client._access_token == "old-token"
+        assert http_client.request.await_count == 1
 
     @pytest.mark.asyncio
     async def test_authentication_replay_is_limited_to_one_attempt(self):
@@ -1485,6 +1525,145 @@ class TestLegacyWidgetMethodWrappers:
         )
         assert warning_info[0].filename.endswith("test_api_client.py")
         assert warning_info[0].lineno == call_line
+
+
+class TestNewSessionAfterRefusedRefresh:
+    API = f"{API_URL}{API_VERSION}"
+    STORED_COOKIES = {"PHPSESSID": "session0001", "Csrfp-Token": "csrf-token"}
+    REFUSED = HttpResponse(200, {"status": {"code": 10}, "data": None})
+    OK = HttpResponse(200, {"status": {"code": 0}, "data": {"ok": True}})
+
+    @pytest.fixture
+    def http(self):
+        http = _InterleavingHttpClient()
+        http.cookies = dict(self.STORED_COOKIES)
+        http.route(
+            f"{self.API}?method=profiles.getProfilesByLogin",
+            HttpResponse(200, {"status": {"code": 0}, "data": {"profiles": []}}),
+        )
+        http.route(f"{self.API}?method=profiles.getProfileContext", self.OK)
+        return http
+
+    @pytest.fixture
+    def on_token_refresh(self):
+        return AsyncMock(return_value="access-2")
+
+    @pytest.fixture
+    def client(self, http, on_token_refresh):
+        return AulaApiClient(
+            http,
+            access_token="access-1",
+            on_token_refresh=on_token_refresh,
+            session_cookies=self.STORED_COOKIES,
+        )
+
+    def _logins(self, http: FakeHttpClient) -> list[str]:
+        return [r.url for r in http.requests_to(f"{self.API}?method=profiles.getProfilesByLogin")]
+
+    async def _refresh(self, client: AulaApiClient, http: FakeHttpClient) -> None:
+        """Refresh the client without any call answered on the refreshed session yet."""
+        await client.init()
+        assert await client._refresh_authentication(client._auth_generation)
+        http.cookies["SessionCookie"] = "received-after-login"
+
+    @pytest.mark.asyncio
+    async def test_refused_call_after_refresh_starts_one_new_session_and_replays(
+        self, client, http, on_token_refresh
+    ):
+        await self._refresh(client, http)
+        http.route(f"{self.API}?method=refused", self.REFUSED, self.OK)
+
+        response = await client._request_with_version_retry("get", f"{self.API}?method=refused")
+
+        assert response.json()["data"] == {"ok": True}
+        assert len(http.requests_to(f"{self.API}?method=refused")) == 2
+        on_token_refresh.assert_awaited_once_with()
+        new_session_login = self._logins(http)[2]
+        assert new_session_login.endswith("&access_token=access-2")
+        assert len(self._logins(http)) == 3
+        assert client._access_token is None
+
+    @pytest.mark.asyncio
+    async def test_new_session_drops_cookies_received_after_login(self, client, http):
+        await self._refresh(client, http)
+        http.route(f"{self.API}?method=refused", self.REFUSED, self.OK)
+
+        await client._request_with_version_retry("get", f"{self.API}?method=refused")
+
+        assert http.cookies == self.STORED_COOKIES
+
+    @pytest.mark.asyncio
+    async def test_refused_replay_raises(self, client, http):
+        await self._refresh(client, http)
+        http.route(f"{self.API}?method=refused", self.REFUSED)
+
+        with pytest.raises(AulaRejectedError) as raised:
+            await client._request_with_version_retry("get", f"{self.API}?method=refused")
+
+        assert raised.value.code == 10
+        assert len(http.requests_to(f"{self.API}?method=refused")) == 2
+        assert len(self._logins(http)) == 3
+
+    @pytest.mark.asyncio
+    async def test_refused_replay_of_the_refresh_starts_a_new_session(self, client, http):
+        await client.init()
+        http.route(f"{self.API}?method=refused", HttpResponse(401), self.REFUSED, self.OK)
+
+        response = await client._request_with_version_retry("get", f"{self.API}?method=refused")
+
+        assert response.json()["data"] == {"ok": True}
+        assert len(http.requests_to(f"{self.API}?method=refused")) == 3
+        assert len(self._logins(http)) == 3
+
+    @pytest.mark.asyncio
+    async def test_refusal_without_a_refresh_raises_at_once(self, client, http):
+        await client.init()
+        http.route(f"{self.API}?method=refused", self.REFUSED, self.OK)
+
+        with pytest.raises(AulaRejectedError):
+            await client._request_with_version_retry("get", f"{self.API}?method=refused")
+
+        assert len(http.requests_to(f"{self.API}?method=refused")) == 1
+        assert len(self._logins(http)) == 1
+
+    @pytest.mark.asyncio
+    async def test_refusal_after_the_refreshed_session_worked_raises_at_once(self, client, http):
+        await self._refresh(client, http)
+        http.route(f"{self.API}?method=works", self.OK)
+        http.route(f"{self.API}?method=refused", self.REFUSED, self.OK)
+        await client._request_with_version_retry("get", f"{self.API}?method=works")
+
+        with pytest.raises(AulaRejectedError):
+            await client._request_with_version_retry("get", f"{self.API}?method=refused")
+
+        assert len(http.requests_to(f"{self.API}?method=refused")) == 1
+        assert len(self._logins(http)) == 2
+        assert http.cookies["SessionCookie"] == "received-after-login"
+
+    @pytest.mark.asyncio
+    async def test_one_new_session_per_refresh(self, client, http):
+        await self._refresh(client, http)
+        http.route(f"{self.API}?method=refused", self.REFUSED, self.OK, self.REFUSED)
+        await client._request_with_version_retry("get", f"{self.API}?method=refused")
+
+        with pytest.raises(AulaRejectedError):
+            await client._request_with_version_retry("get", f"{self.API}?method=refused")
+
+        assert len(self._logins(http)) == 3
+
+    @pytest.mark.asyncio
+    async def test_concurrent_refusals_share_one_new_session(self, client, http):
+        await self._refresh(client, http)
+        http.route(f"{self.API}?method=one", self.REFUSED, self.OK)
+        http.route(f"{self.API}?method=two", self.REFUSED, self.OK)
+
+        responses = await asyncio.gather(
+            client._request_with_version_retry("get", f"{self.API}?method=one"),
+            client._request_with_version_retry("get", f"{self.API}?method=two"),
+        )
+
+        assert [r.json()["data"] for r in responses] == [{"ok": True}, {"ok": True}]
+        assert len(self._logins(http)) == 3
 
 
 class TestGetWidgetToken:

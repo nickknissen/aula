@@ -56,5 +56,8 @@ class FakeHttpClient:
     def get_cookie(self, name: str) -> str | None:
         return self.cookies.get(name)
 
+    def reset_cookies(self, cookies: dict[str, str]) -> None:
+        self.cookies = dict(cookies)
+
     async def close(self) -> None:
         pass

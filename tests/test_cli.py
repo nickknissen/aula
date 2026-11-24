@@ -44,7 +44,7 @@ from aula.const import (
     WIDGET_EASYIQ_LEGACY,
     WIDGET_EASYIQ_WEEKPLAN,
 )
-from aula.http import AulaRejectedError
+from aula.http import AulaRefreshTokenConflictError, AulaRejectedError
 from aula.models import (
     Child,
     CommonFile,
@@ -675,6 +675,34 @@ class TestLoginDrivenByAnotherProgram:
         assert result.exit_code == 0, result.output
         assert token_file.exists()
         assert mitid.chosen_index == 1
+
+
+class TestRefreshTokenConflict:
+    def test_names_the_token_file_and_starts_no_mitid_login(self, tmp_path, monkeypatch):
+        token_file = tmp_path / "t.json"
+        token_file.write_text('{"tokens": {"access_token": "abc123"}, "cookies": {}}')
+        mitid = FakeMitID()
+        monkeypatch.setattr("aula.auth_flow.authenticate", mitid)
+        monkeypatch.setattr(
+            "aula.auth_flow.create_client",
+            AsyncMock(side_effect=AulaRefreshTokenConflictError()),
+        )
+        root = logging.getLogger()
+        level, handlers = root.level, root.handlers[:]
+        try:
+            result = CliRunner().invoke(
+                cli.cli,
+                ["--username", "tester", "--token-file", str(token_file), "profile"],
+                env={"AULA_TOKEN_FILE": None, "AULA_OUTPUT": None},
+            )
+        finally:
+            root.setLevel(level)
+            root.handlers[:] = handlers
+
+        assert result.exit_code != 0
+        assert str(token_file) in result.stderr
+        assert "--token-file" in result.stderr
+        assert mitid.logins == 0
 
 
 class TestVersionFlag:

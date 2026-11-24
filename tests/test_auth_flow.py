@@ -1,5 +1,6 @@
 """Tests for aula.auth_flow — authenticate, create_client, authenticate_and_create_client."""
 
+import copy
 import time
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -13,8 +14,17 @@ from aula.auth_flow import (
     authenticate_and_create_client,
     create_client,
 )
-from aula.const import CSRF_TOKEN_COOKIE
-from aula.http import AulaAuthenticationError, AulaConnectionError, AulaServerError, HttpResponse
+from aula.const import API_URL, API_VERSION, CSRF_TOKEN_COOKIE, OAUTH_TOKEN_PATH
+from aula.http import (
+    AulaAuthenticationError,
+    AulaConnectionError,
+    AulaLoginRequiredError,
+    AulaRefreshTokenConflictError,
+    AulaRejectedError,
+    AulaServerError,
+    HttpResponse,
+)
+from tests.fakes import FakeHttpClient
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -147,6 +157,7 @@ class TestCreateClient:
             },
             "cookies": {"PHPSESSID": "session-1"},
         }
+        original_token_data = copy.deepcopy(token_data)
         token_storage = AsyncMock()
 
         client = await create_client(
@@ -192,7 +203,9 @@ class TestCreateClient:
 
             assert first_profile.display_name == "Test"
             refresh_via_oidc.assert_awaited_once_with("refresh-1")
-            assert token_data == {
+            token_storage.save.assert_awaited_once()
+            saved = token_storage.save.await_args.args[0]
+            assert saved == {
                 "timestamp": 100.0,
                 "created_at": "created-after-first",
                 "username": "user",
@@ -204,7 +217,6 @@ class TestCreateClient:
                 },
                 "cookies": {"PHPSESSID": "session-1"},
             }
-            token_storage.save.assert_awaited_once_with(token_data)
 
             second_profile = await client.get_profile()
 
@@ -213,16 +225,17 @@ class TestCreateClient:
             ("refresh-1",),
             ("refresh-2",),
         ]
-        assert token_data["tokens"] == {
+        assert saved["tokens"] == {
             "access_token": "access-3",
             "refresh_token": "refresh-2",
             "scope": "openid",
             "expires_at": 3_000.0,
         }
-        assert token_data["timestamp"] == 200.0
-        assert token_data["created_at"] == "created-after-second"
+        assert saved["timestamp"] == 200.0
+        assert saved["created_at"] == "created-after-second"
         assert token_storage.save.await_count == 2
-        assert token_storage.save.await_args.args[0] is token_data
+        assert token_storage.save.await_args.args[0] is saved
+        assert token_data == original_token_data
 
     @pytest.mark.asyncio
     @pytest.mark.parametrize(
@@ -251,12 +264,88 @@ class TestCreateClient:
         token_storage.save.assert_not_awaited()
         assert token_data["tokens"]["refresh_token"] == "refresh-1"
 
+    @pytest.mark.asyncio
+    async def test_rejected_automatic_refresh_requires_login(self):
+        http = _mock_http_client()
+        token_data = {
+            "tokens": {"access_token": "access-1", "refresh_token": "refresh-1"},
+            "cookies": {},
+        }
+        token_storage = AsyncMock()
+        client = await create_client(token_data, http_client=http, token_storage=token_storage)
+        http.request = AsyncMock(return_value=HttpResponse(status_code=401))
+
+        with (
+            _token_server(lambda request: httpx.Response(400, json={"error": "invalid_grant"})),
+            pytest.raises(AulaLoginRequiredError) as raised,
+        ):
+            await client.get_profile()
+
+        assert type(raised.value.__cause__) is AulaAuthenticationError
+        assert raised.value.__cause__.status_code == 401
+        token_storage.save.assert_not_awaited()
+
+    STORED_COOKIES = {"PHPSESSID": "session0001", CSRF_TOKEN_COOKIE: "csrf-token"}
+    REFUSED = HttpResponse(200, {"status": {"code": 10}})
+    OK = HttpResponse(200, {"status": {"code": 0}, "data": {"ok": True}})
+
+    async def _refreshed_client(self, http: FakeHttpClient, *answers: HttpResponse):
+        api = f"{API_URL}{API_VERSION}"
+        http.route(f"{api}?method=profiles.getProfilesByLogin", _profile_response())
+        http.route(f"{api}?method=profiles.getProfileContext", _profile_context_response())
+        http.route(f"{api}?method=messaging.getThreads", HttpResponse(401), *answers)
+        http.cookies = dict(self.STORED_COOKIES)
+        token_data = {
+            "tokens": {"access_token": "access-1", "refresh_token": "refresh-1"},
+            "cookies": self.STORED_COOKIES,
+        }
+        client = await create_client(token_data, http_client=http)
+        http.cookies["SessionCookie"] = "received-after-login"
+        return client, f"{api}?method=messaging.getThreads"
+
+    @pytest.mark.asyncio
+    async def test_refused_refreshed_client_starts_a_new_session_from_the_stored_cookies(self):
+        http = FakeHttpClient()
+        client, url = await self._refreshed_client(http, self.REFUSED, self.OK)
+
+        with patch(
+            "aula.auth_flow._refresh_token_via_oidc",
+            new_callable=AsyncMock,
+            return_value={"access_token": "access-2"},
+        ):
+            response = await client._request_with_version_retry("get", url)
+
+        assert response.json()["data"] == {"ok": True}
+        assert len(http.requests_to(url)) == 3
+        assert http.cookies == self.STORED_COOKIES
+
+    @pytest.mark.asyncio
+    async def test_refused_new_session_raises(self):
+        http = FakeHttpClient()
+        client, url = await self._refreshed_client(http, self.REFUSED)
+
+        with (
+            patch(
+                "aula.auth_flow._refresh_token_via_oidc",
+                new_callable=AsyncMock,
+                return_value={"access_token": "access-2"},
+            ),
+            pytest.raises(AulaRejectedError),
+        ):
+            await client._request_with_version_retry("get", url)
+
+        assert len(http.requests_to(url)) == 3
+
 
 class TestRefreshTokenViaOidc:
     @pytest.mark.asyncio
-    async def test_rejected_refresh_token_returns_none(self):
-        with _token_server(lambda request: httpx.Response(400, json={"error": "invalid_grant"})):
-            assert await _refresh_token_via_oidc("refresh-1") is None
+    async def test_rejected_refresh_token_requires_login(self):
+        with (
+            _token_server(lambda request: httpx.Response(400, json={"error": "invalid_grant"})),
+            pytest.raises(AulaLoginRequiredError) as raised,
+        ):
+            await _refresh_token_via_oidc("refresh-1")
+        assert raised.value.status_code == 400
 
     @pytest.mark.asyncio
     async def test_server_error_raises(self):
@@ -277,6 +366,176 @@ class TestRefreshTokenViaOidc:
     async def test_unreachable_server_raises(self):
         with _token_server(_unreachable), pytest.raises(AulaConnectionError):
             await _refresh_token_via_oidc("refresh-1")
+
+
+def _stored(refresh_token: str) -> dict:
+    return {
+        "tokens": {"access_token": "access-0", "refresh_token": refresh_token},
+        "cookies": {},
+    }
+
+
+class TestRefreshTokenConflict:
+    """Another process that shares the token storage has rotated the refresh token."""
+
+    @pytest.fixture
+    def token_server_requests(self) -> list[httpx.Request]:
+        return []
+
+    def _token_server(self, requests: list[httpx.Request], response: httpx.Response):
+        def handler(request: httpx.Request) -> httpx.Response:
+            requests.append(request)
+            return response
+
+        return _token_server(handler)
+
+    async def _client_with_expired_access(self, token_storage=None):
+        http = _mock_http_client()
+        token_data = {
+            "tokens": {"access_token": "access-1", "refresh_token": "refresh-1"},
+            "cookies": {},
+        }
+        client = await create_client(token_data, http_client=http, token_storage=token_storage)
+        http.request = AsyncMock(return_value=HttpResponse(status_code=401))
+        return client, http
+
+    @pytest.mark.asyncio
+    async def test_rotated_storage_raises_before_contacting_the_token_server(
+        self, token_server_requests
+    ):
+        token_storage = AsyncMock()
+        token_storage.load.return_value = _stored("refresh-2")
+        client, _ = await self._client_with_expired_access(token_storage)
+
+        with (
+            self._token_server(token_server_requests, httpx.Response(200)),
+            pytest.raises(AulaRefreshTokenConflictError),
+        ):
+            await client.get_profile()
+
+        assert token_server_requests == []
+        token_storage.save.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    async def test_rotation_during_a_rejected_refresh_raises_with_the_rejection_as_cause(
+        self, token_server_requests
+    ):
+        token_storage = AsyncMock()
+        token_storage.load.side_effect = [_stored("refresh-1"), _stored("refresh-2")]
+        client, _ = await self._client_with_expired_access(token_storage)
+
+        with (
+            self._token_server(
+                token_server_requests, httpx.Response(400, json={"error": "invalid_grant"})
+            ),
+            pytest.raises(AulaRefreshTokenConflictError) as raised,
+        ):
+            await client.get_profile()
+
+        assert len(token_server_requests) == 1
+        assert isinstance(raised.value.__cause__, AulaLoginRequiredError)
+        assert raised.value.__cause__.status_code == 400
+        assert "refresh-" not in str(raised.value)
+
+    @pytest.mark.asyncio
+    async def test_rejected_refresh_with_unchanged_storage_requires_login(
+        self, token_server_requests
+    ):
+        token_storage = AsyncMock()
+        token_storage.load.return_value = _stored("refresh-1")
+        client, _ = await self._client_with_expired_access(token_storage)
+
+        with (
+            self._token_server(
+                token_server_requests, httpx.Response(400, json={"error": "invalid_grant"})
+            ),
+            pytest.raises(AulaLoginRequiredError) as raised,
+        ):
+            await client.get_profile()
+
+        assert type(raised.value.__cause__) is AulaAuthenticationError
+        assert token_storage.load.await_count == 2
+
+    @pytest.mark.asyncio
+    async def test_token_server_outage_is_not_checked_against_storage(self, token_server_requests):
+        token_storage = AsyncMock()
+        token_storage.load.side_effect = [_stored("refresh-1"), _stored("refresh-2")]
+        client, _ = await self._client_with_expired_access(token_storage)
+
+        with (
+            self._token_server(token_server_requests, httpx.Response(503)),
+            pytest.raises(AulaServerError),
+        ):
+            await client.get_profile()
+
+        assert token_storage.load.await_count == 1
+
+    @pytest.mark.asyncio
+    async def test_client_without_storage_refreshes_as_before(self, token_server_requests):
+        client, http = await self._client_with_expired_access()
+        http.request = AsyncMock(
+            side_effect=[
+                HttpResponse(status_code=401),
+                _profile_response(),
+                _profile_response(),
+                _profile_response(),
+                _profile_context_response(),
+            ]
+        )
+
+        with self._token_server(
+            token_server_requests,
+            httpx.Response(200, json={"access_token": "access-2", "refresh_token": "refresh-2"}),
+        ):
+            profile = await client.get_profile()
+
+        assert profile.display_name == "Test"
+        assert len(token_server_requests) == 1
+        assert b"refresh_token=refresh-1" in token_server_requests[0].content
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        "loads",
+        [
+            [_stored("refresh-1"), _stored("refresh-2")],
+            [_stored("refresh-1"), _stored("refresh-1"), _stored("refresh-2")],
+        ],
+        ids=["before-refresh", "after-rejection"],
+    )
+    async def test_startup_refresh_conflict_sends_no_mitid_request(self, loads):
+        loads[0]["tokens"]["expires_at"] = time.time() - 100
+        token_storage = AsyncMock()
+        token_storage.load.side_effect = loads
+        requests: list[httpx.Request] = []
+
+        def server(request: httpx.Request) -> httpx.Response:
+            requests.append(request)
+            if request.url.path == OAUTH_TOKEN_PATH:
+                return httpx.Response(400, json={"error": "invalid_grant"})
+            return httpx.Response(500)
+
+        async with httpx.AsyncClient(transport=httpx.MockTransport(server)) as http:
+            with pytest.raises(AulaRefreshTokenConflictError):
+                await authenticate("user", token_storage, httpx_client=http)
+
+        assert all(request.url.path == OAUTH_TOKEN_PATH for request in requests)
+        token_storage.save.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    async def test_conflict_while_creating_the_client_does_not_start_mitid(self):
+        with (
+            patch("aula.auth_flow.authenticate", new_callable=AsyncMock) as mock_authenticate,
+            patch(
+                "aula.auth_flow.create_client",
+                new_callable=AsyncMock,
+                side_effect=AulaRefreshTokenConflictError(),
+            ),
+            pytest.raises(AulaRefreshTokenConflictError),
+        ):
+            mock_authenticate.return_value = _stored("refresh-1")
+            await authenticate_and_create_client("user", AsyncMock())
+
+        mock_authenticate.assert_awaited_once()
 
 
 # ---------------------------------------------------------------------------
@@ -416,6 +675,70 @@ class TestAuthenticate:
             await authenticate("user", token_storage, on_login_required=callback)
 
         callback.assert_called_once()
+
+    # -- allow_login=False → AulaLoginRequiredError --
+
+    @pytest.mark.asyncio
+    async def test_no_login_without_stored_tokens_sends_no_request(self, token_storage):
+        requests: list[httpx.Request] = []
+
+        def record(request: httpx.Request) -> httpx.Response:
+            requests.append(request)
+            return httpx.Response(500)
+
+        callback = MagicMock()
+        async with httpx.AsyncClient(transport=httpx.MockTransport(record)) as http:
+            with pytest.raises(AulaLoginRequiredError):
+                await authenticate(
+                    "user",
+                    token_storage,
+                    on_login_required=callback,
+                    httpx_client=http,
+                    allow_login=False,
+                )
+
+        assert requests == []
+        callback.assert_not_called()
+        token_storage.save.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    async def test_no_login_with_rejected_refresh_contacts_only_token_server(self, token_storage):
+        token_storage.load.return_value = {
+            "tokens": {
+                "access_token": "expired-tok",
+                "refresh_token": "bad-refresh",
+                "expires_at": time.time() - 100,
+            },
+            "cookies": {},
+        }
+        requests: list[httpx.Request] = []
+
+        def token_server(request: httpx.Request) -> httpx.Response:
+            requests.append(request)
+            if request.url.path == OAUTH_TOKEN_PATH:
+                return httpx.Response(400, json={"error": "invalid_grant"})
+            return httpx.Response(500)
+
+        async with httpx.AsyncClient(transport=httpx.MockTransport(token_server)) as http:
+            with pytest.raises(AulaLoginRequiredError) as raised:
+                await authenticate("user", token_storage, httpx_client=http, allow_login=False)
+
+        assert [request.url.path for request in requests] == [OAUTH_TOKEN_PATH]
+        assert isinstance(raised.value.__cause__, OAuthError)
+        token_storage.save.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    async def test_no_login_keeps_valid_cached_tokens(self, token_storage, mock_auth_client):
+        token_storage.load.return_value = {
+            "tokens": {"access_token": "cached-tok", "expires_at": time.time() + 3600},
+            "cookies": {},
+        }
+
+        with patch("aula.auth_flow.MitIDAuthClient", return_value=mock_auth_client):
+            result = await authenticate("user", token_storage, allow_login=False)
+
+        assert result["tokens"]["access_token"] == "cached-tok"
+        mock_auth_client.authenticate.assert_not_awaited()
 
     # -- Valid cached tokens → skip auth --
 
@@ -643,6 +966,39 @@ class TestAuthenticateAndCreateClient:
         assert mock_create.await_args_list[0].kwargs == {"token_storage": token_storage}
         assert mock_create.await_args_list[1].kwargs == {"token_storage": token_storage}
         assert result is recovered_client
+
+    @pytest.mark.asyncio
+    async def test_no_login_raises_when_stored_session_is_rejected(self, token_storage):
+        rejected = AulaAuthenticationError("HTTP 403", status_code=403)
+
+        with (
+            patch("aula.auth_flow.authenticate", new_callable=AsyncMock) as mock_authenticate,
+            patch("aula.auth_flow.create_client", new_callable=AsyncMock) as mock_create,
+            pytest.raises(AulaLoginRequiredError) as raised,
+        ):
+            mock_authenticate.return_value = {"tokens": {"access_token": "cached-tok"}}
+            mock_create.side_effect = rejected
+            await authenticate_and_create_client("user", token_storage, allow_login=False)
+
+        assert raised.value.__cause__ is rejected
+        mock_authenticate.assert_awaited_once()
+        assert mock_authenticate.await_args.kwargs["allow_login"] is False
+
+    @pytest.mark.asyncio
+    async def test_no_login_passes_rejected_refresh_through(self, token_storage):
+        login_required = AulaLoginRequiredError("Token server rejected the refresh token", 400)
+
+        with (
+            patch("aula.auth_flow.authenticate", new_callable=AsyncMock) as mock_authenticate,
+            patch("aula.auth_flow.create_client", new_callable=AsyncMock) as mock_create,
+            pytest.raises(AulaLoginRequiredError) as raised,
+        ):
+            mock_authenticate.return_value = {"tokens": {"access_token": "cached-tok"}}
+            mock_create.side_effect = login_required
+            await authenticate_and_create_client("user", token_storage, allow_login=False)
+
+        assert raised.value is login_required
+        mock_authenticate.assert_awaited_once()
 
     @pytest.mark.asyncio
     async def test_token_server_outage_does_not_force_mitid_login(self, token_storage):
