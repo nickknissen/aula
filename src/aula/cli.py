@@ -53,6 +53,7 @@ from .utils.output import (
     build_contact_table,
     clip,
     danish_sort_key,
+    echo,
     format_calendar_context_lines,
     format_message_lines,
     format_notification_lines,
@@ -113,14 +114,14 @@ def get_mitid_username(ctx: click.Context) -> str:
 
     # Finally, prompt if still missing
     if not username:
-        click.echo("MitID authentication required")
+        echo("MitID authentication required")
         username = click.prompt("MitID username")
 
         if click.confirm("Save MitID username to config file?"):
             config = load_config()
             config["mitid_username"] = username
             save_config(config)
-            click.echo(f"Username saved to {CONFIG_FILE}")
+            echo(f"Username saved to {CONFIG_FILE}")
 
     return username
 
@@ -265,14 +266,14 @@ def _unique_names(name_lists: Iterable[list[str]]) -> list[str]:
 
 def _on_login_required():
     """Notify the user that MitID authentication is needed."""
-    click.echo("Session expired or not found. Please open your MitID app to approve the login.")
+    echo("Session expired or not found. Please open your MitID app to approve the login.")
 
 
 async def _prompt_for_identity(identities: list[str]) -> int:
     """Ask which of several MitID identities to log in as, 1 being the first."""
-    click.echo("\nMultiple identities found. Please select one:")
+    echo("\nMultiple identities found. Please select one:")
     for i, identity in enumerate(identities, 1):
-        click.echo(f"  {i}. {identity}")
+        echo(f"  {i}. {identity}")
     return click.prompt("Select identity", type=click.IntRange(1, len(identities)), default=1)
 
 
@@ -300,7 +301,7 @@ class _MitIDLogin:
 
     def warn_if_identity_went_unused(self) -> None:
         if self.ran and self.identity is None and (self.requested_identity or 1) > 1:
-            click.echo(
+            echo(
                 f"Warning: --identity {self.requested_identity} was ignored, "
                 "because MitID offered only one identity.",
                 err=True,
@@ -309,9 +310,9 @@ class _MitIDLogin:
 
 def _print_otp_code(code: str) -> None:
     """Show the code the user types into the MitID app in place of scanning."""
-    click.echo("=" * 60)
-    click.echo(f"ENTER THIS CODE IN YOUR MITID APP: {code}")
-    click.echo("=" * 60)
+    echo("=" * 60)
+    echo(f"ENTER THIS CODE IN YOUR MITID APP: {code}")
+    echo("=" * 60)
 
 
 def _token_digits_provider(ctx: click.Context) -> Callable[[], Awaitable[str]]:
@@ -438,7 +439,7 @@ async def _fetch_contact_pages(
         if len(batch) < CONTACTS_PAGE_SIZE:
             return items
 
-    click.echo(
+    echo(
         f"Warning: stopped after {MAX_CONTACT_PAGES} pages; "
         "results may be incomplete. Use --page to fetch further pages."
     )
@@ -551,9 +552,7 @@ def _echo_no_easyiq_identity(child_name: str, resource: str, err: bool = False) 
     because the previous behaviour was to show them a sibling's plan
     (issue #68).
     """
-    click.echo(
-        f"No EasyIQ {resource} for {child_name}: EasyIQ has no record of this child.", err=err
-    )
+    echo(f"No EasyIQ {resource} for {child_name}: EasyIQ has no record of this child.", err=err)
 
 
 def _with_child(row: dict, child: Child) -> dict:
@@ -630,9 +629,9 @@ async def logout(ctx):
     if output_json(ctx, {"status": "ok", "removed": removed, "path": str(token_file)}):
         return
     if removed:
-        click.echo(f"Logged out. Removed {token_file}")
+        echo(f"Logged out. Removed {token_file}")
     else:
-        click.echo(f"No stored session at {token_file}")
+        echo(f"No stored session at {token_file}")
 
 
 @cli.command()
@@ -649,7 +648,7 @@ async def login(ctx, force: bool):
         if output_json(ctx, result):
             return
         as_identity = f" as MitID identity {identity}" if identity else ""
-        click.echo(f"Logged in{as_identity}. API URL: {client.api_url}")
+        echo(f"Logged in{as_identity}. API URL: {client.api_url}")
 
 
 @cli.command()
@@ -671,20 +670,18 @@ async def profile(ctx):
             return
 
         print_heading("Profile")
-        click.echo(format_row(prof.display_name, f"ID {prof.profile_id}"))
+        echo(format_row(prof.display_name, f"ID {prof.profile_id}"))
 
         if prof.institution_profile_ids:
             ids = ", ".join(str(i) for i in prof.institution_profile_ids)
-            click.echo(format_row("Institution profile IDs", ids))
+            echo(format_row("Institution profile IDs", ids))
 
         if prof.children:
-            click.echo(f"Children ({len(prof.children)}):")
+            echo(f"Children ({len(prof.children)}):")
             for child in prof.children:
-                click.echo(
-                    f"- {format_row(child.name, f'ID {child.id}', f'Profile {child.profile_id}')}"
-                )
+                echo(f"- {format_row(child.name, f'ID {child.id}', f'Profile {child.profile_id}')}")
                 if child.institution_name:
-                    click.echo(f"  Institution: {child.institution_name}")
+                    echo(f"  Institution: {child.institution_name}")
         else:
             print_empty("children")
 
@@ -714,7 +711,7 @@ async def groups(ctx, group_id, members, search_text):
 
             print_heading(f'Groups matching "{search_text}"')
             for g in result:
-                click.echo(_format_group_row(g))
+                echo(_format_group_row(g))
             return
 
         if group_id and members:
@@ -734,7 +731,7 @@ async def groups(ctx, group_id, members, search_text):
             print_heading(f"Group {group_id} Members")
             for m in result:
                 role = f" ({m.portal_role})" if m.portal_role else ""
-                click.echo(format_row(m.name, f"ID {m.institution_profile_id}{role}"))
+                echo(format_row(m.name, f"ID {m.institution_profile_id}{role}"))
             return
 
         if group_id:
@@ -752,13 +749,13 @@ async def groups(ctx, group_id, members, search_text):
                 return
 
             print_heading(f"Group: {group.name}")
-            click.echo(format_row("ID", str(group.id)))
+            echo(format_row("ID", str(group.id)))
             if group.group_type:
-                click.echo(format_row("Type", group.group_type))
+                echo(format_row("Type", group.group_type))
             if group.institution_code:
-                click.echo(format_row("Institution", group.institution_code))
+                echo(format_row("Institution", group.institution_code))
             if group.description:
-                click.echo(format_row("Description", group.description))
+                echo(format_row("Description", group.description))
             return
 
         # List all groups for children
@@ -775,7 +772,7 @@ async def groups(ctx, group_id, members, search_text):
 
         print_heading("Groups")
         for g in result:
-            click.echo(_format_group_row(g))
+            echo(_format_group_row(g))
 
 
 @cli.command()
@@ -794,7 +791,7 @@ async def overview(ctx, child_id):
             try:
                 prof: Profile = await client.get_profile()
                 if not prof.children:
-                    click.echo("No children found in profile.")
+                    echo("No children found in profile.")
                     return
                 for child in prof.children:
                     child_ids.append(child.id)
@@ -813,14 +810,14 @@ async def overview(ctx, child_id):
                     )
                 except Exception as e:
                     results.append({"child_id": c_id, "error": str(e)})
-            click.echo(to_json(results))
+            echo(to_json(results))
             return
 
         for i, c_id in enumerate(child_ids):
             try:
                 data: DailyOverview | None = await client.get_daily_overview(c_id)
                 if data is None:
-                    click.echo(f"- {child_names.get(c_id, f'Child {c_id}')}: unavailable")
+                    echo(f"- {child_names.get(c_id, f'Child {c_id}')}: unavailable")
                     continue
 
                 fallback = (
@@ -836,9 +833,9 @@ async def overview(ctx, child_id):
                 if i == 0:
                     print_heading("Overview")
 
-                click.echo(format_row(display_name, status))
+                echo(format_row(display_name, status))
                 if institution or group:
-                    click.echo(f"  {' / '.join(filter(None, [institution, group]))}")
+                    echo(f"  {' / '.join(filter(None, [institution, group]))}")
 
                 details = []
                 if data.check_in_time:
@@ -858,12 +855,12 @@ async def overview(ctx, child_id):
 
                 if details:
                     for label, value in details:
-                        click.echo(f"  {label}: {value}")
+                        echo(f"  {label}: {value}")
                 else:
-                    click.echo("  No additional details.")
+                    echo("  No additional details.")
 
                 if i < len(child_ids) - 1:
-                    click.echo()
+                    echo()
 
             except Exception as e:
                 print_error(f"fetching overview for child {c_id}: {e}")
@@ -895,7 +892,7 @@ async def messages(ctx, limit, unread, search, folders):
 
             print_heading("Message Folders")
             for f in folder_list:
-                click.echo(format_row(f.name, f"ID {f.id}"))
+                echo(format_row(f.name, f"ID {f.id}"))
             return
 
         if search:
@@ -942,9 +939,7 @@ async def messages(ctx, limit, unread, search, folders):
                 return
 
             if not search_result.complete:
-                click.echo(
-                    f"Incomplete message search: {search_result.termination_reason}", err=True
-                )
+                echo(f"Incomplete message search: {search_result.termination_reason}", err=True)
 
             if not results:
                 print_empty("messages")
@@ -961,10 +956,10 @@ async def messages(ctx, limit, unread, search, folders):
                 subject = get_in(msg_raw, "thread.subject", default="")
 
                 for line in format_message_lines(subject, sender, send_date, msg.content):
-                    click.echo(line)
+                    echo(line)
 
                 if i < len(results) - 1:
-                    click.echo()
+                    echo()
             if not search_result.complete:
                 ctx.exit(1)
             return
@@ -989,7 +984,7 @@ async def messages(ctx, limit, unread, search, folders):
                 except Exception:
                     t["messages"] = []
                 json_threads.append(t)
-            click.echo(to_json(json_threads))
+            echo(to_json(json_threads))
             return
 
         filter_label = "unread" if unread else "latest"
@@ -1005,23 +1000,23 @@ async def messages(ctx, limit, unread, search, folders):
             last_updated = raw.get("lastUpdatedDate", "")
 
             # Thread header
-            click.echo(clip(thread.subject))
+            echo(clip(thread.subject))
             meta_parts = []
             if participants:
                 meta_parts.append(", ".join(participants))
             if last_updated:
                 meta_parts.append(last_updated)
             if meta_parts:
-                click.echo(f"  {clip(' | '.join(meta_parts))}")
+                echo(f"  {clip(' | '.join(meta_parts))}")
             if thread.web_url:
-                click.echo(f"  Link: {thread.web_url}")
+                echo(f"  Link: {thread.web_url}")
 
             try:
                 messages_list: list[Message] = await client.get_messages_for_thread(
                     thread.thread_id
                 )
                 if not messages_list:
-                    click.echo("  (no messages)")
+                    echo("  (no messages)")
                 else:
                     for msg in messages_list:
                         msg_raw = msg._raw or {}
@@ -1036,12 +1031,12 @@ async def messages(ctx, limit, unread, search, folders):
                             fallback_title=thread.subject,
                             include_title=False,
                         ):
-                            click.echo(f"{line}")
+                            echo(f"{line}")
             except Exception as e:
                 print_error(str(e))
 
             if i < len(threads) - 1:
-                click.echo()
+                echo()
 
 
 @cli.command()
@@ -1117,22 +1112,22 @@ async def notifications(ctx, offset, limit, module):
             key = item.event_type or "Unknown"
             groups.setdefault(key, []).append(item)
 
-        click.echo("Summary:")
+        echo("Summary:")
         for event_type, group_items in sorted(groups.items(), key=lambda x: -len(x[1])):
-            click.echo(f"  {event_type}: {len(group_items)}")
-        click.echo()
+            echo(f"  {event_type}: {len(group_items)}")
+        echo()
 
         for event_type, group_items in sorted(groups.items(), key=lambda x: -len(x[1])):
-            click.echo(f"── {event_type} ({len(group_items)}) ──")
+            echo(f"── {event_type} ({len(group_items)}) ──")
             for i, item in enumerate(group_items):
                 for line in format_notification_lines(
                     item, institution_names=institution_names, album_names=album_names
                 ):
-                    click.echo(line)
+                    echo(line)
 
                 if i < len(group_items) - 1:
-                    click.echo()
-            click.echo()
+                    echo()
+            echo()
 
 
 @cli.command()
@@ -1177,7 +1172,7 @@ async def calendar(ctx, institution_profile_id, event_id, start_date, end_date):
             print_heading(f"Event: {event.get('title', event_id)}")
             for key in ["id", "title", "startDateTime", "endDateTime", "type", "location"]:
                 if key in event and event[key]:
-                    click.echo(format_row(key, str(event[key])))
+                    echo(format_row(key, str(event[key])))
             return
 
         institution_profile_ids = list(institution_profile_id)
@@ -1209,7 +1204,7 @@ async def calendar(ctx, institution_profile_id, event_id, start_date, end_date):
             end_date,
             profile_count=len(institution_profile_ids),
         ):
-            click.echo(line)
+            echo(line)
 
         if not events:
             print_empty("calendar events")
@@ -1245,7 +1240,7 @@ async def important_dates(ctx, limit):
         for d in dates:
             title = d.get("title", "Untitled")
             date_str = d.get("startDateTime", d.get("date", ""))
-            click.echo(format_row(title, date_str))
+            echo(format_row(title, date_str))
 
 
 @cli.command()
@@ -1310,7 +1305,7 @@ async def birthdays(ctx, group_id, start_date, end_date):
         for item in result:
             name = item.get("name", "Unknown")
             bday = item.get("birthday", item.get("date", ""))
-            click.echo(format_row(name, bday))
+            echo(format_row(name, bday))
 
 
 @cli.command()
@@ -1371,15 +1366,15 @@ async def posts(ctx, institution_profile_id, post_id, comments, limit, page):
                 attachments_count=len(post.attachments),
                 link=post.web_url,
             ):
-                click.echo(line)
+                echo(line)
 
             if comment_list:
-                click.echo()
+                echo()
                 print_heading("Comments")
                 for c in comment_list:
-                    click.echo(format_row(c.creator_name, c.created_at))
-                    click.echo(f"  {c.content}")
-                    click.echo()
+                    echo(format_row(c.creator_name, c.created_at))
+                    echo(f"  {c.content}")
+                    echo()
             return
 
         institution_profile_ids = list(institution_profile_id)
@@ -1419,10 +1414,10 @@ async def posts(ctx, institution_profile_id, post_id, comments, limit, page):
                     attachments_count=len(post.attachments),
                     link=post.web_url,
                 ):
-                    click.echo(line)
+                    echo(line)
 
                 if i < len(posts_list) - 1:
-                    click.echo()
+                    echo()
 
         except Exception as e:
             print_error(f"fetching posts: {e}")
@@ -1456,7 +1451,7 @@ async def search(ctx, text, doc_type, limit):
         for item in results:
             title = item.get("title", item.get("name", "Untitled"))
             item_type = item.get("docType", "")
-            click.echo(format_row(title, item_type))
+            echo(format_row(title, item_type))
 
 
 @cli.command()
@@ -1532,8 +1527,8 @@ async def contacts(ctx, group_id, parents, profile_type, page):
                 [(str(g.id), g.name, g.institution_code) for g in groups_result],
                 title="Available groups",
             )
-            click.echo("")
-            click.echo("Specify one with --group-id <ID>, or use --parents for other parents.")
+            echo("")
+            echo("Specify one with --group-id <ID>, or use --parents for other parents.")
             return
 
         if output_json(ctx, result):
@@ -1586,22 +1581,22 @@ async def profile_details(ctx, institution_profile_id):
 
         print_heading("Profile Details")
         if master_data.first_name or master_data.last_name:
-            click.echo(format_row("Name", f"{master_data.first_name} {master_data.last_name}"))
+            echo(format_row("Name", f"{master_data.first_name} {master_data.last_name}"))
         if master_data.email:
-            click.echo(format_row("Email", master_data.email))
+            echo(format_row("Email", master_data.email))
         if master_data.phone_number:
-            click.echo(format_row("Phone", master_data.phone_number))
+            echo(format_row("Phone", master_data.phone_number))
         if master_data.mobile_phone:
-            click.echo(format_row("Mobile", master_data.mobile_phone))
+            echo(format_row("Mobile", master_data.mobile_phone))
         if master_data.address:
             addr_parts = [master_data.address]
             if master_data.postal_code or master_data.city:
                 addr_parts.append(f"{master_data.postal_code} {master_data.city}".strip())
-            click.echo(format_row("Address", ", ".join(addr_parts)))
+            echo(format_row("Address", ", ".join(addr_parts)))
         if master_data.municipality:
-            click.echo(format_row("Municipality", master_data.municipality))
+            echo(format_row("Municipality", master_data.municipality))
         if master_data.portal_role:
-            click.echo(format_row("Role", master_data.portal_role))
+            echo(format_row("Role", master_data.portal_role))
 
 
 @cli.command("consents")
@@ -1632,13 +1627,13 @@ async def consents(ctx):
         print_heading("Consent Responses")
         for c in result:
             status_str = f" [{c.status}]" if c.status else ""
-            click.echo(format_row(c.title, f"ID {c.consent_id}{status_str}"))
+            echo(format_row(c.title, f"ID {c.consent_id}{status_str}"))
             if c.description:
-                click.echo(f"  {c.description}")
+                echo(f"  {c.description}")
             if c.responded_at:
-                click.echo(f"  Responded: {c.responded_at}")
+                echo(f"  Responded: {c.responded_at}")
             if c.institution_code:
-                click.echo(f"  Institution: {c.institution_code}")
+                echo(f"  Institution: {c.institution_code}")
 
 
 @cli.command("auto-reply")
@@ -1661,13 +1656,13 @@ async def auto_reply(ctx):
             return
 
         print_heading("Auto-Reply")
-        click.echo(format_row("Enabled", "Yes" if result.is_enabled else "No"))
+        echo(format_row("Enabled", "Yes" if result.is_enabled else "No"))
         if result.message:
-            click.echo(format_row("Message", result.message))
+            echo(format_row("Message", result.message))
         if result.start_date:
-            click.echo(format_row("From", result.start_date))
+            echo(format_row("From", result.start_date))
         if result.end_date:
-            click.echo(format_row("Until", result.end_date))
+            echo(format_row("Until", result.end_date))
 
 
 @cli.command("documents")
@@ -1712,9 +1707,9 @@ async def documents(ctx, common):
                 parts.append(doc.document_type)
             if doc.owner_name:
                 parts.append(doc.owner_name)
-            click.echo(format_row(doc.title, *parts))
+            echo(format_row(doc.title, *parts))
             if doc.created_at:
-                click.echo(f"  Created: {doc.created_at}")
+                echo(f"  Created: {doc.created_at}")
 
 
 def _institution_codes(prof: Profile) -> list[str]:
@@ -1741,9 +1736,9 @@ async def _print_common_files(ctx: click.Context, client: AulaApiClient, prof: P
 
     print_heading("Common Files")
     for f in files:
-        click.echo(format_row(f.title, *[p for p in (f.institution_name, f.file_name) if p]))
+        echo(format_row(f.title, *[p for p in (f.institution_name, f.file_name) if p]))
         if f.created_at:
-            click.echo(f"  Created: {f.created_at}")
+            echo(f"  Created: {f.created_at}")
 
 
 @cli.command("vacations")
@@ -1783,18 +1778,18 @@ async def vacations(ctx):
                 parts.append(v.title)
             if v.is_missing_answer:
                 parts.append("[missing answer]")
-            click.echo(format_row(v.child_name or f"Child {v.child_id}", *parts))
+            echo(format_row(v.child_name or f"Child {v.child_id}", *parts))
             dates = []
             if v.start_date:
                 dates.append(f"From: {v.start_date}")
             if v.end_date:
                 dates.append(f"To: {v.end_date}")
             if dates:
-                click.echo(f"  {' | '.join(dates)}")
+                echo(f"  {' | '.join(dates)}")
             if v.response_deadline:
-                click.echo(f"  Answer by: {v.response_deadline}")
+                echo(f"  Answer by: {v.response_deadline}")
             if v.note_to_guardian:
-                click.echo(f"  Note: {v.note_to_guardian}")
+                echo(f"  Note: {v.note_to_guardian}")
 
 
 @cli.command("notification-settings")
@@ -1825,7 +1820,7 @@ async def notification_settings(ctx):
                 status_parts.append("email")
             enabled = "Yes" if s.is_enabled else "No"
             channels = f" ({', '.join(status_parts)})" if status_parts else ""
-            click.echo(format_row(s.module, f"Enabled: {enabled}{channels}"))
+            echo(format_row(s.module, f"Enabled: {enabled}{channels}"))
 
 
 @cli.command("widgets")
@@ -1859,8 +1854,8 @@ async def widgets(ctx):
                     ("Placement", w.placement),
                 ],
             ):
-                click.echo(line)
-            click.echo()
+                echo(line)
+            echo()
 
 
 # Min Uddannelse's internal task types; the portal itself labels a
@@ -1920,7 +1915,7 @@ def print_mu_task_tables(tasks: Sequence[MUTask]) -> None:
             key=lambda t: (weekday_index(t.weekday), t.due_date or datetime.datetime.max, t.title),
         )
         if position:
-            click.echo()
+            echo()
 
         rows, links = _mu_task_rows(student_tasks)
         # A column every task leaves blank is noise, so drop it.
@@ -1932,7 +1927,7 @@ def print_mu_task_tables(tasks: Sequence[MUTask]) -> None:
             width=width,
         )
         for number, link in enumerate(links, start=1):
-            click.echo(f"  [{number}] {link}")
+            echo(f"  [{number}] {link}")
 
 
 @cli.command("meetings")
@@ -1988,10 +1983,10 @@ async def meetings(ctx, child_id, start_date, end_date):
     for row in rows:
         beginning = row["start_datetime"].astimezone(zone)
         ending = row["end_datetime"].astimezone(zone)
-        click.echo(f"{row['child_name']}: {row['title']}")
-        click.echo(f"  {beginning:%Y-%m-%d %H:%M %Z} – {ending:%Y-%m-%d %H:%M %Z}")
+        echo(f"{row['child_name']}: {row['title']}")
+        echo(f"  {beginning:%Y-%m-%d %H:%M %Z} – {ending:%Y-%m-%d %H:%M %Z}")
         if row["location"]:
-            click.echo(f"  Location: {row['location']}")
+            echo(f"  Location: {row['location']}")
 
 
 @cli.command("mu:opgaver")
@@ -2048,7 +2043,7 @@ async def mu_opgaver(ctx, week):
         if not opgaver:
             print_empty("tasks")
         else:
-            click.echo()
+            echo()
             print_mu_task_tables(opgaver)
 
 
@@ -2108,7 +2103,7 @@ async def mu_ugeplan(ctx, week):
             return
 
         print_heading(f"Min Uddannelse weekly plans [{week}]")
-        click.echo()
+        echo()
 
         width = card_width()
         rendered = 0
@@ -2125,7 +2120,7 @@ async def mu_ugeplan(ctx, week):
                         width=width,
                         empty_body_text="(no weekly plan body)",
                     )
-                    click.echo()
+                    echo()
 
         if rendered == 0:
             print_empty("weekly plans")
@@ -2194,7 +2189,7 @@ async def easyiq_ugeplan(ctx, week):
                 except Exception as e:
                     print_error(f"fetching EasyIQ weekplan for {child.name}: {e}", err=True)
                     continue
-            click.echo(to_json(all_appointments))
+            echo(to_json(all_appointments))
             return
 
         print_heading(f"EasyIQ weekly plan [{week}]")
@@ -2239,8 +2234,8 @@ async def easyiq_ugeplan(ctx, week):
                     body_label="Body",
                     empty_body_text="(no description)",
                 ):
-                    click.echo(line)
-                click.echo()
+                    echo(line)
+                echo()
 
         if rendered == 0:
             print_empty("appointments")
@@ -2307,7 +2302,7 @@ async def easyiq_homework(ctx, week):
                 except Exception as e:
                     print_error(f"fetching EasyIQ homework for {child.name}: {e}", err=True)
                     continue
-            click.echo(to_json(all_homework))
+            echo(to_json(all_homework))
             return
 
         print_heading(f"EasyIQ homework [{week}]")
@@ -2351,8 +2346,8 @@ async def easyiq_homework(ctx, week):
                     body_label="Body",
                     empty_body_text="(no description)",
                 ):
-                    click.echo(line)
-                click.echo()
+                    echo(line)
+                echo()
 
         if rendered == 0:
             print_empty("homework")
@@ -2425,8 +2420,8 @@ async def meebook_ugeplan(ctx, week):
                         body_label="Body",
                         empty_body_text="(no description)",
                     ):
-                        click.echo(line)
-                    click.echo()
+                        echo(line)
+                    echo()
 
         if rendered == 0:
             print_empty("weekly plans")
@@ -2481,10 +2476,10 @@ async def docendo_ugeplan(ctx, week):
         sections = [(f"{child.name} ({plan.name})", plan) for child, plan in pairs]
         sections += [(f"{plan.name} (no matching child)", plan) for plan in unmatched]
         for title, plan in sections:
-            click.echo(title)
+            echo(title)
             for line in _docendo_plan_lines(plan):
-                click.echo(f"  {line}")
-            click.echo()
+                echo(f"  {line}")
+            echo()
 
 
 @cli.command("momo:forløb")
@@ -2537,8 +2532,8 @@ async def momo_course(ctx):
                     title=course.title,
                     properties=[("Child", name)],
                 ):
-                    click.echo(line)
-                click.echo()
+                    echo(line)
+                echo()
 
         if rendered == 0:
             print_empty("courses")
@@ -2616,8 +2611,8 @@ async def momo_reminders(ctx):
                     body_label="Body",
                     empty_body_text="(no reminder text)",
                 ):
-                    click.echo(line)
-                click.echo()
+                    echo(line)
+                echo()
 
             for r in user.assignment_reminders:
                 due = ""
@@ -2638,8 +2633,8 @@ async def momo_reminders(ctx):
                     body_label="Body",
                     empty_body_text="(no assignment text)",
                 ):
-                    click.echo(line)
-                click.echo()
+                    echo(line)
+                echo()
 
         if rendered == 0:
             print_empty("reminders")
@@ -2702,11 +2697,11 @@ async def download_images(ctx, output, since, source, tags):
         total_downloaded = 0
         total_skipped = 0
         message_issues: list[str] = []
-        on_progress = click.echo if not is_json else lambda _msg: None
+        on_progress = echo if not is_json else lambda _msg: None
 
         if source in ("all", "gallery"):
             if not is_json:
-                click.echo("Gallery")
+                echo("Gallery")
             dl, sk = await download_gallery_images(
                 client,
                 institution_profile_ids,
@@ -2716,15 +2711,15 @@ async def download_images(ctx, output, since, source, tags):
                 on_progress=on_progress,
             )
             if not is_json:
-                click.echo(f"  Downloaded: {dl}")
-                click.echo(f"  Skipped: {sk}")
-                click.echo()
+                echo(f"  Downloaded: {dl}")
+                echo(f"  Skipped: {sk}")
+                echo()
             total_downloaded += dl
             total_skipped += sk
 
         if source in ("all", "posts"):
             if not is_json:
-                click.echo("Posts")
+                echo("Posts")
             dl, sk = await download_post_images(
                 client,
                 institution_profile_ids,
@@ -2733,15 +2728,15 @@ async def download_images(ctx, output, since, source, tags):
                 on_progress=on_progress,
             )
             if not is_json:
-                click.echo(f"  Downloaded: {dl}")
-                click.echo(f"  Skipped: {sk}")
-                click.echo()
+                echo(f"  Downloaded: {dl}")
+                echo(f"  Skipped: {sk}")
+                echo()
             total_downloaded += dl
             total_skipped += sk
 
         if source in ("all", "messages"):
             if not is_json:
-                click.echo("Messages")
+                echo("Messages")
             dl, sk = await download_message_images(
                 client,
                 children_inst_ids,
@@ -2752,9 +2747,9 @@ async def download_images(ctx, output, since, source, tags):
                 on_incomplete=message_issues.append,
             )
             if not is_json:
-                click.echo(f"  Downloaded: {dl}")
-                click.echo(f"  Skipped: {sk}")
-                click.echo()
+                echo(f"  Downloaded: {dl}")
+                echo(f"  Skipped: {sk}")
+                echo()
             total_downloaded += dl
             total_skipped += sk
 
@@ -2766,9 +2761,9 @@ async def download_images(ctx, output, since, source, tags):
                 ctx.exit(1)
             return
 
-        click.echo("Total")
-        click.echo(f"  Downloaded: {total_downloaded}")
-        click.echo(f"  Skipped: {total_skipped}")
+        echo("Total")
+        echo(f"  Downloaded: {total_downloaded}")
+        echo(f"  Skipped: {total_skipped}")
         if message_issues:
             ctx.exit(1)
 
@@ -2825,8 +2820,8 @@ async def library_status(ctx):
                     ("Due", loan.due_date),
                 ],
             ):
-                click.echo(line)
-            click.echo()
+                echo(line)
+            echo()
 
         for loan in status.longterm_loans:
             rendered += 1
@@ -2839,8 +2834,8 @@ async def library_status(ctx):
                     ("Due", loan.due_date),
                 ],
             ):
-                click.echo(line)
-            click.echo()
+                echo(line)
+            echo()
 
         for reservation in status.reservations:
             rendered += 1
@@ -2848,8 +2843,8 @@ async def library_status(ctx):
                 title=str(reservation),
                 properties=[("Category", "Reservation")],
             ):
-                click.echo(line)
-            click.echo()
+                echo(line)
+            echo()
 
         if rendered == 0:
             print_empty("loans or reservations")
@@ -2951,8 +2946,8 @@ async def weekly_summary(ctx, child, week, providers):
                     ),
                 ],
             ):
-                click.echo(line)
-            click.echo()
+                echo(line)
+            echo()
 
         # ── Calendar events ──────────────────────────────────────────────────
         child_inst_ids = [c.id for c in children]
@@ -2966,8 +2961,8 @@ async def weekly_summary(ctx, child, week, providers):
             json_result["calendar_events"] = [dict(ev) for ev in events]
 
         if not is_json:
-            click.echo("Calendar events")
-            click.echo()
+            echo("Calendar events")
+            echo()
         if not is_json:
             if events:
                 # Group by date
@@ -2983,7 +2978,7 @@ async def weekly_summary(ctx, child, week, providers):
                         "%A, %d %B"
                     )
                     day_events = sorted(by_day.get(day, []), key=lambda e: e.start_datetime)
-                    click.echo(day_label)
+                    echo(day_label)
                     if day_events:
                         # Merge events that share the exact same timeslot
                         slots: dict[tuple, list] = defaultdict(list)
@@ -3006,13 +3001,13 @@ async def weekly_summary(ctx, child, week, providers):
                                 parts.append(f"[{' / '.join(teachers)}]")
                             if substitutes:
                                 parts.append(f"[Substitute: {' / '.join(substitutes)}]")
-                            click.echo(f"- {'  '.join(parts)}")
+                            echo(f"- {'  '.join(parts)}")
                     else:
-                        click.echo("- (no events)")
-                    click.echo()
+                        echo("- (no events)")
+                    echo()
             else:
                 print_empty("calendar events")
-                click.echo()
+                echo()
 
         # ── Unread messages ──────────────────────────────────────────────────
         try:
@@ -3025,8 +3020,8 @@ async def weekly_summary(ctx, child, week, providers):
             json_result["unread_messages"] = [dict(t) for t in unread_threads]
 
         if not is_json and unread_threads:
-            click.echo("Unread messages")
-            click.echo()
+            echo("Unread messages")
+            echo()
             for thread in unread_threads:
                 raw = thread._raw or {}
                 participants = [p.get("name", "?") for p in raw.get("participants", [])]
@@ -3036,38 +3031,38 @@ async def weekly_summary(ctx, child, week, providers):
                     meta.append(", ".join(participants))
                 if last_updated:
                     meta.append(last_updated)
-                click.echo(strip_control_chars(thread.subject))
+                echo(strip_control_chars(thread.subject))
                 if meta:
-                    click.echo(f"  Meta: {' | '.join(meta)}")
-                click.echo()
+                    echo(f"  Meta: {' | '.join(meta)}")
+                echo()
                 try:
                     msgs = await client.get_messages_for_thread(thread.thread_id)
                     for msg in msgs:
                         msg_raw = msg._raw or {}
                         sender = get_in(msg_raw, "sender.fullName", default="Unknown")
                         send_date = msg_raw.get("sendDateTime", "")
-                        click.echo(f"Author: {sender}")
+                        echo(f"Author: {sender}")
                         if send_date:
-                            click.echo(f"Date: {send_date}")
+                            echo(f"Date: {send_date}")
                         for line in msg.content.splitlines():
                             if line.strip():
-                                click.echo(line)
-                        click.echo()
+                                echo(line)
+                        echo()
                 except Exception as e:
                     _log.warning("Could not fetch messages for thread %s: %s", thread.thread_id, e)
-                    click.echo()
+                    echo()
 
         if not enabled:
             if json_result is not None:
-                click.echo(to_json(json_result))
+                echo(to_json(json_result))
             return  # nothing to fetch beyond calendar
 
         widget_ctx = await _get_widget_context(client, prof)
         if widget_ctx is None:
             if json_result is not None:
-                click.echo(to_json(json_result))
+                echo(to_json(json_result))
                 return
-            click.echo("(Widget context unavailable – skipping provider data)")
+            echo("(Widget context unavailable – skipping provider data)")
             return
 
         child_filter, institution_filter, session_uuid = widget_ctx
@@ -3106,8 +3101,8 @@ async def weekly_summary(ctx, child, week, providers):
                 json_result["mu_tasks"] = [dict(t) for t in tasks]
 
             if not is_json:
-                click.echo("Homework & tasks (Min Uddannelse)")
-                click.echo()
+                echo("Homework & tasks (Min Uddannelse)")
+                echo()
                 if tasks:
                     for task in tasks:
                         parts = []
@@ -3120,12 +3115,12 @@ async def weekly_summary(ctx, child, week, providers):
                             parts.append(subjects)
                         label = f"{' – '.join(parts)}: {task.title}" if parts else task.title
                         status = " ✓" if task.is_completed else ""
-                        click.echo(f"- {label}{status}")
+                        echo(f"- {label}{status}")
                         if task.task_type:
-                            click.echo(f"  Type: {task.task_type}")
+                            echo(f"  Type: {task.task_type}")
                 else:
                     print_empty("tasks")
-                click.echo()
+                echo()
 
         # ── Min Uddannelse – Weekly Letter (Ugeplan) ─────────────────────────
         mu_ugeplan_widget = (
@@ -3150,16 +3145,16 @@ async def weekly_summary(ctx, child, week, providers):
                 json_result["mu_ugeplan"] = [dict(p) for p in mu_persons]
 
             if not is_json and mu_persons:
-                click.echo("Weekly letter (Min Uddannelse ugeplan)")
-                click.echo()
+                echo("Weekly letter (Min Uddannelse ugeplan)")
+                echo()
                 for person in mu_persons:
                     for inst in person.institutions:
                         for letter in inst.letters:
-                            click.echo(f"{person.name} - {letter.group_name} ({inst.name})")
-                            click.echo()
+                            echo(f"{person.name} - {letter.group_name} ({inst.name})")
+                            echo()
                             for line in html_to_plain(letter.content_html).splitlines():
-                                click.echo(line)
-                            click.echo()
+                                echo(line)
+                            echo()
 
         # ── Meebook – Weekly Plan ────────────────────────────────────────────
         if WeeklySummaryProvider.MEEBOOK in enabled and await _has_widget(client, WIDGET_MEEBOOK):
@@ -3175,25 +3170,25 @@ async def weekly_summary(ctx, child, week, providers):
                 json_result["meebook_weekplan"] = [dict(s) for s in meebook_students]
 
             if not is_json and meebook_students:
-                click.echo("Weekly plan (Meebook)")
-                click.echo()
+                echo("Weekly plan (Meebook)")
+                echo()
                 for student in meebook_students:
-                    click.echo(student.name)
-                    click.echo()
+                    echo(student.name)
+                    echo()
                     for day in student.week_plan:
                         if not day.tasks:
                             continue
-                        click.echo(day.date)
+                        echo(day.date)
                         for task in day.tasks:
                             label = task.title or task.type
                             if task.pill:
                                 label = f"[{task.pill}] {label}"
-                            click.echo(f"- {label}")
+                            echo(f"- {label}")
                             if task.content:
                                 for line in html_to_plain(task.content).splitlines():
                                     if line.strip():
-                                        click.echo(f"  {line}")
-                    click.echo()
+                                        echo(f"  {line}")
+                    echo()
 
         # ── Docendo – Weekly Plan ────────────────────────────────────────────
         if WeeklySummaryProvider.DOCENDO in enabled and await _has_widget(client, WIDGET_DOCENDO):
@@ -3216,14 +3211,14 @@ async def weekly_summary(ctx, child, week, providers):
                 ]
 
             if not is_json and docendo_pairs:
-                click.echo("Weekly plan (Docendo)")
-                click.echo()
+                echo("Weekly plan (Docendo)")
+                echo()
                 for c, plan in docendo_pairs:
-                    click.echo(f"{c.name} ({plan.name})")
-                    click.echo()
+                    echo(f"{c.name} ({plan.name})")
+                    echo()
                     for line in _docendo_plan_lines(plan):
-                        click.echo(line)
-                    click.echo()
+                        echo(line)
+                    echo()
 
         # ── EasyIQ – Weekly Plan ─────────────────────────────────────────────
         easyiq_weekplan_widget = (
@@ -3267,21 +3262,21 @@ async def weekly_summary(ctx, child, week, providers):
 
                 if not is_json:
                     if not easyiq_any:
-                        click.echo("Weekly plan (EasyIQ)")
-                        click.echo()
+                        echo("Weekly plan (EasyIQ)")
+                        echo()
                         easyiq_any = True
 
-                    click.echo(c.name)
-                    click.echo()
+                    echo(c.name)
+                    echo()
                     for appt in appointments:
-                        click.echo(f"- {appt.title}")
+                        echo(f"- {appt.title}")
                         if appt.start or appt.end:
-                            click.echo(f"  {appt.start} – {appt.end}")
+                            echo(f"  {appt.start} – {appt.end}")
                         if appt.description:
                             for line in html_to_plain(appt.description).splitlines():
                                 if line.strip():
-                                    click.echo(f"  {line}")
-                    click.echo()
+                                    echo(f"  {line}")
+                    echo()
 
             if json_result is not None:
                 json_result["easyiq_weekplan"] = easyiq_appointments
@@ -3321,30 +3316,30 @@ async def weekly_summary(ctx, child, week, providers):
 
                 if not is_json:
                     if not easyiq_hw_any:
-                        click.echo("Homework (EasyIQ)")
-                        click.echo()
+                        echo("Homework (EasyIQ)")
+                        echo()
                         easyiq_hw_any = True
 
-                    click.echo(c.name)
-                    click.echo()
+                    echo(c.name)
+                    echo()
                     for hw in homework:
                         status = "[x]" if hw.is_completed else "[ ]"
-                        click.echo(f"- {status} {hw.title}")
+                        echo(f"- {status} {hw.title}")
                         if hw.subject:
-                            click.echo(f"  Subject: {hw.subject}")
+                            echo(f"  Subject: {hw.subject}")
                         if hw.due_date:
-                            click.echo(f"  Due: {hw.due_date}")
+                            echo(f"  Due: {hw.due_date}")
                         if hw.description:
                             for line in html_to_plain(hw.description).splitlines():
                                 if line.strip():
-                                    click.echo(f"  {line}")
-                    click.echo()
+                                    echo(f"  {line}")
+                    echo()
 
             if json_result is not None:
                 json_result["easyiq_homework"] = easyiq_hw_items
 
         if json_result is not None:
-            click.echo(to_json(json_result))
+            echo(to_json(json_result))
 
 
 def _format_time(raw: str | None) -> str:
@@ -3377,7 +3372,7 @@ def _prompt_time(label: str, default: str | None = None) -> str | None:
             datetime.datetime.strptime(value, "%H:%M")
             return value
         except ValueError:
-            click.echo("    Invalid format. Use HH:mm (e.g., 08:00, 15:30)")
+            echo("    Invalid format. Use HH:mm (e.g., 08:00, 15:30)")
 
 
 def _resolve_pickup(
@@ -3434,7 +3429,7 @@ async def mark_read(ctx, thread_ids):
 
     if not output_json(ctx, results):
         for r in results:
-            click.echo(f"  {'✓' if r['marked'] else '✗'} {r['thread_id']}")
+            echo(f"  {'✓' if r['marked'] else '✗'} {r['thread_id']}")
 
     if not all(r["marked"] for r in results):
         ctx.exit(1)
@@ -3582,9 +3577,9 @@ async def update_presence(
                         current_by_child[tmpl.institution_profile.id] = dt
 
         # Show current state
-        click.echo()
+        echo()
         print_heading(f"Current state ({target.isoformat()})")
-        click.echo()
+        echo()
         for c in children:
             ov = overviews.get(c.id)
             tmpl = current_by_child.get(c.id)
@@ -3604,18 +3599,18 @@ async def update_presence(
             cur_comment = tmpl.comment if tmpl else (ov.comment if ov else None)
             location = ov.location.name if ov and ov.location else None
 
-            click.echo(f"  {c.name}")
-            click.echo(f"    Status:      {status_str}")
+            echo(f"  {c.name}")
+            echo(f"    Status:      {status_str}")
             if location:
-                click.echo(f"    Location:    {location}")
-            click.echo(f"    Checked in:  {check_in}")
-            click.echo(f"    Checked out: {check_out}")
-            click.echo(f"    Planned:     {planned_entry} - {planned_exit}")
+                echo(f"    Location:    {location}")
+            echo(f"    Checked in:  {check_in}")
+            echo(f"    Checked out: {check_out}")
+            echo(f"    Planned:     {planned_entry} - {planned_exit}")
             if cur_who:
-                click.echo(f"    Pickup by:   {cur_who}")
+                echo(f"    Pickup by:   {cur_who}")
             if cur_comment:
-                click.echo(f"    Comment:     {cur_comment}")
-            click.echo()
+                echo(f"    Comment:     {cur_comment}")
+            echo()
 
         # Build merged pickup person list
         all_names: list[str] = []
@@ -3675,22 +3670,22 @@ async def update_presence(
                 or (first_ov.exit_time if first_ov else None)
             )
 
-            click.echo()
+            echo()
             entry_time = _prompt_time("Entry time", default=default_entry)
             exit_time = _prompt_time("Exit time", default=default_exit)
 
             if not entry_time and not exit_time:
-                click.echo("  No changes specified.")
+                echo("  No changes specified.")
                 return
 
             # Pickup person
-            click.echo()
+            echo()
             if all_names:
-                click.echo("  Pickup responsibles:")
+                echo("  Pickup responsibles:")
                 for i, name in enumerate(all_names, 1):
-                    click.echo(f"    {i}. {name}")
-                click.echo("    0. (keep current)")
-                click.echo()
+                    echo(f"    {i}. {name}")
+                echo("    0. (keep current)")
+                echo()
                 choice = click.prompt("  Pick a person", type=int, default=0)
                 if choice > 0:
                     if 1 <= choice <= len(all_names):
@@ -3705,12 +3700,12 @@ async def update_presence(
                 comment = comment_input
 
             # Repeat
-            click.echo()
-            click.echo("  Repeat: 0=Never  1=Weekly  2=Every 2 weeks")
+            echo()
+            echo("  Repeat: 0=Never  1=Weekly  2=Every 2 weeks")
             repeat_choice = click.prompt("  Repeat", type=int, default=0)
             repeat_pattern = ["Never", "Weekly", "Every2Weeks"][min(repeat_choice, 2)]
 
-            click.echo()
+            echo()
 
         # --- Resolve exit_with for non-interactive mode ---
         if not interactive:
@@ -3722,11 +3717,11 @@ async def update_presence(
                 exit_with = resolved
             elif exit_with is None and all_names and not yes:
                 # Prompt for pickup person
-                click.echo("  Pickup responsibles:")
+                echo("  Pickup responsibles:")
                 for i, name in enumerate(all_names, 1):
-                    click.echo(f"    {i}. {name}")
-                click.echo("    0. (keep current)")
-                click.echo()
+                    echo(f"    {i}. {name}")
+                echo("    0. (keep current)")
+                echo()
                 choice = click.prompt("  Pick a person", type=int, default=0)
                 if choice > 0:
                     if 1 <= choice <= len(all_names):
@@ -3741,10 +3736,10 @@ async def update_presence(
 
         # Show planned changes
         print_heading(f"Changes for {target.isoformat()}")
-        click.echo()
+        echo()
 
-        click.echo(f"  {'Child':<30s}  {'Current':<25s}    {'New'}")
-        click.echo(f"  {'-' * 30}  {'-' * 25}    {'-' * 25}")
+        echo(f"  {'Child':<30s}  {'Current':<25s}    {'New'}")
+        echo(f"  {'-' * 30}  {'-' * 25}    {'-' * 25}")
 
         for c in children:
             current = current_by_child.get(c.id)
@@ -3765,18 +3760,18 @@ async def update_presence(
             if new_who:
                 new_str += f" ({new_who})"
 
-            click.echo(f"  {c.name:<30s}  {current_str:<25s} -> {new_str}")
+            echo(f"  {c.name:<30s}  {current_str:<25s} -> {new_str}")
 
-        click.echo()
+        echo()
 
         if repeat_pattern.lower() != "never":
-            click.echo(f"  Repeat: {repeat_pattern}")
+            echo(f"  Repeat: {repeat_pattern}")
         if comment:
-            click.echo(f"  Comment: {comment}")
-            click.echo()
+            echo(f"  Comment: {comment}")
+            echo()
 
         if not yes and not click.confirm("Apply these changes?"):
-            click.echo("Cancelled.")
+            echo("Cancelled.")
             return
 
         # Apply updates
@@ -3804,13 +3799,13 @@ async def update_presence(
                     template_id=template_id,
                     repeat_pattern=repeat_pattern,
                 )
-                click.echo(f"  ✓ {c.name}")
+                echo(f"  ✓ {c.name}")
                 success_count += 1
             except Exception as e:
-                click.echo(f"  ✗ {c.name}: {e}")
+                echo(f"  ✗ {c.name}: {e}")
 
-        click.echo()
-        click.echo(f"Updated {success_count}/{len(children)} children.")
+        echo()
+        echo(f"Updated {success_count}/{len(children)} children.")
 
 
 @cli.command("report-sick")
@@ -3932,22 +3927,22 @@ async def report_sick(ctx, child_ids, undo, present, yes):
 
         if not is_json:
             print_heading("Report sick" if not undo else "Take sick report back")
-            click.echo()
+            echo()
             for c in targets:
                 overview = current.get(c.id)
                 was = overview.status.danish_name if overview and overview.status else "?"
-                click.echo(f"  {c.name:<30s}  {was:<18s} -> {new_status.danish_name}")
+                echo(f"  {c.name:<30s}  {was:<18s} -> {new_status.danish_name}")
             for child_id, reason in blocked.items():
                 name = next((c.name for c in children if c.id == child_id), str(child_id))
-                click.echo(f"  {name:<30s}  skipped: {reason}")
-            click.echo()
+                echo(f"  {name:<30s}  skipped: {reason}")
+            echo()
 
         if not targets:
             print_empty("children this can be applied to")
             return
 
         if not yes and not click.confirm("Apply to Aula now?"):
-            click.echo("Cancelled.")
+            echo("Cancelled.")
             return
 
         target_ids = [c.id for c in targets]
@@ -3974,9 +3969,9 @@ async def report_sick(ctx, child_ids, undo, present, yes):
             return
 
         for c in targets:
-            click.echo(f"  ✓ {c.name}")
-        click.echo()
-        click.echo(f"Set {len(targets)} child(ren) to {new_status.display_name}.")
+            echo(f"  ✓ {c.name}")
+        echo()
+        echo(f"Set {len(targets)} child(ren) to {new_status.display_name}.")
 
 
 async def _vacation_denials(client: AulaApiClient, children: list[Child]) -> dict[int, str]:
@@ -4119,15 +4114,15 @@ async def register_absence(ctx, child_ids, start_date, end_date, comment, yes):
 
         if not is_json:
             print_heading("Register absence")
-            click.echo()
-            click.echo(f"  From:     {start.isoformat()}")
-            click.echo(f"  To:       {end.isoformat()}")
-            click.echo(f"  Comment:  {comment or '(none)'}")
-            click.echo()
+            echo()
+            echo(f"  From:     {start.isoformat()}")
+            echo(f"  To:       {end.isoformat()}")
+            echo(f"  Comment:  {comment or '(none)'}")
+            echo()
             for c in children:
                 note = f"skipped: {denials[c.id]}" if c.id in denials else ""
-                click.echo(f"  {c.name:<30s}  {note}".rstrip())
-            click.echo()
+                echo(f"  {c.name:<30s}  {note}".rstrip())
+            echo()
 
         if not targets:
             if not output_json(ctx, result):
@@ -4135,7 +4130,7 @@ async def register_absence(ctx, child_ids, start_date, end_date, comment, yes):
             ctx.exit(1)
 
         if not yes and not click.confirm("Register this absence in Aula now?"):
-            click.echo("Cancelled.")
+            echo("Cancelled.")
             return
 
         try:
@@ -4147,9 +4142,9 @@ async def register_absence(ctx, child_ids, start_date, end_date, comment, yes):
     if output_json(ctx, result):
         return
     for c in targets:
-        click.echo(f"  ✓ {c.name}")
-    click.echo()
-    click.echo(f"Registered an absence from {start} to {end} for {len(targets)} child(ren).")
+        echo(f"  ✓ {c.name}")
+    echo()
+    echo(f"Registered an absence from {start} to {end} for {len(targets)} child(ren).")
 
 
 @cli.command("presence-templates")
@@ -4232,7 +4227,7 @@ async def presence_templates(ctx, from_date, to_date):
                     body_label="Body",
                     empty_body_text="(no day templates)",
                 ):
-                    click.echo(line)
+                    echo(line)
             else:
                 for day in tmpl.day_templates:
                     body_lines: list[str] = []
@@ -4256,8 +4251,8 @@ async def presence_templates(ctx, from_date, to_date):
                         body_label="Body",
                         empty_body_text="(no details)",
                     ):
-                        click.echo(line)
-                    click.echo()
+                        echo(line)
+                    echo()
 
 
 @cli.command("presence")
@@ -4331,16 +4326,16 @@ async def presence(ctx, from_date, to_date, week, states):
 
             print_heading(f"Activity overview - {week}")
             for day in overview.days:
-                click.echo(f"  {day.date or 'Unknown date'}")
+                echo(f"  {day.date or 'Unknown date'}")
                 if not day.activities:
-                    click.echo("    (no activities)")
+                    echo("    (no activities)")
                 else:
                     for act in day.activities:
                         time_range = ""
                         if act.start_time or act.end_time:
                             time_range = f" ({act.start_time or '?'} - {act.end_time or '?'})"
-                        click.echo(f"    {act.title or 'Untitled'}{time_range}")
-                click.echo()
+                        echo(f"    {act.title or 'Untitled'}{time_range}")
+                echo()
             return
 
         # Current states mode
@@ -4362,7 +4357,7 @@ async def presence(ctx, from_date, to_date, week, states):
             for s in state_list:
                 name = s.name or f"Profile {s.institution_profile_id}"
                 status_text = s.status.display_name if s.status else "Unknown"
-                click.echo(f"  {name}: {status_text}")
+                echo(f"  {name}: {status_text}")
             return
 
         # Default: registrations mode
@@ -4379,7 +4374,7 @@ async def presence(ctx, from_date, to_date, week, states):
             )
         except Exception as e:
             print_error(f"fetching presence registrations: {e}")
-            click.echo(
+            echo(
                 "No institution on this account accepted the request. "
                 "Institutions that do not use presence registrations reject it; "
                 "try 'aula presence --states' instead."
@@ -4417,8 +4412,8 @@ async def presence(ctx, from_date, to_date, week, states):
                 empty_body_text="",
             ):
                 if line.strip():
-                    click.echo(line)
-            click.echo()
+                    echo(line)
+            echo()
 
 
 @cli.command("daily-summary")
@@ -4492,8 +4487,8 @@ async def daily_summary(ctx, child, target_date):
                 f"Daily summary - {day_label}",
                 [("Generated", now.strftime("%Y-%m-%d %H:%M"))],
             ):
-                click.echo(line)
-            click.echo()
+                echo(line)
+            echo()
 
         # ── Presence templates for target date (planned times) ────────────────
         # Extract institution profile IDs from children (Child.id, not profile_id)
@@ -4549,8 +4544,8 @@ async def daily_summary(ctx, child, target_date):
 
         # ── Check-in status ───────────────────────────────────────────────────
         if not is_json:
-            click.echo("Status")
-            click.echo()
+            echo("Status")
+            echo()
 
         overview_data = []
         for c in children:
@@ -4572,38 +4567,38 @@ async def daily_summary(ctx, child, target_date):
                 overview_data.append(entry)
                 continue
 
-            click.echo(c.name)
+            echo(c.name)
 
             if ov is not None:
                 status = ov.status.display_name if ov.status else "Unknown"
-                click.echo(f"- Status: {status}")
+                echo(f"- Status: {status}")
                 if ov.check_in_time:
-                    click.echo(f"- Check-in: {ov.check_in_time}")
+                    echo(f"- Check-in: {ov.check_in_time}")
                 if ov.check_out_time:
-                    click.echo(f"- Check-out: {ov.check_out_time}")
+                    echo(f"- Check-out: {ov.check_out_time}")
                 if ov.location and ov.location.name:
-                    click.echo(f"- Location: {ov.location.name}")
+                    echo(f"- Location: {ov.location.name}")
                 if ov.main_group:
-                    click.echo(f"- Group: {ov.main_group.name}")
+                    echo(f"- Group: {ov.main_group.name}")
 
             # Show actual times from daily overview, with planned times as fallback
             if ov is not None and ov.entry_time:
-                click.echo(f"- Entry: {ov.entry_time}")
+                echo(f"- Entry: {ov.entry_time}")
             elif day_tmpl and day_tmpl.entry_time:
-                click.echo(f"- Planned entry: {day_tmpl.entry_time}")
+                echo(f"- Planned entry: {day_tmpl.entry_time}")
 
             if ov is not None and ov.exit_time:
-                click.echo(f"- Exit: {ov.exit_time}")
+                echo(f"- Exit: {ov.exit_time}")
             elif day_tmpl and day_tmpl.exit_time:
-                click.echo(f"- Planned exit: {day_tmpl.exit_time}")
+                echo(f"- Planned exit: {day_tmpl.exit_time}")
 
             if ov is not None and ov.exit_with:
-                click.echo(f"- Picked up by: {ov.exit_with}")
+                echo(f"- Picked up by: {ov.exit_with}")
             elif day_tmpl and day_tmpl.exit_with:
-                click.echo(f"- Picked up by (planned): {day_tmpl.exit_with}")
+                echo(f"- Picked up by (planned): {day_tmpl.exit_with}")
 
             if ov is not None and ov.comment:
-                click.echo(f"- Note: {ov.comment}")
+                echo(f"- Note: {ov.comment}")
 
             if day_tmpl and day_tmpl.spare_time_activity:
                 sta = day_tmpl.spare_time_activity
@@ -4611,12 +4606,12 @@ async def daily_summary(ctx, child, target_date):
                     activity_line = f"- Activity: {sta.start_time}–{sta.end_time}"
                     if sta.comment:
                         activity_line = f"{activity_line}  ({sta.comment})"
-                    click.echo(activity_line)
+                    echo(activity_line)
 
             if ov is None and not day_tmpl:
-                click.echo("- No data available")
+                echo("- No data available")
 
-            click.echo()
+            echo()
 
         if json_result is not None:
             json_result["status"] = overview_data
@@ -4634,8 +4629,8 @@ async def daily_summary(ctx, child, target_date):
             json_result["calendar_events"] = [dict(ev) for ev in events]
 
         if not is_json:
-            click.echo("Schedule")
-            click.echo()
+            echo("Schedule")
+            echo()
             if events:
                 slots: dict[tuple, list] = defaultdict(list)
                 for ev in sorted(events, key=lambda e: e.start_datetime):
@@ -4655,10 +4650,10 @@ async def daily_summary(ctx, child, target_date):
                         parts.append(f"[{' / '.join(teachers)}]")
                     if substitutes:
                         parts.append(f"[Substitute: {' / '.join(substitutes)}]")
-                    click.echo(f"- {'  '.join(parts)}")
+                    echo(f"- {'  '.join(parts)}")
             else:
-                click.echo("No events today.")
-            click.echo()
+                echo("No events today.")
+            echo()
 
         # ── Homework due today ────────────────────────────────────────────────
         today_tasks: list = []
@@ -4694,14 +4689,14 @@ async def daily_summary(ctx, child, target_date):
             json_result["homework_due_today"] = [dict(t) for t in today_tasks]
 
         if not is_json and today_tasks:
-            click.echo("Homework due today")
-            click.echo()
+            echo("Homework due today")
+            echo()
             for task in today_tasks:
                 subjects = ", ".join(cls.subject_name for cls in task.classes if cls.subject_name)
                 label = f"{subjects}: {task.title}" if subjects else task.title
                 status = " ✓" if task.is_completed else ""
-                click.echo(f"- {label}{status}")
-            click.echo()
+                echo(f"- {label}{status}")
+            echo()
 
         # ── Unread messages ───────────────────────────────────────────────────
         try:
@@ -4712,12 +4707,12 @@ async def daily_summary(ctx, child, target_date):
 
         if json_result is not None:
             json_result["unread_messages"] = [dict(t) for t in unread_threads]
-            click.echo(to_json(json_result))
+            echo(to_json(json_result))
             return
 
         if unread_threads:
-            click.echo("Unread messages")
-            click.echo()
+            echo("Unread messages")
+            echo()
             for thread in unread_threads:
                 raw = thread._raw or {}
                 participants = [p.get("name", "?") for p in raw.get("participants", [])]
@@ -4727,26 +4722,26 @@ async def daily_summary(ctx, child, target_date):
                     meta.append(", ".join(participants))
                 if last_updated:
                     meta.append(last_updated)
-                click.echo(strip_control_chars(thread.subject))
+                echo(strip_control_chars(thread.subject))
                 if meta:
-                    click.echo(f"  Meta: {' | '.join(meta)}")
-                click.echo()
+                    echo(f"  Meta: {' | '.join(meta)}")
+                echo()
                 try:
                     msgs = await client.get_messages_for_thread(thread.thread_id)
                     for msg in msgs:
                         msg_raw = msg._raw or {}
                         sender = get_in(msg_raw, "sender.fullName", default="Unknown")
                         send_date = msg_raw.get("sendDateTime", "")
-                        click.echo(f"Author: {sender}")
+                        echo(f"Author: {sender}")
                         if send_date:
-                            click.echo(f"Date: {send_date}")
+                            echo(f"Date: {send_date}")
                         for line in msg.content.splitlines():
                             if line.strip():
-                                click.echo(line)
-                        click.echo()
+                                echo(line)
+                        echo()
                 except Exception as e:
                     _log.warning("Could not fetch messages for thread %s: %s", thread.thread_id, e)
-                    click.echo()
+                    echo()
 
 
 @cli.command("agent-setup")
@@ -4781,7 +4776,7 @@ def agent_setup(install_global):
     skill_dir.parent.mkdir(parents=True, exist_ok=True)
     skill_dir.write_text(generate_skill_md())
 
-    click.echo(f"Skill installed: {skill_dir}")
+    echo(f"Skill installed: {skill_dir}")
 
     agents: list[str] = []
     if has_claude:
@@ -4789,12 +4784,12 @@ def agent_setup(install_global):
     if has_opencode:
         agents.append("OpenCode")
     if agents:
-        click.echo(f"Detected: {', '.join(agents)}")
+        echo(f"Detected: {', '.join(agents)}")
     else:
-        click.echo("No agent tools detected, but the skill file is ready.")
+        echo("No agent tools detected, but the skill file is ready.")
 
     scope = "globally (all projects)" if install_global else "for this project"
-    click.echo(f"Installed {scope}. Agents can now use /aula or ask about Aula data.")
+    echo(f"Installed {scope}. Agents can now use /aula or ask about Aula data.")
 
 
 if __name__ == "__main__":

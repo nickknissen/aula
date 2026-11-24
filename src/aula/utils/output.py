@@ -10,6 +10,11 @@ from .html import strip_control_chars
 from .json import to_json
 
 
+def echo(message: object = None, *, err: bool = False) -> None:
+    """Print a line with control characters removed, so server text cannot drive the terminal."""
+    click.echo(strip_control_chars(message) if isinstance(message, str) else message, err=err)
+
+
 def output_json(ctx: click.Context, data: Any) -> bool:
     """If ``--output json`` is active, emit JSON and return ``True``."""
     if ctx.obj.get("OUTPUT_FORMAT") == "json":
@@ -27,12 +32,12 @@ def format_heading_lines(title: str) -> list[str]:
 def print_heading(title: str) -> None:
     """Print a consistent heading block."""
     for line in format_heading_lines(title):
-        click.echo(line)
+        echo(line)
 
 
 def print_empty(resource: str) -> None:
     """Print the shared empty-state sentence."""
-    click.echo(f"No {resource} found.")
+    echo(f"No {resource} found.")
 
 
 def print_error(message: str, err: bool = False) -> None:
@@ -41,7 +46,7 @@ def print_error(message: str, err: bool = False) -> None:
     Pass ``err=True`` to route it to stderr, which commands must do while
     emitting JSON so the error does not land in the middle of the document.
     """
-    click.echo(f"Error: {message}", err=err)
+    echo(f"Error: {message}", err=err)
 
 
 def clip(text: str, max_len: int = 120) -> str:
@@ -60,7 +65,7 @@ def format_row(primary: str, secondary: str | None = None, tertiary: str | None 
     for value in (secondary, tertiary):
         if value and value.strip():
             parts.append(value.strip())
-    return " | ".join(parts)
+    return strip_control_chars(" | ".join(parts))
 
 
 class ContactRow(NamedTuple):

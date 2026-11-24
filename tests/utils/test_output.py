@@ -8,6 +8,7 @@ from aula.utils.output import (
     build_contact_rows,
     build_contact_table,
     clip,
+    echo,
     format_calendar_context_lines,
     format_heading_lines,
     format_message_lines,
@@ -16,6 +17,7 @@ from aula.utils.output import (
     format_record_lines,
     format_report_intro_lines,
     format_row,
+    print_error,
     scope_relations_to_children,
     sort_contact_rows,
 )
@@ -49,6 +51,27 @@ class TestFormatRow:
 
     def test_ignores_blank_parts(self):
         assert format_row("Title", "", "  ") == "Title"
+
+    def test_drops_control_characters(self):
+        assert format_row("Title\x1b[2J", "meta\x07") == "Title[2J | meta"
+
+
+class TestEcho:
+    def test_drops_control_characters_and_keeps_newline_and_tab(self, capsys):
+        echo("a\x1b[2Jb\n\tc\x9b")
+        assert capsys.readouterr().out == "a[2Jb\n\tc\n"
+
+    def test_writes_to_stderr_when_asked(self, capsys):
+        echo("oops\x1b", err=True)
+        assert capsys.readouterr().err == "oops\n"
+
+    def test_blank_line(self, capsys):
+        echo()
+        assert capsys.readouterr().out == "\n"
+
+    def test_print_error_drops_control_characters(self, capsys):
+        print_error("server said \x1b[2J")
+        assert capsys.readouterr().out == "Error: server said [2J\n"
 
 
 def _address(street: str, postal_code: object = None, district: str | None = None) -> dict:
