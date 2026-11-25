@@ -46,6 +46,7 @@ from .models import (
 )
 from .token_storage import FileTokenStorage
 from .utils.dates import aula_today
+from .utils.diagnostics import credential_logger
 from .utils.html import strip_control_chars
 from .utils.json import to_json
 from .utils.mapping import get_in
@@ -76,6 +77,8 @@ from .utils.table import (
 )
 from .utils.week import DANISH_WEEKDAYS, weekday_index
 from .widgets import EasyIQChildNotInPortal, WidgetContext, easyiq_child_user_ids
+
+_LOGGER = credential_logger(__name__)
 
 
 # Decorator to run async functions within Click commands
@@ -503,7 +506,7 @@ async def _available_widget_ids(client: AulaApiClient) -> set[str] | None:
             widgets = await client.get_widgets()
             _WIDGET_ID_CACHE[id(client)] = {w.widget_id for w in widgets}
         except Exception as e:
-            logging.getLogger(__name__).warning("Could not read the widget list: %s", e)
+            _LOGGER.warning("Could not read the widget list: %s", e)
             _WIDGET_ID_CACHE[id(client)] = None
 
     return _WIDGET_ID_CACHE[id(client)]
@@ -2921,7 +2924,6 @@ async def weekly_summary(ctx, child, week, providers):
     week = _resolve_week(week)
 
     # ── Provider resolution ──────────────────────────────────────────────────
-    _log = logging.getLogger(__name__)
     if providers:
         enabled: set[WeeklySummaryProvider] = (
             set(WeeklySummaryProvider)
@@ -2935,7 +2937,7 @@ async def weekly_summary(ctx, child, week, providers):
             try:
                 provider = WeeklySummaryProvider(key)
             except ValueError:
-                _log.warning("Unknown weekly_summary provider in config: %r (ignored)", key)
+                _LOGGER.warning("Unknown weekly_summary provider in config: %r (ignored)", key)
                 continue
             if active:
                 enabled.add(provider)
@@ -2992,7 +2994,7 @@ async def weekly_summary(ctx, child, week, providers):
             events = await client.get_calendar_events(child_inst_ids, week_start, week_end)
         except Exception as e:
             events = []
-            logging.getLogger(__name__).warning("Could not fetch calendar events: %s", e)
+            _LOGGER.warning("Could not fetch calendar events: %s", e)
 
         if json_result is not None:
             json_result["calendar_events"] = [dict(ev) for ev in events]
@@ -3051,7 +3053,7 @@ async def weekly_summary(ctx, child, week, providers):
             unread_threads = await client.get_message_threads(filter_on="unread")
         except Exception as e:
             unread_threads = []
-            _log.warning("Could not fetch unread messages: %s", e)
+            _LOGGER.warning("Could not fetch unread messages: %s", e)
 
         if json_result is not None:
             json_result["unread_messages"] = [dict(t) for t in unread_threads]
@@ -3078,7 +3080,9 @@ async def weekly_summary(ctx, child, week, providers):
                                 echo(line)
                         echo()
                 except Exception as e:
-                    _log.warning("Could not fetch messages for thread %s: %s", thread.thread_id, e)
+                    _LOGGER.warning(
+                        "Could not fetch messages for thread %s: %s", thread.thread_id, e
+                    )
                     echo()
 
         if not enabled:
@@ -3099,7 +3103,7 @@ async def weekly_summary(ctx, child, week, providers):
         try:
             all_child_user_ids = easyiq_child_user_ids(await client.get_profile_context())
         except Exception as e:
-            _log.warning("Could not read children for the EasyIQ child filter: %s", e)
+            _LOGGER.warning("Could not read children for the EasyIQ child filter: %s", e)
             all_child_user_ids = []
 
         # Filter child_filter to selected children only
@@ -3124,7 +3128,7 @@ async def weekly_summary(ctx, child, week, providers):
                 )
             except Exception as e:
                 tasks = []
-                _log.warning("Could not fetch MU tasks: %s", e)
+                _LOGGER.warning("Could not fetch MU tasks: %s", e)
 
             if json_result is not None:
                 json_result["mu_tasks"] = [dict(t) for t in tasks]
@@ -3168,7 +3172,7 @@ async def weekly_summary(ctx, child, week, providers):
                 )
             except Exception as e:
                 mu_persons = []
-                _log.warning("Could not fetch MU ugeplan: %s", e)
+                _LOGGER.warning("Could not fetch MU ugeplan: %s", e)
 
             if json_result is not None:
                 json_result["mu_ugeplan"] = [dict(p) for p in mu_persons]
@@ -3193,7 +3197,7 @@ async def weekly_summary(ctx, child, week, providers):
                 )
             except Exception as e:
                 meebook_students = []
-                _log.warning("Could not fetch Meebook weekplan: %s", e)
+                _LOGGER.warning("Could not fetch Meebook weekplan: %s", e)
 
             if json_result is not None:
                 json_result["meebook_weekplan"] = [dict(s) for s in meebook_students]
@@ -3225,7 +3229,7 @@ async def weekly_summary(ctx, child, week, providers):
                 docendo_plans = await client.widgets.get_docendo_weekplan(week)
             except Exception as e:
                 docendo_plans = []
-                _log.warning("Could not fetch Docendo weekplan: %s", e)
+                _LOGGER.warning("Could not fetch Docendo weekplan: %s", e)
 
             only_child = len(prof.children) == 1
             docendo_pairs = [
@@ -3278,10 +3282,10 @@ async def weekly_summary(ctx, child, week, providers):
                     # Expected for children whose institution is not on EasyIQ.
                     # The summary spans every provider, so an absence that is
                     # normal does not belong in its output.
-                    _log.info("EasyIQ has no identity for %s; no weekly plan", c.name)
+                    _LOGGER.info("EasyIQ has no identity for %s; no weekly plan", c.name)
                     continue
                 except Exception as e:
-                    _log.warning("Could not fetch EasyIQ weekplan for %s: %s", c.name, e)
+                    _LOGGER.warning("Could not fetch EasyIQ weekplan for %s: %s", c.name, e)
                     continue
 
                 if not appointments:
@@ -3332,10 +3336,10 @@ async def weekly_summary(ctx, child, week, providers):
                         all_institution_filter=institution_filter,
                     )
                 except EasyIQChildNotInPortal:
-                    _log.info("EasyIQ has no identity for %s; no homework", c.name)
+                    _LOGGER.info("EasyIQ has no identity for %s; no homework", c.name)
                     continue
                 except Exception as e:
-                    _log.warning("Could not fetch EasyIQ homework for %s: %s", c.name, e)
+                    _LOGGER.warning("Could not fetch EasyIQ homework for %s: %s", c.name, e)
                     continue
 
                 if not homework:
@@ -3575,7 +3579,6 @@ async def update_presence(
         institution_profile_ids = [c.id for c in children]
 
         # Fetch current state
-        _log = logging.getLogger(__name__)
         overviews: dict[int, DailyOverview] = {}
         pickup_data = []
         templates = []
@@ -3586,12 +3589,12 @@ async def update_presence(
                 if ov:
                     overviews[c.id] = ov
             except Exception as e:
-                _log.warning("Could not fetch daily overview for %s: %s", c.name, e)
+                _LOGGER.warning("Could not fetch daily overview for %s: %s", c.name, e)
 
         try:
             pickup_data = await client.get_pickup_responsibles(institution_profile_ids)
         except Exception as e:
-            _log.warning("Could not fetch pickup responsibles: %s", e)
+            _LOGGER.warning("Could not fetch pickup responsibles: %s", e)
         import contextlib
 
         with contextlib.suppress(Exception):
@@ -3917,8 +3920,6 @@ async def report_sick(ctx, child_ids, undo, present, yes):
         else:
             children = prof.children
 
-        _log = logging.getLogger(__name__)
-
         # Aula rejects the write when the institution has not granted guardians
         # the report_sick module, so check first and say which child and why.
         # A configuration we cannot read is not treated as a denial.
@@ -3926,7 +3927,7 @@ async def report_sick(ctx, child_ids, undo, present, yes):
         try:
             configs = await client.get_presence_configuration([c.id for c in children])
         except Exception as e:
-            _log.warning("Could not fetch presence configuration: %s", e)
+            _LOGGER.warning("Could not fetch presence configuration: %s", e)
             configs = []
 
         by_child = {c.child_id: c for c in configs if c.child_id is not None}
@@ -3952,7 +3953,7 @@ async def report_sick(ctx, child_ids, undo, present, yes):
                 if overview:
                     current[c.id] = overview
             except Exception as e:
-                _log.warning("Could not fetch daily overview for %s: %s", c.name, e)
+                _LOGGER.warning("Could not fetch daily overview for %s: %s", c.name, e)
 
         if not is_json:
             print_heading("Report sick" if not undo else "Take sick report back")
@@ -4008,7 +4009,6 @@ async def _vacation_denials(client: AulaApiClient, children: list[Child]) -> dic
 
     A child Aula has not said either way about is left out, so Aula decides.
     """
-    _log = logging.getLogger(__name__)
     denials = {
         c.id: "you have no custody of or extended access to this child; "
         "a guardian with custody must register it"
@@ -4022,14 +4022,14 @@ async def _vacation_denials(client: AulaApiClient, children: list[Child]) -> dic
     try:
         configs = await client.get_presence_configuration([c.id for c in candidates])
     except Exception as e:
-        _log.warning("Could not fetch presence configuration, leaving it to Aula: %s", e)
+        _LOGGER.warning("Could not fetch presence configuration, leaving it to Aula: %s", e)
         return denials
 
     by_child = {c.child_id: c for c in configs if c.child_id is not None}
     for child in candidates:
         config = by_child.get(child.id)
         if config is None:
-            _log.warning("No presence configuration for child %s, leaving it to Aula", child.id)
+            _LOGGER.warning("No presence configuration for child %s, leaving it to Aula", child.id)
         elif not config.can_edit(PresenceModule.VACATION):
             denials[child.id] = (
                 "absence registration is read-only for guardians; contact the institution"
@@ -4236,8 +4236,7 @@ async def presence_templates(ctx, from_date, to_date):
         for tmpl in templates:
             ip = tmpl.institution_profile
             if not ip:
-                _log = logging.getLogger(__name__)
-                _log.warning("Presence template has no institution profile")
+                _LOGGER.warning("Presence template has no institution profile")
                 name = "Unknown"
                 institution = ""
             else:
@@ -4470,7 +4469,6 @@ async def daily_summary(ctx, child, target_date):
     from collections import defaultdict
 
     is_json = ctx.obj.get("OUTPUT_FORMAT") == "json"
-    _log = logging.getLogger(__name__)
     tz = ZoneInfo("Europe/Copenhagen")
     now = datetime.datetime.now(tz)
 
@@ -4528,35 +4526,35 @@ async def daily_summary(ctx, child, target_date):
             )
         except Exception as e:
             presence_tmpl_list = []
-            _log.warning("Could not fetch presence templates: %s", e)
+            _LOGGER.warning("Could not fetch presence templates: %s", e)
 
         from .models import DayTemplate
 
         # Log ID mapping for verification (debug only)
-        _log.debug("=== ID MAPPING VERIFICATION ===")
-        _log.debug("Children and their IDs:")
+        _LOGGER.debug("=== ID MAPPING VERIFICATION ===")
+        _LOGGER.debug("Children and their IDs:")
         for c in children:
-            _log.debug("  Child: %s | id=%s | profile_id=%s", c.name, c.id, c.profile_id)
-        _log.debug("Presence templates and their institution profile IDs:")
+            _LOGGER.debug("  Child: %s | id=%s | profile_id=%s", c.name, c.id, c.profile_id)
+        _LOGGER.debug("Presence templates and their institution profile IDs:")
         for tmpl in presence_tmpl_list:
             if tmpl.institution_profile:
-                _log.debug(
+                _LOGGER.debug(
                     "  Template: %s | id=%s | profile_id=%s",
                     tmpl.institution_profile.name or "unknown",
                     tmpl.institution_profile.id,
                     tmpl.institution_profile.profile_id,
                 )
-        _log.debug("=== END ID MAPPING VERIFICATION ===")
+        _LOGGER.debug("=== END ID MAPPING VERIFICATION ===")
 
         # Find day template matching target date
         target_date_str = today.date().isoformat()
         day_template_by_child: dict[int, DayTemplate] = {}
         for tmpl in presence_tmpl_list:
             if not tmpl.institution_profile:
-                _log.warning("Presence template has no institution profile, skipping")
+                _LOGGER.warning("Presence template has no institution profile, skipping")
                 continue
             if not tmpl.day_templates:
-                _log.warning(
+                _LOGGER.warning(
                     "Presence template for %s has no day templates",
                     tmpl.institution_profile.name if tmpl.institution_profile else "unknown",
                 )
@@ -4585,7 +4583,7 @@ async def daily_summary(ctx, child, target_date):
                 try:
                     ov = await client.get_daily_overview(c.id)
                 except Exception as e:
-                    _log.warning("Could not fetch daily overview for %s: %s", c.name, e)
+                    _LOGGER.warning("Could not fetch daily overview for %s: %s", c.name, e)
 
             if is_json:
                 entry = {"child": dict(c)}
@@ -4652,7 +4650,7 @@ async def daily_summary(ctx, child, target_date):
             )
         except Exception as e:
             events = []
-            _log.warning("Could not fetch calendar events: %s", e)
+            _LOGGER.warning("Could not fetch calendar events: %s", e)
 
         if json_result is not None:
             json_result["calendar_events"] = [dict(ev) for ev in events]
@@ -4705,7 +4703,7 @@ async def daily_summary(ctx, child, target_date):
                 )
             except Exception as e:
                 all_tasks = []
-                _log.warning("Could not fetch tasks: %s", e)
+                _LOGGER.warning("Could not fetch tasks: %s", e)
 
             today_tasks = [
                 t
@@ -4732,7 +4730,7 @@ async def daily_summary(ctx, child, target_date):
             unread_threads = await client.get_message_threads(filter_on="unread")
         except Exception as e:
             unread_threads = []
-            _log.warning("Could not fetch unread messages: %s", e)
+            _LOGGER.warning("Could not fetch unread messages: %s", e)
 
         if json_result is not None:
             json_result["unread_messages"] = [dict(t) for t in unread_threads]
@@ -4761,7 +4759,9 @@ async def daily_summary(ctx, child, target_date):
                                 echo(line)
                         echo()
                 except Exception as e:
-                    _log.warning("Could not fetch messages for thread %s: %s", thread.thread_id, e)
+                    _LOGGER.warning(
+                        "Could not fetch messages for thread %s: %s", thread.thread_id, e
+                    )
                     echo()
 
 

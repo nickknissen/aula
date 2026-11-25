@@ -1,19 +1,27 @@
 """Synthetic credentials stay out of application diagnostic records."""
 
 import copy
+import importlib
 import logging
+import pkgutil
 from datetime import datetime
 from unittest.mock import AsyncMock
 
 import httpx
 import pytest
 
+import aula
 from aula.api_client import AulaApiClient
 from aula.auth.exceptions import SAMLError
 from aula.auth.mitid_client import MitIDAuthClient
 from aula.auth_flow import authenticate
 from aula.http import AulaResponseError, HttpRequestError, HttpResponse
-from aula.utils.diagnostics import describe_payload, diagnostic_url, redact_credentials
+from aula.utils.diagnostics import (
+    _CredentialFilter,
+    describe_payload,
+    diagnostic_url,
+    redact_credentials,
+)
 
 
 @pytest.mark.asyncio
@@ -171,3 +179,23 @@ def test_describe_payload_names_keys_and_not_values():
     assert describe_payload({"name": "Barn Et", "id": 1}) == "dict with keys ['id', 'name']"
     assert describe_payload(["Barn Et"]) == "list of 1 items"
     assert describe_payload("Barn Et") == "str"
+
+
+def test_every_aula_logger_redacts_credentials():
+    # __main__ runs the CLI on import.
+    for module in pkgutil.walk_packages(aula.__path__, "aula."):
+        if module.name != "aula.__main__":
+            importlib.import_module(module.name)
+
+    loggers = {
+        name: logger
+        for name, logger in logging.Logger.manager.loggerDict.items()
+        if name.startswith("aula.") and isinstance(logger, logging.Logger)
+    }
+    unfiltered = [
+        name
+        for name, logger in loggers.items()
+        if not any(isinstance(f, _CredentialFilter) for f in logger.filters)
+    ]
+    assert "aula.utils.download" in loggers
+    assert unfiltered == []

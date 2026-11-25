@@ -1,15 +1,15 @@
 """Configuration management for Aula CLI."""
 
 import json
-import logging
 from pathlib import Path
 from typing import Any
 
 import click
 
 from .utils.atomic_write import write_json_atomic
+from .utils.diagnostics import credential_logger
 
-_LOGGER = logging.getLogger(__name__)
+_LOGGER = credential_logger(__name__)
 
 CONFIG_DIR = Path.home() / ".config" / "aula"
 CONFIG_FILE = CONFIG_DIR / "config.json"
