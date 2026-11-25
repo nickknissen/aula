@@ -25,6 +25,20 @@ class NetworkError(MitIDAuthError):
     pass
 
 
+class TokenServerUnavailableError(NetworkError):
+    """Exception raised when the token server answers with a 408, a 5xx or a redirect."""
+
+    def __init__(self, status_code: int) -> None:
+        super().__init__(f"Token server unavailable: HTTP {status_code}")
+        self.status_code = status_code
+
+
+class RateLimitedError(NetworkError):
+    """Exception raised when the token server answers 429 Too Many Requests."""
+
+    pass
+
+
 class SAMLError(MitIDAuthError):
     """Exception raised for SAML-related errors."""
 

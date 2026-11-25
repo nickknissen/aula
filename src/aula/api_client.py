@@ -24,6 +24,7 @@ from .http import (
     AulaConnectionError,
     AulaInvalidTokenError,
     AulaLoginRequiredError,
+    AulaRateLimitError,
     AulaRefreshTokenConflictError,
     AulaRejectedError,
     AulaResponseError,
@@ -569,6 +570,7 @@ class AulaApiClient:
                 return True
             except (
                 AulaServerError,
+                AulaRateLimitError,
                 AulaConnectionError,
                 AulaLoginRequiredError,
                 AulaRefreshTokenConflictError,
