@@ -1361,12 +1361,7 @@ class AulaApiClient:
         skipped = _SkippedRecords("message thread")
         for t_dict in skipped.objects(threads_data):
             try:
-                thread = MessageThread(
-                    thread_id=t_dict.get("id"),
-                    subject=t_dict.get("subject"),
-                    _raw=t_dict,
-                )
-                threads.append(thread)
+                threads.append(MessageThread.from_dict(t_dict))
             except _RECORD_ERRORS as e:
                 skipped.add(e, t_dict)
         skipped.raise_if_none_parsed(threads, resp.status_code)

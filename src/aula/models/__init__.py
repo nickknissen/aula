@@ -28,6 +28,9 @@ from .meeting_booking import MeetingBooking as MeetingBooking
 from .message import Message as Message
 from .message_folder import MessageFolder as MessageFolder
 from .message_thread import MessageThread as MessageThread
+from .message_thread import ThreadChild as ThreadChild
+from .message_thread import ThreadLatestMessage as ThreadLatestMessage
+from .message_thread import ThreadRecipient as ThreadRecipient
 from .momo_huskeliste import MomoUserCourses as MomoUserCourses
 from .momo_huskeliste import UserReminders as UserReminders
 from .mu_task import MUTask as MUTask
