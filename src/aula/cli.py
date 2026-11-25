@@ -2664,9 +2664,16 @@ async def momo_reminders(ctx):
     multiple=True,
     help="Filter gallery images by tag (can be specified multiple times).",
 )
+@click.option(
+    "--max-size",
+    type=click.IntRange(min=1),
+    default=100,
+    show_default=True,
+    help="Largest file to download, in MB. Larger files count as failed.",
+)
 @click.pass_context
 @async_cmd
-async def download_images(ctx, output, since, source, tags):
+async def download_images(ctx, output, since, source, tags, max_size):
     """Download images from Aula (gallery, posts, messages)."""
     from pathlib import Path
 
@@ -2696,75 +2703,85 @@ async def download_images(ctx, output, since, source, tags):
 
         total_downloaded = 0
         total_skipped = 0
+        total_failed = 0
         message_issues: list[str] = []
         on_progress = echo if not is_json else lambda _msg: None
+        max_bytes = max_size * 1024 * 1024
+
+        def tally(counts) -> None:
+            nonlocal total_downloaded, total_skipped, total_failed
+            total_downloaded += counts.downloaded
+            total_skipped += counts.skipped
+            total_failed += counts.failed
+            if not is_json:
+                echo(f"  Downloaded: {counts.downloaded}")
+                echo(f"  Skipped: {counts.skipped}")
+                echo(f"  Failed: {counts.failed}")
+                echo()
 
         if source in ("all", "gallery"):
             if not is_json:
                 echo("Gallery")
-            dl, sk = await download_gallery_images(
-                client,
-                institution_profile_ids,
-                output_path,
-                cutoff,
-                tag_list,
-                on_progress=on_progress,
+            tally(
+                await download_gallery_images(
+                    client,
+                    institution_profile_ids,
+                    output_path,
+                    cutoff,
+                    tag_list,
+                    on_progress=on_progress,
+                    max_bytes=max_bytes,
+                )
             )
-            if not is_json:
-                echo(f"  Downloaded: {dl}")
-                echo(f"  Skipped: {sk}")
-                echo()
-            total_downloaded += dl
-            total_skipped += sk
 
         if source in ("all", "posts"):
             if not is_json:
                 echo("Posts")
-            dl, sk = await download_post_images(
-                client,
-                institution_profile_ids,
-                output_path,
-                cutoff,
-                on_progress=on_progress,
+            tally(
+                await download_post_images(
+                    client,
+                    institution_profile_ids,
+                    output_path,
+                    cutoff,
+                    on_progress=on_progress,
+                    max_bytes=max_bytes,
+                )
             )
-            if not is_json:
-                echo(f"  Downloaded: {dl}")
-                echo(f"  Skipped: {sk}")
-                echo()
-            total_downloaded += dl
-            total_skipped += sk
 
         if source in ("all", "messages"):
             if not is_json:
                 echo("Messages")
-            dl, sk = await download_message_images(
-                client,
-                children_inst_ids,
-                institution_codes,
-                output_path,
-                cutoff,
-                on_progress=on_progress,
-                on_incomplete=message_issues.append,
+            tally(
+                await download_message_images(
+                    client,
+                    children_inst_ids,
+                    institution_codes,
+                    output_path,
+                    cutoff,
+                    on_progress=on_progress,
+                    on_incomplete=message_issues.append,
+                    max_bytes=max_bytes,
+                )
             )
-            if not is_json:
-                echo(f"  Downloaded: {dl}")
-                echo(f"  Skipped: {sk}")
-                echo()
-            total_downloaded += dl
-            total_skipped += sk
 
-        report: dict[str, object] = {"downloaded": total_downloaded, "skipped": total_skipped}
+        failed_run = bool(message_issues) or total_failed > 0
+        report: dict[str, object] = {
+            "downloaded": total_downloaded,
+            "skipped": total_skipped,
+            "failed": total_failed,
+        }
         if source in ("all", "messages"):
             report["message_export"] = {"complete": not message_issues, "issues": message_issues}
         if output_json(ctx, report):
-            if message_issues:
+            if failed_run:
                 ctx.exit(1)
             return
 
         echo("Total")
         echo(f"  Downloaded: {total_downloaded}")
         echo(f"  Skipped: {total_skipped}")
-        if message_issues:
+        echo(f"  Failed: {total_failed}")
+        if failed_run:
             ctx.exit(1)
 
 
@@ -4750,33 +4767,54 @@ async def daily_summary(ctx, child, target_date):
     "install_global",
     is_flag=True,
     default=False,
-    help="Install skill globally (~/.claude/skills/) instead of in the current project.",
+    help="Install skill globally (~/.claude/skills/ or ~/.config/opencode/skills/) "
+    "instead of in the current project.",
 )
-def agent_setup(install_global):
+@click.option(
+    "--force",
+    is_flag=True,
+    default=False,
+    help="Overwrite an existing skill file without asking.",
+)
+def agent_setup(install_global, force):
     """Install an agent skill so Claude Code / OpenCode can use the Aula CLI.
 
     Creates a SKILL.md file that teaches AI agents how to query Aula for
     school data.  Works with any tool that follows the Agent Skills standard
     (Claude Code, OpenCode, etc.).
     """
-    from pathlib import Path
-
     from .agent_skill import generate_skill_md
 
-    # ── Detect tools ────────────────────────────────────────────────────────
     home = Path.home()
     has_claude = (home / ".claude").is_dir()
     has_opencode = (home / ".config" / "opencode").is_dir()
 
-    if install_global:
-        skill_dir = home / ".claude" / "skills" / "aula" / "SKILL.md"
-    else:
-        skill_dir = Path.cwd() / ".claude" / "skills" / "aula" / "SKILL.md"
+    skill_roots: list[Path] = []
+    if has_claude or not has_opencode:
+        skill_roots.append(home / ".claude" if install_global else Path.cwd() / ".claude")
+    if has_opencode:
+        skill_roots.append(
+            home / ".config" / "opencode" if install_global else Path.cwd() / ".opencode"
+        )
 
-    skill_dir.parent.mkdir(parents=True, exist_ok=True)
-    skill_dir.write_text(generate_skill_md())
+    content = generate_skill_md()
+    installed = False
+    for root in skill_roots:
+        skill_file = root / "skills" / "aula" / "SKILL.md"
+        if (
+            skill_file.exists()
+            and not force
+            and not click.confirm(f"{skill_file} already exists. Overwrite?")
+        ):
+            echo(f"Skipped: {skill_file}")
+            continue
+        skill_file.parent.mkdir(parents=True, exist_ok=True)
+        skill_file.write_text(content)
+        echo(f"Skill installed: {skill_file}")
+        installed = True
 
-    echo(f"Skill installed: {skill_dir}")
+    if not installed:
+        return
 
     agents: list[str] = []
     if has_claude:

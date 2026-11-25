@@ -420,7 +420,7 @@ aula agent-setup
 aula agent-setup --global
 ```
 
-This creates a `SKILL.md` following the [Agent Skills](https://agentskills.io) open standard under `.claude/skills/aula/`, which is read by both Claude Code and OpenCode. Once installed, agents can invoke `/aula` or automatically use the CLI when you ask about school data.
+This creates a `SKILL.md` following the [Agent Skills](https://agentskills.io) open standard, in `.claude/skills/aula/` for Claude Code and `.opencode/skills/aula/` for OpenCode, depending on which tool it finds. If the file exists, it asks before overwriting; `--force` skips the question. Once installed, agents can invoke `/aula` or automatically use the CLI when you ask about school data.
 
 ## Project Structure
 

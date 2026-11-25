@@ -56,6 +56,49 @@ def test_image_export_surfaces_incomplete_search(monkeypatch, output, tmp_path):
         assert "Incomplete message export: search:max_pages" in result.output
 
 
+@pytest.mark.parametrize("output", ["text", "json"])
+def test_image_export_exits_non_zero_when_a_download_fails(monkeypatch, output, tmp_path):
+    client = client_for_cli(monkeypatch)
+    client.get_gallery_albums.return_value = [
+        {"id": 1, "title": "Trip", "creationDate": "2026-03-01T12:00:00"}
+    ]
+    client.get_album_pictures.return_value = [
+        {"file": {"url": "http://example.com/pic.jpg", "name": "pic.jpg"}, "tags": []}
+    ]
+    client.download_file.side_effect = RuntimeError("boom")
+    result = CliRunner().invoke(
+        download_images,
+        ["--source", "gallery", "--since", "2026-01-01", "--output", str(tmp_path)],
+        obj={"OUTPUT_FORMAT": output},
+    )
+    assert result.exit_code == 1, result.output
+    if output == "json":
+        assert json.loads(result.output)["failed"] == 1
+    else:
+        assert "Failed: 1" in result.output
+
+
+def test_image_export_passes_max_size_in_bytes(monkeypatch, tmp_path):
+    client = client_for_cli(monkeypatch)
+    client.get_gallery_albums.return_value = [
+        {"id": 1, "title": "Trip", "creationDate": "2026-03-01T12:00:00"}
+    ]
+    client.get_album_pictures.return_value = [
+        {"file": {"url": "http://example.com/pic.jpg", "name": "pic.jpg"}, "tags": []}
+    ]
+    client.download_file.return_value = b"data"
+    result = CliRunner().invoke(
+        download_images,
+        ["--source", "gallery", "--since", "2026-01-01", "--output", str(tmp_path)]
+        + ["--max-size", "2"],
+        obj={"OUTPUT_FORMAT": "text"},
+    )
+    assert result.exit_code == 0, result.output
+    client.download_file.assert_awaited_once_with(
+        "http://example.com/pic.jpg", max_bytes=2 * 1024 * 1024
+    )
+
+
 def test_search_sends_only_the_childrens_profile_ids_and_shows_each_hit(monkeypatch):
     from aula.models import Child
     from aula.models.message import Message

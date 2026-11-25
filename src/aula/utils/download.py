@@ -7,9 +7,11 @@ import re
 from collections.abc import Callable
 from datetime import date, datetime
 from pathlib import Path
+from typing import NamedTuple
 from urllib.parse import urlsplit, urlunsplit
 
 from ..api_client import AulaApiClient
+from ..http import DownloadTooLargeError
 from ..models.attachment import parse_attachments
 from .mapping import get_in
 
@@ -19,16 +21,70 @@ _UNSAFE_CHARS = re.compile(r'[<>:"/\\|?*]')
 
 ProgressCallback = Callable[[str], object]
 
+DEFAULT_MAX_BYTES = 100 * 1024 * 1024
+
+
+class DownloadCounts(NamedTuple):
+    """Files downloaded, skipped as already exported, and failed."""
+
+    downloaded: int
+    skipped: int
+    failed: int
+
 
 class _Archive:
     """Remember source identity independently of display names and signed URLs."""
 
-    def __init__(self, root: Path):
+    def __init__(self, root: Path, max_bytes: int | None = DEFAULT_MAX_BYTES):
         self.root = root
+        self.max_bytes = max_bytes
         self.manifest = root / ".aula-archive.json"
-        self.files: dict[str, str] = (
-            json.loads(self.manifest.read_text()) if self.manifest.exists() else {}
-        )
+        self.downloaded = 0
+        self.skipped = 0
+        self.failed = 0
+        self.files = self._load()
+
+    def _load(self) -> dict[str, str]:
+        if not self.manifest.exists():
+            return {}
+        try:
+            files = json.loads(self.manifest.read_text())
+            if not isinstance(files, dict):
+                raise ValueError("manifest is not an object")
+            return files
+        except ValueError:
+            aside = self.manifest.with_suffix(".json.corrupt")
+            _LOGGER.warning(
+                "Archive manifest %s is corrupt; moved to %s", self.manifest, aside, exc_info=True
+            )
+            self.manifest.replace(aside)
+            return {}
+
+    def counts(self) -> DownloadCounts:
+        return DownloadCounts(self.downloaded, self.skipped, self.failed)
+
+    async def try_save(
+        self,
+        client: AulaApiClient,
+        folder: Path,
+        filename: str,
+        url: str,
+        source: tuple,
+        attachment_id: object = None,
+        file_id: object = None,
+    ) -> None:
+        """Save one file and tally the outcome; a failure is counted, not raised."""
+        try:
+            if await self.save(client, folder, filename, url, source, attachment_id, file_id):
+                self.downloaded += 1
+            else:
+                self.skipped += 1
+        except DownloadTooLargeError:
+            _LOGGER.warning("Skipped %s: larger than %s bytes", url, self.max_bytes)
+            self.failed += 1
+        except Exception:
+            _LOGGER.warning("Failed to download %s", url, exc_info=True)
+            self.failed += 1
 
     async def save(
         self,
@@ -65,7 +121,7 @@ class _Archive:
             suffix += 1
             dest = original.with_name(f"{original.stem}-{key[:12]}-{suffix}{original.suffix}")
 
-        data = await client.download_file(url)
+        data = await client.download_file(url, max_bytes=self.max_bytes)
         dest.parent.mkdir(parents=True, exist_ok=True)
         with dest.open("xb") as file:
             file.write(data)
@@ -96,14 +152,10 @@ async def download_gallery_images(
     cutoff: date,
     tags: list[str] | None = None,
     on_progress: ProgressCallback | None = None,
-) -> tuple[int, int]:
-    """Download images from gallery albums.
-
-    Returns (downloaded_count, skipped_count).
-    """
-    downloaded = 0
-    skipped = 0
-    archive = _Archive(output)
+    max_bytes: int | None = DEFAULT_MAX_BYTES,
+) -> DownloadCounts:
+    """Download images from gallery albums."""
+    archive = _Archive(output, max_bytes)
 
     if on_progress:
         on_progress("Fetching album list...")
@@ -112,7 +164,8 @@ async def download_gallery_images(
         albums = await client.get_gallery_albums(institution_profile_ids)
     except Exception:
         _LOGGER.warning("Failed to fetch gallery albums", exc_info=True)
-        return downloaded, skipped
+        archive.failed += 1
+        return archive.counts()
 
     # Pre-filter: skip albums without id or before cutoff
     eligible = []
@@ -149,6 +202,7 @@ async def download_gallery_images(
             pictures = await client.get_album_pictures(institution_profile_ids, album_id)
         except Exception:
             _LOGGER.warning("Failed to fetch pictures for album '%s'", album_title, exc_info=True)
+            archive.failed += 1
             continue
 
         for pic in pictures:
@@ -164,23 +218,17 @@ async def download_gallery_images(
             if not url:
                 continue
 
-            try:
-                if await archive.save(
-                    client,
-                    album_dir,
-                    filename,
-                    url,
-                    ("gallery", album_id),
-                    pic.get("id"),
-                    file_info.get("id"),
-                ):
-                    downloaded += 1
-                else:
-                    skipped += 1
-            except Exception:
-                _LOGGER.warning("Failed to download %s", url, exc_info=True)
+            await archive.try_save(
+                client,
+                album_dir,
+                filename,
+                url,
+                ("gallery", album_id),
+                pic.get("id"),
+                file_info.get("id"),
+            )
 
-    return downloaded, skipped
+    return archive.counts()
 
 
 async def download_post_images(
@@ -189,14 +237,10 @@ async def download_post_images(
     output: Path,
     cutoff: date,
     on_progress: ProgressCallback | None = None,
-) -> tuple[int, int]:
-    """Download images from post attachments.
-
-    Returns (downloaded_count, skipped_count).
-    """
-    downloaded = 0
-    skipped = 0
-    archive = _Archive(output)
+    max_bytes: int | None = DEFAULT_MAX_BYTES,
+) -> DownloadCounts:
+    """Download images from post attachments."""
+    archive = _Archive(output, max_bytes)
 
     if on_progress:
         on_progress("Fetching posts...")
@@ -208,6 +252,7 @@ async def download_post_images(
             batch = await client.get_posts(institution_profile_ids, page=page, limit=100)
         except Exception:
             _LOGGER.warning("Failed to fetch posts page %d", page, exc_info=True)
+            archive.failed += 1
             break
         if not batch:
             break
@@ -243,23 +288,17 @@ async def download_post_images(
             if not url or not filename:
                 continue
 
-            try:
-                if await archive.save(
-                    client,
-                    post_dir,
-                    filename,
-                    url,
-                    ("posts", post.id),
-                    attachment.id,
-                    attachment.file.id,
-                ):
-                    downloaded += 1
-                else:
-                    skipped += 1
-            except Exception:
-                _LOGGER.warning("Failed to download %s", url, exc_info=True)
+            await archive.try_save(
+                client,
+                post_dir,
+                filename,
+                url,
+                ("posts", post.id),
+                attachment.id,
+                attachment.file.id,
+            )
 
-    return downloaded, skipped
+    return archive.counts()
 
 
 async def download_message_images(
@@ -270,15 +309,14 @@ async def download_message_images(
     cutoff: date,
     on_progress: ProgressCallback | None = None,
     on_incomplete: ProgressCallback | None = None,
-) -> tuple[int, int]:
+    max_bytes: int | None = DEFAULT_MAX_BYTES,
+) -> DownloadCounts:
     """Download attachments from messages using server-side search filtering.
 
-    Returns (downloaded_count, skipped_count). Incomplete pagination is logged,
-    sent to on_progress, and reported through on_incomplete when provided.
+    Incomplete pagination is logged, sent to on_progress, and reported through
+    on_incomplete when provided.
     """
-    downloaded = 0
-    skipped = 0
-    archive = _Archive(output)
+    archive = _Archive(output, max_bytes)
 
     def incomplete(reason: str) -> None:
         _LOGGER.warning("Incomplete message export: %s", reason)
@@ -300,7 +338,8 @@ async def download_message_images(
     except Exception:
         _LOGGER.warning("Failed to search messages", exc_info=True)
         incomplete("search:request_failed")
-        return downloaded, skipped
+        archive.failed += 1
+        return archive.counts()
 
     if not search_result.complete:
         incomplete(f"search:{search_result.termination_reason}")
@@ -337,6 +376,7 @@ async def download_message_images(
         except Exception:
             _LOGGER.warning("Failed to fetch messages for thread '%s'", subject, exc_info=True)
             incomplete(f"thread:{thread_id}:request_failed")
+            archive.failed += 1
             continue
 
         if not message_result.complete:
@@ -360,23 +400,17 @@ async def download_message_images(
                 if not url or not filename:
                     continue
 
-                try:
-                    if await archive.save(
-                        client,
-                        thread_dir,
-                        filename,
-                        url,
-                        ("messages", thread_id, msg.get("id") or msg.get("sendDateTime")),
-                        attachment.id,
-                        attachment.file.id,
-                    ):
-                        downloaded += 1
-                    else:
-                        skipped += 1
-                except Exception:
-                    _LOGGER.warning("Failed to download %s", url, exc_info=True)
+                await archive.try_save(
+                    client,
+                    thread_dir,
+                    filename,
+                    url,
+                    ("messages", thread_id, msg.get("id") or msg.get("sendDateTime")),
+                    attachment.id,
+                    attachment.file.id,
+                )
 
-    return downloaded, skipped
+    return archive.counts()
 
 
 def _parse_date_str(date_str: str) -> date | None:

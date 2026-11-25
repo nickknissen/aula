@@ -1,10 +1,12 @@
 """Tests for aula.utils.download."""
 
+import json
 from datetime import date, datetime
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
+from aula.http import DownloadTooLargeError
 from aula.models.attachment import Attachment
 from aula.models.message import Message
 from aula.models.pagination import PaginationResult
@@ -86,7 +88,7 @@ class TestDownloadGalleryImages:
             {"file": {"url": "http://example.com/pic.jpg", "name": "pic.jpg"}, "tags": []},
         ]
 
-        downloaded, skipped = await download_gallery_images(
+        downloaded, skipped, _ = await download_gallery_images(
             client, [100], tmp_path, date(2026, 1, 1)
         )
 
@@ -102,7 +104,7 @@ class TestDownloadGalleryImages:
             {"id": 1, "title": "Old", "creationDate": "2025-01-01T12:00:00"},
         ]
 
-        downloaded, skipped = await download_gallery_images(
+        downloaded, skipped, _ = await download_gallery_images(
             client, [100], tmp_path, date(2026, 1, 1)
         )
 
@@ -125,7 +127,7 @@ class TestDownloadGalleryImages:
         dest_dir.mkdir(parents=True)
         (dest_dir / "pic.jpg").write_bytes(b"existing")
 
-        downloaded, skipped = await download_gallery_images(
+        downloaded, skipped, _ = await download_gallery_images(
             client, [100], tmp_path, date(2026, 1, 1)
         )
 
@@ -152,7 +154,7 @@ class TestDownloadGalleryImages:
             },
         ]
 
-        downloaded, skipped = await download_gallery_images(
+        downloaded, skipped, _ = await download_gallery_images(
             client, [100], tmp_path, date(2026, 1, 1), tags=["child1"]
         )
 
@@ -160,16 +162,13 @@ class TestDownloadGalleryImages:
 
     @pytest.mark.asyncio
     async def test_handles_api_failure(self, tmp_path):
-        """API failure for album list returns zero counts."""
+        """API failure for album list downloads nothing and counts as failed."""
         client = _make_mock_client()
         client.get_gallery_albums.side_effect = RuntimeError("API down")
 
-        downloaded, skipped = await download_gallery_images(
-            client, [100], tmp_path, date(2026, 1, 1)
-        )
+        counts = await download_gallery_images(client, [100], tmp_path, date(2026, 1, 1))
 
-        assert downloaded == 0
-        assert skipped == 0
+        assert counts == (0, 0, 1)
 
 
 class TestDownloadPostImages:
@@ -204,7 +203,9 @@ class TestDownloadPostImages:
         )
         client.get_posts.side_effect = [[post], []]
 
-        downloaded, skipped = await download_post_images(client, [100], tmp_path, date(2026, 1, 1))
+        downloaded, skipped, _ = await download_post_images(
+            client, [100], tmp_path, date(2026, 1, 1)
+        )
 
         assert downloaded == 1
         assert (tmp_path / "posts" / "20260301 School Trip" / "photo.jpg").exists()
@@ -231,7 +232,9 @@ class TestDownloadPostImages:
         )
         client.get_posts.side_effect = [[post], []]
 
-        downloaded, skipped = await download_post_images(client, [100], tmp_path, date(2026, 1, 1))
+        downloaded, skipped, _ = await download_post_images(
+            client, [100], tmp_path, date(2026, 1, 1)
+        )
 
         assert downloaded == 0
         client.download_file.assert_not_awaited()
@@ -248,7 +251,9 @@ class TestDownloadPostImages:
             [],  # should not be reached due to cutoff
         ]
 
-        downloaded, skipped = await download_post_images(client, [100], tmp_path, date(2026, 1, 1))
+        downloaded, skipped, _ = await download_post_images(
+            client, [100], tmp_path, date(2026, 1, 1)
+        )
 
         assert downloaded == 0
         assert client.get_posts.call_count == 1
@@ -262,7 +267,9 @@ class TestDownloadPostImages:
         )
         client.get_posts.side_effect = [[post], []]
 
-        downloaded, skipped = await download_post_images(client, [100], tmp_path, date(2026, 1, 1))
+        downloaded, skipped, _ = await download_post_images(
+            client, [100], tmp_path, date(2026, 1, 1)
+        )
 
         assert downloaded == 0
         client.download_file.assert_not_awaited()
@@ -323,7 +330,7 @@ class TestDownloadMessageImages:
             },
         ]
 
-        downloaded, skipped = await download_message_images(
+        downloaded, skipped, _ = await download_message_images(
             client, [100], ["INST1"], tmp_path, date(2026, 1, 1)
         )
 
@@ -352,7 +359,7 @@ class TestDownloadMessageImages:
             },
         ]
 
-        downloaded, skipped = await download_message_images(
+        downloaded, skipped, _ = await download_message_images(
             client, [100], ["INST1"], tmp_path, date(2026, 1, 1)
         )
 
@@ -364,7 +371,7 @@ class TestDownloadMessageImages:
 @pytest.mark.parametrize("source", ["gallery", "posts", "messages"])
 async def test_archive_keeps_collisions_and_reruns_by_identity(source, tmp_path):
     client = _make_mock_client()
-    client.download_file.side_effect = lambda url: url.split("?")[0].encode()
+    client.download_file.side_effect = lambda url, **_: url.split("?")[0].encode()
     records = []
     for identifier in (1, 2):
         records.append(
@@ -422,7 +429,7 @@ async def test_archive_keeps_collisions_and_reruns_by_identity(source, tmp_path)
         ]
         return await download_message_images(client, [100], ["INST"], tmp_path, date(2026, 1, 1))
 
-    assert await run() == (2, 0)
+    assert await run() == (2, 0, 0)
     files = list(tmp_path.rglob("*.jpg"))
     assert len(files) == 2
     assert {file.read_bytes() for file in files} == {
@@ -433,7 +440,7 @@ async def test_archive_keeps_collisions_and_reruns_by_identity(source, tmp_path)
     for record in records:
         record["file"]["url"] = record["file"]["url"].replace("old", "new")
     client.download_file.reset_mock()
-    assert await run() == (0, 2)
+    assert await run() == (0, 2, 0)
     client.download_file.assert_not_awaited()
 
 
@@ -453,7 +460,7 @@ async def test_message_export_reports_incomplete_search_without_changing_tuple(t
         on_progress=progress.append,
         on_incomplete=issues.append,
     )
-    assert result == (0, 0)
+    assert result == (0, 0, 0)
     assert issues == ["search:no_progress"]
     assert any("Incomplete message export" in line for line in progress)
 
@@ -471,5 +478,72 @@ async def test_message_export_reports_incomplete_thread_read(tmp_path):
     issues = []
     assert await download_message_images(
         client, [100], ["INST"], tmp_path, date(2026, 1, 1), on_incomplete=issues.append
-    ) == (0, 0)
+    ) == (0, 0, 0)
     assert issues == ["thread:t:max_pages"]
+
+
+def _one_picture(client):
+    client.get_gallery_albums.return_value = [
+        {"id": 1, "title": "Trip", "creationDate": "2026-03-01T12:00:00"},
+    ]
+    client.get_album_pictures.return_value = [
+        {"file": {"url": "http://example.com/pic.jpg", "name": "pic.jpg"}, "tags": []},
+    ]
+
+
+@pytest.mark.asyncio
+async def test_download_passes_the_size_cap_to_the_client(tmp_path):
+    client = _make_mock_client()
+    _one_picture(client)
+
+    await download_gallery_images(client, [100], tmp_path, date(2026, 1, 1), max_bytes=1234)
+
+    client.download_file.assert_awaited_once_with("http://example.com/pic.jpg", max_bytes=1234)
+
+
+@pytest.mark.asyncio
+async def test_file_over_the_cap_is_not_written_and_counts_as_failed(tmp_path):
+    client = _make_mock_client()
+    _one_picture(client)
+    client.download_file.side_effect = DownloadTooLargeError("too big", max_bytes=10)
+
+    counts = await download_gallery_images(client, [100], tmp_path, date(2026, 1, 1), max_bytes=10)
+
+    assert counts == (0, 0, 1)
+    assert not list(tmp_path.rglob("pic.jpg"))
+    assert not (tmp_path / ".aula-archive.json").exists()
+
+
+@pytest.mark.asyncio
+async def test_download_that_raises_counts_as_failed(tmp_path):
+    client = _make_mock_client()
+    _one_picture(client)
+    client.download_file.side_effect = RuntimeError("boom")
+
+    counts = await download_gallery_images(client, [100], tmp_path, date(2026, 1, 1))
+
+    assert counts == (0, 0, 1)
+
+
+@pytest.mark.asyncio
+async def test_failed_posts_page_counts_as_failed(tmp_path):
+    client = _make_mock_client()
+    client.get_posts.side_effect = RuntimeError("API down")
+
+    counts = await download_post_images(client, [100], tmp_path, date(2026, 1, 1))
+
+    assert counts == (0, 0, 1)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("content", ["{not json", "[1, 2]"])
+async def test_corrupt_manifest_is_moved_aside_and_replaced(content, tmp_path):
+    (tmp_path / ".aula-archive.json").write_text(content)
+    client = _make_mock_client()
+    _one_picture(client)
+
+    counts = await download_gallery_images(client, [100], tmp_path, date(2026, 1, 1))
+
+    assert counts == (1, 0, 0)
+    assert (tmp_path / ".aula-archive.json.corrupt").read_text() == content
+    assert isinstance(json.loads((tmp_path / ".aula-archive.json").read_text()), dict)
