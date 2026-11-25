@@ -885,6 +885,17 @@ async def overview(ctx, child_id):
                 print_error(f"fetching overview for child {c_id}: {e}")
 
 
+def _thread_meta(thread: MessageThread) -> str:
+    """Who takes part in a thread and when it last changed, as one line."""
+    parts = []
+    names = [r.full_name for r in thread.recipients if r.full_name]
+    if names:
+        parts.append(", ".join(names))
+    if thread.last_updated:
+        parts.append(thread.last_updated.strftime("%Y-%m-%d %H:%M"))
+    return " | ".join(parts)
+
+
 @cli.command()
 @click.option("--limit", type=int, default=5, help="Number of threads to fetch.")
 @click.option("--unread", is_flag=True, default=False, help="Only show unread message threads.")
@@ -1014,19 +1025,9 @@ async def messages(ctx, limit, unread, search, folders):
             return
 
         for i, thread in enumerate(threads):
-            raw = thread._raw or {}
-            participants = [p.get("name", "?") for p in raw.get("participants", [])]
-            last_updated = raw.get("lastUpdatedDate", "")
-
-            # Thread header
             echo(clip(thread.subject))
-            meta_parts = []
-            if participants:
-                meta_parts.append(", ".join(participants))
-            if last_updated:
-                meta_parts.append(last_updated)
-            if meta_parts:
-                echo(f"  {clip(' | '.join(meta_parts))}")
+            if meta := _thread_meta(thread):
+                echo(f"  {clip(meta)}")
             if thread.web_url:
                 echo(f"  Link: {thread.web_url}")
 
@@ -3059,17 +3060,9 @@ async def weekly_summary(ctx, child, week, providers):
             echo("Unread messages")
             echo()
             for thread in unread_threads:
-                raw = thread._raw or {}
-                participants = [p.get("name", "?") for p in raw.get("participants", [])]
-                last_updated = raw.get("lastUpdatedDate", "")
-                meta = []
-                if participants:
-                    meta.append(", ".join(participants))
-                if last_updated:
-                    meta.append(last_updated)
                 echo(strip_control_chars(thread.subject))
-                if meta:
-                    echo(f"  Meta: {' | '.join(meta)}")
+                if meta := _thread_meta(thread):
+                    echo(f"  Meta: {strip_control_chars(meta)}")
                 echo()
                 try:
                     msgs = await client.get_messages_for_thread(thread.thread_id)
@@ -4750,17 +4743,9 @@ async def daily_summary(ctx, child, target_date):
             echo("Unread messages")
             echo()
             for thread in unread_threads:
-                raw = thread._raw or {}
-                participants = [p.get("name", "?") for p in raw.get("participants", [])]
-                last_updated = raw.get("lastUpdatedDate", "")
-                meta = []
-                if participants:
-                    meta.append(", ".join(participants))
-                if last_updated:
-                    meta.append(last_updated)
                 echo(strip_control_chars(thread.subject))
-                if meta:
-                    echo(f"  Meta: {' | '.join(meta)}")
+                if meta := _thread_meta(thread):
+                    echo(f"  Meta: {strip_control_chars(meta)}")
                 echo()
                 try:
                     msgs = await client.get_messages_for_thread(thread.thread_id)

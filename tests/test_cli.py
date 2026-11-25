@@ -1761,6 +1761,24 @@ class TestWebLinks:
 
         assert json.loads(result.stdout)[0]["web_url"] == self.THREAD_URL
 
+    def test_messages_show_who_takes_part_and_when(self, run, fake_client):
+        fake_client.get_message_threads = AsyncMock(
+            return_value=[
+                MessageThread.from_dict(
+                    {
+                        "id": 1000001,
+                        "subject": "Emne",
+                        "latestMessage": {"sendDateTime": "2026-11-03T14:30:00+01:00"},
+                        "recipients": [{"fullName": "Værge Et"}, {"fullName": "Lærer Et"}],
+                    }
+                )
+            ]
+        )
+
+        result = run(cli.messages)
+
+        assert "  Værge Et, Lærer Et | 2026-11-03 14:30" in result.output
+
     def test_posts_show_the_post_link(self, run):
         result = run(cli.posts)
 

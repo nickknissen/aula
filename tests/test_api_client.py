@@ -856,6 +856,42 @@ class TestGetMessageThreads:
         assert threads[0].subject == "Hello"
 
     @pytest.mark.asyncio
+    async def test_threads_carry_their_parsed_fields(self, client):
+        client._request_with_version_retry = AsyncMock(
+            return_value=HttpResponse(
+                status_code=200,
+                data={
+                    "data": {
+                        "threads": [
+                            {
+                                "id": 1000001,
+                                "subject": "Emne Et",
+                                "read": True,
+                                "latestMessage": {
+                                    "id": "1000003",
+                                    "sendDateTime": "2026-11-03T14:30:00+01:00",
+                                    "text": {"html": "<p>Besked Et</p>"},
+                                },
+                                "recipients": [{"fullName": "Værge Et", "shortName": "VE"}],
+                                "regardingChildren": [
+                                    {"profileId": 1000008, "displayName": "Barn Et"}
+                                ],
+                            }
+                        ]
+                    }
+                },
+            )
+        )
+        [thread] = await client.get_message_threads()
+        assert thread.thread_id == "1000001"
+        assert thread.is_read is True
+        assert thread.last_updated == datetime.fromisoformat("2026-11-03T14:30:00+01:00")
+        assert thread.latest_message is not None
+        assert thread.latest_message.text == "Besked Et"
+        assert [r.full_name for r in thread.recipients] == ["Værge Et"]
+        assert [c.profile_id for c in thread.regarding_children] == [1000008]
+
+    @pytest.mark.asyncio
     async def test_empty_threads(self, client):
         """Empty threads list returns empty."""
         client._request_with_version_retry = AsyncMock(
@@ -1961,7 +1997,7 @@ EVERY_PARSE_LOOP = [
     _parse_loop(
         "get_message_threads",
         lambda c: c.get_message_threads(),
-        "MessageThread",
+        "MessageThread.from_dict",
         lambda records: {"data": {"threads": records}},
     ),
     _parse_loop(
