@@ -127,11 +127,7 @@ def get_mitid_username(ctx: click.Context) -> str:
 
 
 class _TokenFileConflict(BaseException):
-    """A refresh token conflict met while a command runs.
-
-    A ``BaseException``, so the commands' ``except Exception`` handlers let it
-    through to ``_AulaGroup.invoke``.
-    """
+    """A refresh token conflict met while a command runs."""
 
 
 def _stop_command_on_token_conflict(client: AulaApiClient) -> None:
