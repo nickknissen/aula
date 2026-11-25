@@ -126,13 +126,31 @@ def get_mitid_username(ctx: click.Context) -> str:
     return username
 
 
+class _TokenFileConflict(BaseException):
+    """A refresh token conflict met while a command runs."""
+
+
+def _stop_command_on_token_conflict(client: AulaApiClient) -> None:
+    refresh = client._on_token_refresh
+    if refresh is None:
+        return
+
+    async def refresh_or_stop() -> str | None:
+        try:
+            return await refresh()
+        except AulaRefreshTokenConflictError as conflict:
+            raise _TokenFileConflict from conflict
+
+    client._on_token_refresh = refresh_or_stop
+
+
 class _AulaGroup(click.Group):
     """Command group that stops with a short message when the token file is shared."""
 
     def invoke(self, ctx: click.Context) -> Any:
         try:
             return super().invoke(ctx)
-        except AulaRefreshTokenConflictError:
+        except AulaRefreshTokenConflictError, _TokenFileConflict:
             raise click.ClickException(
                 f"another process is using the token file {_token_file(ctx)}. "
                 "Stop it, or give the second process its own file with --token-file."
@@ -368,6 +386,7 @@ async def _log_in(
     finally:
         qr_display.stop()
     mitid.warn_if_identity_went_unused()
+    _stop_command_on_token_conflict(client)
     return client, mitid.identity
 
 

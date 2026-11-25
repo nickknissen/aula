@@ -11,6 +11,7 @@ import pytest
 from click.testing import CliRunner
 
 from aula import __version__, cli
+from aula.api_client import AulaApiClient
 from aula.cli import (
     _WIDGET_ID_CACHE,
     CONTACTS_PAGE_SIZE,
@@ -44,7 +45,7 @@ from aula.const import (
     WIDGET_EASYIQ_LEGACY,
     WIDGET_EASYIQ_WEEKPLAN,
 )
-from aula.http import AulaRefreshTokenConflictError, AulaRejectedError
+from aula.http import AulaRefreshTokenConflictError, AulaRejectedError, HttpResponse
 from aula.models import (
     Child,
     CommonFile,
@@ -521,6 +522,7 @@ class FakeMitID:
 
 class FakeAulaClient:
     api_url = "https://www.aula.dk/api/v25"
+    _on_token_refresh = None
 
     async def __aenter__(self):
         return self
@@ -678,6 +680,14 @@ class TestLoginDrivenByAnotherProgram:
 
 
 class TestRefreshTokenConflict:
+    @pytest.fixture(autouse=True)
+    def _restore_root_logging(self):
+        root = logging.getLogger()
+        level, handlers = root.level, root.handlers[:]
+        yield
+        root.setLevel(level)
+        root.handlers[:] = handlers
+
     def test_names_the_token_file_and_starts_no_mitid_login(self, tmp_path, monkeypatch):
         token_file = tmp_path / "t.json"
         token_file.write_text('{"tokens": {"access_token": "abc123"}, "cookies": {}}')
@@ -687,19 +697,39 @@ class TestRefreshTokenConflict:
             "aula.auth_flow.create_client",
             AsyncMock(side_effect=AulaRefreshTokenConflictError()),
         )
-        root = logging.getLogger()
-        level, handlers = root.level, root.handlers[:]
-        try:
-            result = CliRunner().invoke(
-                cli.cli,
-                ["--username", "tester", "--token-file", str(token_file), "profile"],
-                env={"AULA_TOKEN_FILE": None, "AULA_OUTPUT": None},
-            )
-        finally:
-            root.setLevel(level)
-            root.handlers[:] = handlers
+
+        result = CliRunner().invoke(
+            cli.cli,
+            ["--username", "tester", "--token-file", str(token_file), "profile"],
+            env={"AULA_TOKEN_FILE": None, "AULA_OUTPUT": None},
+        )
 
         assert result.exit_code != 0
+        assert str(token_file) in result.stderr
+        assert "--token-file" in result.stderr
+        assert mitid.logins == 0
+
+    @pytest.mark.parametrize("command", ["profile", "notifications"])
+    def test_mid_command_conflict_names_the_token_file(self, tmp_path, monkeypatch, command):
+        token_file = tmp_path / "t.json"
+        token_file.write_text('{"tokens": {"access_token": "abc123"}, "cookies": {}}')
+        mitid = FakeMitID()
+        monkeypatch.setattr("aula.auth_flow.authenticate", mitid)
+        http = AsyncMock()
+        http.request = AsyncMock(return_value=HttpResponse(status_code=401, data=None))
+        http.get_cookie = MagicMock(return_value=None)
+        expired_session = AulaApiClient(
+            http, on_token_refresh=AsyncMock(side_effect=AulaRefreshTokenConflictError())
+        )
+        monkeypatch.setattr("aula.auth_flow.create_client", AsyncMock(return_value=expired_session))
+
+        result = CliRunner().invoke(
+            cli.cli,
+            ["--username", "tester", "--token-file", str(token_file), command],
+            env={"AULA_TOKEN_FILE": None, "AULA_OUTPUT": None},
+        )
+
+        assert result.exit_code == 1, result.output
         assert str(token_file) in result.stderr
         assert "--token-file" in result.stderr
         assert mitid.logins == 0
