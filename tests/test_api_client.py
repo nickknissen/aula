@@ -3075,6 +3075,27 @@ class TestGetAllMessageThreads:
         assert client._request_with_version_retry.call_count == 1
 
     @pytest.mark.asyncio
+    async def test_skips_threads_that_are_not_objects(self, client):
+        client._request_with_version_retry = AsyncMock(
+            return_value=HttpResponse(
+                status_code=200,
+                data={
+                    "data": {
+                        "threads": [
+                            None,
+                            "t0",
+                            thread_item("t1", "2026-03-01T10:00:00+01:00"),
+                            thread_item("t2", "2026-01-01T10:00:00+01:00"),
+                        ]
+                    }
+                },
+            )
+        )
+        result = await client.get_all_message_threads_result(date(2026, 2, 1))
+        assert result.termination_reason == "cutoff"
+        assert [thread["id"] for thread in result.items] == ["t1"]
+
+    @pytest.mark.asyncio
     @pytest.mark.parametrize(
         "undated",
         [

@@ -2318,7 +2318,7 @@ class AulaApiClient:
                 return state.result("exhausted")
             eligible = []
             cutoff_reached = False
-            for thread in threads:
+            for thread in _SkippedRecords("message thread").objects(threads):
                 last_updated = MessageThread.from_dict(thread).last_updated
                 if last_updated and last_updated.date() < cutoff_date:
                     cutoff_reached = True
