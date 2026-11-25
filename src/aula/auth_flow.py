@@ -18,7 +18,14 @@ import httpx
 import qrcode
 
 from .api_client import AulaApiClient
-from .auth.exceptions import MitIDAuthError, OAuthError, RateLimitedError, SecurityCheckError
+from .auth.exceptions import (
+    MitIDAuthError,
+    NetworkError,
+    OAuthError,
+    RateLimitedError,
+    SecurityCheckError,
+    TokenServerUnavailableError,
+)
 from .auth.mitid_client import MitIDAuthClient
 from .const import AUTH_BASE_URL, CSRF_TOKEN_COOKIE, OAUTH_CLIENT_ID, OAUTH_TOKEN_PATH
 from .http import (
@@ -261,6 +268,9 @@ async def authenticate(
         AulaLoginRequiredError: If ``allow_login`` is ``False`` and the stored
             tokens cannot be used or refreshed.
         AulaRateLimitError: If the token server answers 429 Too Many Requests.
+        AulaServerError: If the token server times out (408), answers with a 5xx or
+            redirects, as it does during Aula maintenance.
+        AulaConnectionError: If the token server cannot be reached.
         AulaRefreshTokenConflictError: If another process has rotated the stored
             refresh token.
     """
@@ -313,6 +323,10 @@ async def authenticate(
                     _LOGGER.info("Token refresh successful, tokens saved")
                 except RateLimitedError as e:
                     raise AulaRateLimitError(str(e), 429) from e
+                except TokenServerUnavailableError as e:
+                    raise AulaServerError(str(e), e.status_code) from e
+                except NetworkError as e:
+                    raise AulaConnectionError(f"Could not reach the token server: {e}") from e
                 except (OAuthError, RuntimeError) as e:
                     if (
                         isinstance(e, OAuthError)

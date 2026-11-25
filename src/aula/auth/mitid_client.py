@@ -37,6 +37,7 @@ from .exceptions import (
     RateLimitedError,
     SAMLError,
     SecurityCheckError,
+    TokenServerUnavailableError,
 )
 
 _LOGGER = credential_logger(__name__)
@@ -877,8 +878,9 @@ class MitIDAuthClient:
         Raises:
             OAuthError: If the token server rejects the refresh token.
             RateLimitedError: If the token server answers 429 Too Many Requests.
-            NetworkError: If the token server is unreachable, times out (408), answers
+            TokenServerUnavailableError: If the token server times out (408), answers
                 with a 5xx or redirects, as it does during Aula maintenance.
+            NetworkError: If the token server cannot be reached.
         """
         _LOGGER.info("Refreshing access token")
 
@@ -899,7 +901,7 @@ class MitIDAuthClient:
             )
 
             if response.is_server_error or response.is_redirect or response.status_code == 408:
-                raise NetworkError(f"Token server unavailable: HTTP {response.status_code}")
+                raise TokenServerUnavailableError(response.status_code)
             if response.status_code == 429:
                 raise RateLimitedError("Token server is rate limiting refresh requests")
             if not response.is_success:

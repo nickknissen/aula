@@ -732,7 +732,19 @@ class TestAuthenticate:
 
     @pytest.mark.asyncio
     @pytest.mark.parametrize("allow_login", [True, False])
-    async def test_rate_limited_refresh_starts_no_login(self, token_storage, allow_login):
+    @pytest.mark.parametrize(
+        ("token_server_answer", "raised"),
+        [
+            (lambda request: httpx.Response(429), AulaRateLimitError),
+            (lambda request: httpx.Response(503), AulaServerError),
+            (lambda request: httpx.Response(408), AulaServerError),
+            (_maintenance_redirect, AulaServerError),
+            (_unreachable, AulaConnectionError),
+        ],
+    )
+    async def test_unavailable_token_server_starts_no_login(
+        self, token_storage, allow_login, token_server_answer, raised
+    ):
         token_storage.load.return_value = {
             "tokens": {
                 "access_token": "expired-tok",
@@ -747,11 +759,11 @@ class TestAuthenticate:
         def token_server(request: httpx.Request) -> httpx.Response:
             requests.append(request)
             if request.url.path == OAUTH_TOKEN_PATH:
-                return httpx.Response(429)
+                return token_server_answer(request)
             return httpx.Response(500)
 
         async with httpx.AsyncClient(transport=httpx.MockTransport(token_server)) as http:
-            with pytest.raises(AulaRateLimitError) as raised:
+            with pytest.raises(raised):
                 await authenticate(
                     "user",
                     token_storage,
@@ -760,7 +772,6 @@ class TestAuthenticate:
                     allow_login=allow_login,
                 )
 
-        assert raised.value.status_code == 429
         assert [request.url.path for request in requests] == [OAUTH_TOKEN_PATH]
         login_required.assert_not_called()
         token_storage.save.assert_not_awaited()
