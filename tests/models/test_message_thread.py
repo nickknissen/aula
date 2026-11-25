@@ -97,6 +97,18 @@ def test_thread_without_the_optional_keys():
     assert thread.recipients == []
 
 
+def test_thread_names_that_are_not_text_are_left_empty():
+    thread = MessageThread.from_dict(
+        {
+            "id": 1,
+            "recipients": [{"fullName": 5, "shortName": {"x": 1}}],
+            "regardingChildren": [{"profileId": 1000008, "displayName": ["Barn Et"]}],
+        }
+    )
+    assert [(r.full_name, r.short_name) for r in thread.recipients] == [("", "")]
+    assert [c.display_name for c in thread.regarding_children] == [""]
+
+
 def test_thread_with_an_unreadable_send_date():
     thread = MessageThread.from_dict(
         {**THREAD, "latestMessage": {**THREAD["latestMessage"], "sendDateTime": "i går"}}

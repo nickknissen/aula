@@ -44,7 +44,7 @@ class ThreadChild(AulaDataClass):
         profile_id = data.get("profileId")
         if not isinstance(profile_id, int) or isinstance(profile_id, bool):
             return None
-        return cls(_raw=data, profile_id=profile_id, display_name=data.get("displayName") or "")
+        return cls(_raw=data, profile_id=profile_id, display_name=_text(data.get("displayName")))
 
 
 @dataclass
@@ -59,9 +59,13 @@ class ThreadRecipient(AulaDataClass):
     def from_dict(cls, data: dict[str, Any]) -> ThreadRecipient:
         return cls(
             _raw=data,
-            full_name=data.get("fullName") or "",
-            short_name=data.get("shortName") or "",
+            full_name=_text(data.get("fullName")),
+            short_name=_text(data.get("shortName")),
         )
+
+
+def _text(value: Any) -> str:
+    return value if isinstance(value, str) else ""
 
 
 def _dicts(value: Any) -> list[dict[str, Any]]:
