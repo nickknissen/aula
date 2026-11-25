@@ -197,5 +197,5 @@ def test_every_aula_logger_redacts_credentials():
         for name, logger in loggers.items()
         if not any(isinstance(f, _CredentialFilter) for f in logger.filters)
     ]
-    assert "aula.utils.download" in loggers
+    assert "aula.utils.download" in loggers, "the package walk imported no modules"
     assert unfiltered == []
