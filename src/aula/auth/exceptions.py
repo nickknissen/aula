@@ -25,6 +25,12 @@ class NetworkError(MitIDAuthError):
     pass
 
 
+class RateLimitedError(NetworkError):
+    """Exception raised when the token server answers 429 Too Many Requests."""
+
+    pass
+
+
 class SAMLError(MitIDAuthError):
     """Exception raised for SAML-related errors."""
 

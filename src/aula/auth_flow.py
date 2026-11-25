@@ -18,13 +18,14 @@ import httpx
 import qrcode
 
 from .api_client import AulaApiClient
-from .auth.exceptions import MitIDAuthError, OAuthError, SecurityCheckError
+from .auth.exceptions import MitIDAuthError, OAuthError, RateLimitedError, SecurityCheckError
 from .auth.mitid_client import MitIDAuthClient
 from .const import AUTH_BASE_URL, CSRF_TOKEN_COOKIE, OAUTH_CLIENT_ID, OAUTH_TOKEN_PATH
 from .http import (
     AulaAuthenticationError,
     AulaConnectionError,
     AulaLoginRequiredError,
+    AulaRateLimitError,
     AulaRefreshTokenConflictError,
     AulaServerError,
     HttpClient,
@@ -52,9 +53,10 @@ async def _refresh_token_via_oidc(refresh_token: str) -> dict[str, Any] | None:
 
     Raises:
         AulaLoginRequiredError: If the token server rejects the refresh token.
+        AulaRateLimitError: If the token server answers 429 Too Many Requests.
         AulaConnectionError: If the token server cannot be reached.
-        AulaServerError: If the token server answers with a 5xx or redirects, as it
-            does during Aula maintenance.
+        AulaServerError: If the token server times out (408), answers with a 5xx or
+            redirects, as it does during Aula maintenance.
     """
     token_url = f"{AUTH_BASE_URL}{OAUTH_TOKEN_PATH}"
     try:
@@ -68,10 +70,14 @@ async def _refresh_token_via_oidc(refresh_token: str) -> dict[str, Any] | None:
                 },
                 headers={"Content-Type": "application/x-www-form-urlencoded"},
             )
-            if response.is_server_error or response.is_redirect:
+            if response.is_server_error or response.is_redirect or response.status_code == 408:
                 raise AulaServerError(
                     f"Token server unavailable: HTTP {response.status_code}",
                     response.status_code,
+                )
+            if response.status_code == 429:
+                raise AulaRateLimitError(
+                    "Token server is rate limiting refresh requests", response.status_code
                 )
             if response.is_client_error:
                 raise AulaLoginRequiredError(
@@ -86,7 +92,7 @@ async def _refresh_token_via_oidc(refresh_token: str) -> dict[str, Any] | None:
             if expires_in is not None:
                 data["expires_at"] = time.time() + int(expires_in)
             return data
-    except AulaServerError, AulaLoginRequiredError:
+    except AulaServerError, AulaRateLimitError, AulaLoginRequiredError:
         raise
     except httpx.TransportError as e:
         raise AulaConnectionError(
@@ -254,6 +260,7 @@ async def authenticate(
     Raises:
         AulaLoginRequiredError: If ``allow_login`` is ``False`` and the stored
             tokens cannot be used or refreshed.
+        AulaRateLimitError: If the token server answers 429 Too Many Requests.
         AulaRefreshTokenConflictError: If another process has rotated the stored
             refresh token.
     """
@@ -304,6 +311,8 @@ async def authenticate(
                         await token_storage.save(result_data)
                     tokens_valid = True
                     _LOGGER.info("Token refresh successful, tokens saved")
+                except RateLimitedError as e:
+                    raise AulaRateLimitError(str(e), 429) from e
                 except (OAuthError, RuntimeError) as e:
                     if (
                         isinstance(e, OAuthError)

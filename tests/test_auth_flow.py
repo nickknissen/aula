@@ -19,6 +19,7 @@ from aula.http import (
     AulaAuthenticationError,
     AulaConnectionError,
     AulaLoginRequiredError,
+    AulaRateLimitError,
     AulaRefreshTokenConflictError,
     AulaRejectedError,
     AulaServerError,
@@ -244,6 +245,8 @@ class TestCreateClient:
             (lambda request: httpx.Response(503), AulaServerError),
             (_maintenance_redirect, AulaServerError),
             (_unreachable, AulaConnectionError),
+            (lambda request: httpx.Response(429), AulaRateLimitError),
+            (lambda request: httpx.Response(408), AulaServerError),
         ],
     )
     async def test_token_server_outage_is_not_reported_as_rejected_login(
@@ -725,6 +728,41 @@ class TestAuthenticate:
 
         assert [request.url.path for request in requests] == [OAUTH_TOKEN_PATH]
         assert isinstance(raised.value.__cause__, OAuthError)
+        token_storage.save.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("allow_login", [True, False])
+    async def test_rate_limited_refresh_starts_no_login(self, token_storage, allow_login):
+        token_storage.load.return_value = {
+            "tokens": {
+                "access_token": "expired-tok",
+                "refresh_token": "refresh-1",
+                "expires_at": time.time() - 100,
+            },
+            "cookies": {},
+        }
+        requests: list[httpx.Request] = []
+        login_required = MagicMock()
+
+        def token_server(request: httpx.Request) -> httpx.Response:
+            requests.append(request)
+            if request.url.path == OAUTH_TOKEN_PATH:
+                return httpx.Response(429)
+            return httpx.Response(500)
+
+        async with httpx.AsyncClient(transport=httpx.MockTransport(token_server)) as http:
+            with pytest.raises(AulaRateLimitError) as raised:
+                await authenticate(
+                    "user",
+                    token_storage,
+                    on_login_required=login_required,
+                    httpx_client=http,
+                    allow_login=allow_login,
+                )
+
+        assert raised.value.status_code == 429
+        assert [request.url.path for request in requests] == [OAUTH_TOKEN_PATH]
+        login_required.assert_not_called()
         token_storage.save.assert_not_awaited()
 
     @pytest.mark.asyncio
