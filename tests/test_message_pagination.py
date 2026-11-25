@@ -89,8 +89,8 @@ async def test_requested_thread_cutoff_is_complete(monkeypatch):
             page(
                 "threads",
                 [
-                    {"id": "new", "lastMessageDate": "2026-01-01"},
-                    {"id": "old", "lastMessageDate": "2019-01-01"},
+                    {"id": "new", "latestMessage": {"sendDateTime": "2026-01-01T10:00:00+01:00"}},
+                    {"id": "old", "latestMessage": {"sendDateTime": "2019-01-01T10:00:00+01:00"}},
                 ],
             )
         ],

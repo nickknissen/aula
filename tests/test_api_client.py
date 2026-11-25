@@ -42,6 +42,15 @@ def search_hit(message):
     return {"threadId": 1, "thread": {"id": "1", "subject": "Subject"}, "searchMessage": message}
 
 
+def thread_item(thread_id, send_date_time):
+    """A messaging.getThreads item, dated by its latest message like the live API."""
+    return {
+        "id": thread_id,
+        "subject": "Emne Et",
+        "latestMessage": {"id": "1000003", "sendDateTime": send_date_time},
+    }
+
+
 class TestRequestWithVersionRetry:
     """Tests for AulaApiClient._request_with_version_retry method."""
 
@@ -1291,9 +1300,7 @@ class TestPaginationSafetyGuards:
         client._request_with_version_retry = AsyncMock(
             return_value=HttpResponse(
                 status_code=200,
-                data={
-                    "data": {"threads": [{"id": "t1", "lastMessageDate": "2026-12-01T00:00:00"}]}
-                },
+                data={"data": {"threads": [thread_item("t1", "2026-12-01T00:00:00+01:00")]}},
             )
         )
 
@@ -1353,11 +1360,7 @@ class TestPaginationSafetyGuards:
             side_effect=[
                 HttpResponse(
                     status_code=200,
-                    data={
-                        "data": {
-                            "threads": [{"id": "t1", "lastMessageDate": "2026-12-01T00:00:00"}]
-                        }
-                    },
+                    data={"data": {"threads": [thread_item("t1", "2026-12-01T00:00:00+01:00")]}},
                 ),
                 HttpResponse(
                     status_code=200,
@@ -3051,74 +3054,50 @@ class TestGetAllMessageThreads:
         return c
 
     @pytest.mark.asyncio
-    async def test_stops_at_cutoff(self, client):
-        """Stops collecting threads when thread date < cutoff_date."""
+    async def test_stops_at_first_thread_older_than_cutoff(self, client):
         client._request_with_version_retry = AsyncMock(
             return_value=HttpResponse(
                 status_code=200,
                 data={
                     "data": {
                         "threads": [
-                            {"id": "t1", "lastMessageDate": "2026-03-01T10:00:00"},
-                            {"id": "t2", "lastMessageDate": "2026-01-01T10:00:00"},
+                            thread_item("t1", "2026-03-01T10:00:00+01:00"),
+                            thread_item("t2", "2026-01-01T10:00:00+01:00"),
+                            thread_item("t3", "2026-03-01T10:00:00+01:00"),
                         ]
                     }
                 },
             )
         )
-        result = await client.get_all_message_threads(date(2026, 2, 1))
-        # t1 (March) is after cutoff, collected; t2 (Jan) triggers early return
-        assert len(result) == 1
-        assert result[0]["id"] == "t1"
+        result = await client.get_all_message_threads_result(date(2026, 2, 1))
+        assert result.termination_reason == "cutoff"
+        assert [thread["id"] for thread in result.items] == ["t1"]
+        assert client._request_with_version_retry.call_count == 1
 
     @pytest.mark.asyncio
-    async def test_handles_missing_dates(self, client):
-        """Threads with missing dates are still collected."""
+    @pytest.mark.parametrize(
+        "undated",
+        [
+            {"id": "t1", "subject": "Emne Et"},
+            {"id": "t1", "subject": "Emne Et", "latestMessage": {"id": "1000003"}},
+            thread_item("t1", None),
+            thread_item("t1", ""),
+            thread_item("t1", "i går"),
+        ],
+        ids=["no-latest-message", "no-send-date-time", "null", "empty", "unparseable"],
+    )
+    async def test_undated_thread_does_not_stop_the_read(self, client, undated):
         client._request_with_version_retry = AsyncMock(
-            side_effect=[
-                HttpResponse(
-                    status_code=200,
-                    data={
-                        "data": {
-                            "threads": [
-                                {"id": "t1"},
-                                {"id": "t2", "lastMessageDate": ""},
-                            ]
-                        }
-                    },
-                ),
-                HttpResponse(
-                    status_code=200,
-                    data={"data": {"threads": []}},
-                ),
-            ]
+            return_value=HttpResponse(
+                status_code=200,
+                data={
+                    "data": {"threads": [undated, thread_item("t2", "2026-01-01T10:00:00+01:00")]}
+                },
+            )
         )
-        result = await client.get_all_message_threads(date(2026, 2, 1))
-        assert len(result) == 2
-
-    @pytest.mark.asyncio
-    async def test_handles_malformed_dates(self, client):
-        """Threads with malformed dates are still collected."""
-        client._request_with_version_retry = AsyncMock(
-            side_effect=[
-                HttpResponse(
-                    status_code=200,
-                    data={
-                        "data": {
-                            "threads": [
-                                {"id": "t1", "lastMessageDate": "not-a-date"},
-                            ]
-                        }
-                    },
-                ),
-                HttpResponse(
-                    status_code=200,
-                    data={"data": {"threads": []}},
-                ),
-            ]
-        )
-        result = await client.get_all_message_threads(date(2026, 2, 1))
-        assert len(result) == 1
+        result = await client.get_all_message_threads_result(date(2026, 2, 1))
+        assert result.termination_reason == "cutoff"
+        assert [thread["id"] for thread in result.items] == ["t1"]
 
 
 class TestGetAllMessagesForThread:

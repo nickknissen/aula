@@ -2319,13 +2319,9 @@ class AulaApiClient:
             eligible = []
             cutoff_reached = False
             for thread in threads:
-                timestamp = get_in(thread, "lastMessageDate") or get_in(thread, "lastUpdatedDate")
-                if timestamp:
-                    try:
-                        cutoff_reached = datetime.fromisoformat(timestamp).date() < cutoff_date
-                    except ValueError, TypeError:
-                        cutoff_reached = False
-                if cutoff_reached:
+                last_updated = MessageThread.from_dict(thread).last_updated
+                if last_updated and last_updated.date() < cutoff_date:
+                    cutoff_reached = True
                     break
                 eligible.append(thread)
             progressed = state.add(eligible) if eligible else False
