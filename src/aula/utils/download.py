@@ -2,7 +2,6 @@
 
 import hashlib
 import json
-import logging
 import re
 from collections.abc import Callable
 from datetime import date, datetime
@@ -13,9 +12,10 @@ from urllib.parse import urlsplit, urlunsplit
 from ..api_client import AulaApiClient
 from ..http import DownloadTooLargeError
 from ..models.attachment import parse_attachments
+from .diagnostics import credential_logger
 from .mapping import get_in
 
-_LOGGER = logging.getLogger(__name__)
+_LOGGER = credential_logger(__name__)
 
 _UNSAFE_CHARS = re.compile(r'[<>:"/\\|?*]')
 
@@ -201,7 +201,7 @@ async def download_gallery_images(
         try:
             pictures = await client.get_album_pictures(institution_profile_ids, album_id)
         except Exception:
-            _LOGGER.warning("Failed to fetch pictures for album '%s'", album_title, exc_info=True)
+            _LOGGER.warning("Failed to fetch pictures for album %s", album_id, exc_info=True)
             archive.failed += 1
             continue
 
@@ -374,7 +374,7 @@ async def download_message_images(
         try:
             message_result = await client.get_all_messages_for_thread_result(thread_id)
         except Exception:
-            _LOGGER.warning("Failed to fetch messages for thread '%s'", subject, exc_info=True)
+            _LOGGER.warning("Failed to fetch messages for thread %s", thread_id, exc_info=True)
             incomplete(f"thread:{thread_id}:request_failed")
             archive.failed += 1
             continue

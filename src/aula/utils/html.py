@@ -1,12 +1,13 @@
 """HTML content conversion utilities."""
 
-import logging
 import re
 
 import html2text
 from bs4 import BeautifulSoup
 
-_LOGGER = logging.getLogger(__name__)
+from .diagnostics import credential_logger
+
+_LOGGER = credential_logger(__name__)
 
 _BLOCK_TAGS = ("p", "div", "li", "h1", "h2", "h3", "h4", "h5", "h6", "blockquote", "pre", "tr")
 

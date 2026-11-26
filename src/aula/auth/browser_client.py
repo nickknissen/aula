@@ -5,7 +5,6 @@ import base64
 import hashlib
 import hmac
 import json
-import logging
 import time
 from collections.abc import Callable
 from typing import Any, Self
@@ -14,11 +13,12 @@ import httpx
 import qrcode
 
 from ..const import USER_AGENT
+from ..utils.diagnostics import credential_logger
 from ._utils import bytes_to_hex
 from .exceptions import MitIDError, MitIDTimeoutError, PasswordInvalidError, TokenInvalidError
 from .srp import CustomSRP
 
-_LOGGER = logging.getLogger(__name__)
+_LOGGER = credential_logger(__name__)
 
 _HEADERS = {"User-Agent": USER_AGENT}
 

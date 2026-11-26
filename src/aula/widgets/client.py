@@ -1,7 +1,6 @@
 import asyncio
 import base64
 import json
-import logging
 from dataclasses import dataclass
 from typing import Any, Protocol
 
@@ -39,11 +38,11 @@ from ..models import (
     MUWeeklyPerson,
     UserReminders,
 )
-from ..utils.diagnostics import compact_payload_for_log, describe_payload
+from ..utils.diagnostics import compact_payload_for_log, credential_logger, describe_payload
 from ..utils.week import monday_of_week
 from ._transport import ProviderTransport
 
-_LOGGER = logging.getLogger(__name__)
+_LOGGER = credential_logger(__name__)
 
 
 class EasyIQWrongChildSession(Exception):

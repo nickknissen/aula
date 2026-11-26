@@ -1,9 +1,10 @@
 """Helpers for turning Aula's ``YYYY-Wnn`` week strings into dates."""
 
 import datetime
-import logging
 
-_LOGGER = logging.getLogger(__name__)
+from .diagnostics import credential_logger
+
+_LOGGER = credential_logger(__name__)
 
 DANISH_WEEKDAYS = ("Mandag", "Tirsdag", "Onsdag", "Torsdag", "Fredag", "Lørdag", "Søndag")
 

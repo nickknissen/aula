@@ -2,14 +2,14 @@
 
 import asyncio
 import json
-import logging
 from abc import ABC, abstractmethod
 from pathlib import Path
 from typing import Any
 
 from .utils.atomic_write import write_json_atomic
+from .utils.diagnostics import credential_logger
 
-_LOGGER = logging.getLogger(__name__)
+_LOGGER = credential_logger(__name__)
 
 
 class TokenStorage(ABC):

@@ -1,6 +1,7 @@
 """Tests for aula.utils.download."""
 
 import json
+import logging
 from datetime import date, datetime
 from unittest.mock import AsyncMock, MagicMock
 
@@ -547,3 +548,55 @@ async def test_corrupt_manifest_is_moved_aside_and_replaced(content, tmp_path):
     assert counts == (1, 0, 0)
     assert (tmp_path / ".aula-archive.json.corrupt").read_text() == content
     assert isinstance(json.loads((tmp_path / ".aula-archive.json").read_text()), dict)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "error",
+    [DownloadTooLargeError("too big", max_bytes=10), RuntimeError("bad marker")],
+    ids=["oversized", "failed"],
+)
+async def test_failed_download_logs_no_signed_url_values(error, tmp_path, caplog):
+    client = _make_mock_client()
+    _one_picture(client)
+    client.get_album_pictures.return_value[0]["file"]["url"] = (
+        "https://example.com/pic.jpg?signature=marker"
+    )
+    client.download_file.side_effect = error
+
+    with caplog.at_level(logging.DEBUG, logger="aula"):
+        await download_gallery_images(client, [100], tmp_path, date(2026, 1, 1), max_bytes=10)
+
+    assert caplog.records
+    assert "marker" not in caplog.text
+
+
+def _warnings(caplog):
+    return [r.getMessage() for r in caplog.records if r.levelno >= logging.WARNING]
+
+
+@pytest.mark.asyncio
+async def test_failed_album_warning_names_the_album_id_not_its_title(tmp_path, caplog):
+    client = _make_mock_client()
+    _one_picture(client)
+    client.get_album_pictures.side_effect = RuntimeError("API down")
+
+    await download_gallery_images(client, [100], tmp_path, date(2026, 1, 1))
+
+    assert _warnings(caplog) == ["Failed to fetch pictures for album 1"]
+
+
+@pytest.mark.asyncio
+async def test_failed_thread_warning_names_the_thread_id_not_its_subject(tmp_path, caplog):
+    client = _make_mock_client()
+    client.search_messages.return_value = [
+        Message(id="m", content_html="", _raw={"thread": {"id": "t", "subject": "Example"}})
+    ]
+    client.get_all_messages_for_thread_result.side_effect = RuntimeError("API down")
+
+    await download_message_images(client, [100], ["INST"], tmp_path, date(2026, 1, 1))
+
+    assert _warnings(caplog) == [
+        "Failed to fetch messages for thread t",
+        "Incomplete message export: thread:t:request_failed",
+    ]
