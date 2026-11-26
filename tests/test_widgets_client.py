@@ -321,7 +321,7 @@ class TestWidgetsClient:
         )
 
         assert len(events) == 1
-        token_urls = [request.url for request in http.requests_to(_token_prefix(client))]
+        token_urls = [request.wire_url for request in http.requests_to(_token_prefix(client))]
         assert token_urls == [_token_url(client, widget_id)] * 2
 
     @pytest.mark.asyncio

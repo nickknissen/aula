@@ -2,7 +2,7 @@
 
 from dataclasses import dataclass, field
 from typing import Any
-from urllib.parse import parse_qs, urlparse
+from urllib.parse import parse_qs, urlencode, urlparse
 
 from aula.const import API_URL
 from aula.http import HttpResponse
@@ -17,23 +17,39 @@ class Request:
     json: Any = None
 
     @property
+    def wire_url(self) -> str:
+        """The URL as it goes out, with params added to the query string."""
+        if not self.params:
+            return self.url
+        encoded = urlencode(
+            [
+                (key, _wire_value(item))
+                for key, value in self.params.items()
+                for item in (value if isinstance(value, list | tuple) else [value])
+            ]
+        )
+        return f"{self.url}{'&' if '?' in self.url else '?'}{encoded}"
+
+    @property
     def aula_method(self) -> str | None:
-        """The Aula method this request calls, from its params or its query string."""
+        """The Aula method this request calls."""
         if not self.url.startswith(API_URL):
             return None
-        if self.params and isinstance(self.params.get("method"), str):
-            return self.params["method"]
-        return parse_qs(urlparse(self.url).query).get("method", [None])[0]
+        return self.query.get("method")
 
     @property
     def query(self) -> dict[str, Any]:
-        """Params and query string together, the way Aula receives them."""
-        merged: dict[str, Any] = {
-            key: values[0] if len(values) == 1 else values
-            for key, values in parse_qs(urlparse(self.url).query).items()
+        """The query string as Aula receives it: text values, a list for a ``[]`` key."""
+        return {
+            key: values if key.endswith("[]") or len(values) > 1 else values[0]
+            for key, values in parse_qs(urlparse(self.wire_url).query).items()
         }
-        merged.update(self.params or {})
-        return merged
+
+
+def _wire_value(value: Any) -> str:
+    if isinstance(value, bool):
+        return "true" if value else "false"
+    return "" if value is None else str(value)
 
 
 def ok(data: Any = None) -> HttpResponse:
@@ -78,7 +94,7 @@ class FakeHttpClient:
         self._aula_routes[method] = list(answers)
 
     def requests_to(self, prefix: str) -> list[Request]:
-        return [request for request in self.requests if request.url.startswith(prefix)]
+        return [request for request in self.requests if request.wire_url.startswith(prefix)]
 
     def calls(self, method: str) -> list[Request]:
         """The requests that called the Aula method ``method``."""
@@ -97,7 +113,7 @@ class FakeHttpClient:
         self.requests.append(request)
         answers = self._aula_routes.get(request.aula_method or "")
         if answers is None:
-            matches = [prefix for prefix in self._routes if url.startswith(prefix)]
+            matches = [prefix for prefix in self._routes if request.wire_url.startswith(prefix)]
             if not matches:
                 raise AssertionError(f"No route for {method.upper()} {url}")
             answers = self._routes[max(matches, key=len)]

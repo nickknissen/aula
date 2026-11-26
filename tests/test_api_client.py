@@ -22,7 +22,7 @@ from aula.http import (
     HttpResponse,
 )
 from aula.http_httpx import HttpxHttpClient
-from tests.fakes import FakeHttpClient, http_status, ok, rejected
+from tests.fakes import FakeHttpClient, Request, http_status, ok, rejected
 
 PROFILES = "profiles.getProfilesByLogin"
 CONTEXT = "profiles.getProfileContext"
@@ -339,7 +339,7 @@ class TestGetDailyOverview:
         result = await client.get_daily_overview(456)
         assert result is not None
         assert result.status is not None
-        assert http.calls(DAILY_OVERVIEW)[0].query["childIds[]"] == "456"
+        assert http.calls(DAILY_OVERVIEW)[0].query["childIds[]"] == ["456"]
 
     @pytest.mark.asyncio
     @pytest.mark.parametrize("data", [[], None])
@@ -619,7 +619,7 @@ class TestGetPresenceTemplates:
 
         assert http.calls(TEMPLATES)[0].query == {
             "method": TEMPLATES,
-            "filterInstitutionProfileIds[]": [10, 20],
+            "filterInstitutionProfileIds[]": ["10", "20"],
             "fromDate": "2026-02-25",
             "toDate": "2026-02-25",
         }
@@ -2018,7 +2018,7 @@ class TestGetPosts:
         assert posts[0].title == "School Trip"
         query = http.calls(POSTS)[0].query
         assert query["parent"] == "profile"
-        assert query["institutionProfileIds[]"] == [100]
+        assert query["institutionProfileIds[]"] == ["100"]
 
     @pytest.mark.asyncio
     async def test_posts_missing_required_fields_skipped(self, client, http):
@@ -2070,8 +2070,8 @@ class TestGetPosts:
         http.aula(POSTS, ok({"posts": []}))
         await client.get_posts([100], page=page, limit=limit)
         query = http.calls(POSTS)[0].query
-        assert query["index"] == index
-        assert query["limit"] == limit
+        assert query["index"] == str(index)
+        assert query["limit"] == str(limit)
 
 
 class TestGetNotificationsForActiveProfile:
@@ -2110,8 +2110,8 @@ class TestGetNotificationsForActiveProfile:
         assert items[0].module == "messaging"
 
         query = http.calls(NOTIFICATIONS)[0].query
-        assert query["offset"] == 5
-        assert query["limit"] == 10
+        assert query["offset"] == "5"
+        assert query["limit"] == "10"
 
     @pytest.mark.asyncio
     async def test_children_and_institution_codes_forwarded(self, client, http):
@@ -2124,7 +2124,7 @@ class TestGetNotificationsForActiveProfile:
         )
 
         query = http.calls(NOTIFICATIONS)[0].query
-        assert query["activeChildrenIds[]"] == [111, 222]
+        assert query["activeChildrenIds[]"] == ["111", "222"]
         assert query["activeInstitutionCodes[]"] == ["G90001", "900001"]
 
     @pytest.mark.asyncio
@@ -2501,7 +2501,7 @@ class TestGetPresenceRegistrations:
         assert result[0].institution_profile_id == 201
         assert http.calls(REGISTRATIONS)[0].query == {
             "method": REGISTRATIONS,
-            "institutionProfileIds[]": [201],
+            "institutionProfileIds[]": ["201"],
             "fromDate": "2026-03-08",
             "toDate": "2026-03-08",
         }
@@ -2534,9 +2534,9 @@ class TestGetPresenceRegistrations:
 
         assert [r.institution_profile_id for r in result] == [201]
         assert [c.query["institutionProfileIds[]"] for c in http.calls(REGISTRATIONS)] == [
-            [201, 202],
-            [201],
-            [202],
+            ["201", "202"],
+            ["201"],
+            ["202"],
         ]
 
     @pytest.mark.asyncio
@@ -2574,7 +2574,7 @@ class TestGetPresenceRegistrationDetail:
         assert result is not None
         assert result.id == 555
         assert result.child_name == "Barn Et"
-        assert http.calls(REGISTRATION_DETAIL)[0].query["id"] == 555
+        assert http.calls(REGISTRATION_DETAIL)[0].query["id"] == "555"
 
     @pytest.mark.asyncio
     async def test_null_data(self, client, http):
@@ -2601,7 +2601,7 @@ class TestGetPresenceStates:
         result = await client.get_presence_states([201])
         assert len(result) == 1
         assert result[0].institution_profile_id == 201
-        assert http.calls(STATES)[0].query["institutionProfileIds[]"] == [201]
+        assert http.calls(STATES)[0].query["institutionProfileIds[]"] == ["201"]
 
     @pytest.mark.asyncio
     async def test_no_filter(self, client, http):
@@ -2639,7 +2639,7 @@ class TestGetPresenceConfiguration:
         assert len(result) == 1
         assert result[0].child_id == 201
         assert result[0].pickup is True
-        assert http.calls(CONFIGURATION)[0].query["childIds[]"] == [201]
+        assert http.calls(CONFIGURATION)[0].query["childIds[]"] == ["201"]
 
     @pytest.mark.asyncio
     async def test_empty_data(self, client, http):
@@ -2670,7 +2670,6 @@ class TestGetSecureDocuments:
 
         [request] = http.calls(SECURE_DOCUMENTS)
         assert request.method == "post"
-        assert request.url.endswith(f"?method={SECURE_DOCUMENTS}")
         assert request.json["filterInstitutionProfileIds"] == [1000001]
         assert request.json["index"] == 0
 
@@ -2706,7 +2705,7 @@ class TestGetCommonFiles:
 
         [request] = http.calls(COMMON_FILES)
         assert request.query["institutionCodes[]"] == ["G90001"]
-        assert request.query["index"] == 0
+        assert request.query["index"] == "0"
 
     @pytest.mark.asyncio
     async def test_reads_every_page_by_item_offset(self, client, http):
@@ -2715,7 +2714,7 @@ class TestGetCommonFiles:
         files = await client.get_common_files(["G90001"], page_size=2)
 
         assert [f.id for f in files] == [1, 2, 3]
-        assert [r.query["index"] for r in http.calls(COMMON_FILES)] == [0, 2]
+        assert [r.query["index"] for r in http.calls(COMMON_FILES)] == ["0", "2"]
 
     @pytest.mark.asyncio
     async def test_stops_when_a_page_comes_back_empty(self, client, http):
@@ -2792,7 +2791,7 @@ class TestGetVacationRegistrations:
 
         assert http.calls(VACATIONS)[0].query == {
             "method": "presence.getVacationRegistrationsByChildren",
-            "childIds[]": [201, 202],
+            "childIds[]": ["201", "202"],
         }
 
     @pytest.mark.asyncio
@@ -2868,9 +2867,9 @@ class TestGetActivityOverview:
         assert result.days[0].activities[0].title == "Matematik"
         assert http.calls(ACTIVITY)[0].query == {
             "method": ACTIVITY,
-            "institutionProfileIds[]": [201],
-            "week": 10,
-            "year": 2026,
+            "institutionProfileIds[]": ["201"],
+            "week": "10",
+            "year": "2026",
         }
 
     @pytest.mark.asyncio
@@ -2936,7 +2935,7 @@ class TestGetGroups:
             institution_codes=["G90001"], child_institution_profile_ids=[1000001, 1000002]
         )
         query = http.calls(GROUPS)[0].query
-        assert query["childInstitutionProfileIds[]"] == [1000001, 1000002]
+        assert query["childInstitutionProfileIds[]"] == ["1000001", "1000002"]
         assert "institutionCodes[]" not in query
 
     @pytest.mark.asyncio
@@ -3025,7 +3024,7 @@ class TestGetGroup:
         assert result is not None
         assert result.id == 5
         assert result.name == "Group X"
-        assert http.calls(GROUP)[0].query["groupId"] == 5
+        assert http.calls(GROUP)[0].query["groupId"] == "5"
 
     @pytest.mark.asyncio
     async def test_null_data(self, client, http):
@@ -3089,7 +3088,7 @@ class TestGetCalendarEvent:
         assert result is not None
         assert result["id"] == 1
         query = http.calls(EVENT)[0].query
-        assert query["eventId"] == 1
+        assert query["eventId"] == "1"
         assert "occurrenceDateTime" not in query
 
     @pytest.mark.asyncio
@@ -3125,7 +3124,7 @@ class TestGetImportantDates:
         assert len(result) == 1
         assert result[0]["title"] == "School holiday"
         query = http.calls(IMPORTANT_DATES)[0].query
-        assert (query["limit"], query["includeToday"]) == (10, True)
+        assert (query["limit"], query["includeToday"]) == ("10", "true")
 
     @pytest.mark.asyncio
     async def test_empty_data(self, client, http):
@@ -3311,7 +3310,7 @@ class TestGetPost:
         result = await client.get_post(1)
         assert result is not None
         assert result.id == 1
-        assert http.calls(POST)[0].query["id"] == 1
+        assert http.calls(POST)[0].query["id"] == "1"
 
     @pytest.mark.asyncio
     async def test_null_data(self, client, http):
@@ -3350,7 +3349,7 @@ class TestGetComments:
         assert len(result) == 1
         assert result[0].id == 1
         query = http.calls(COMMENTS)[0].query
-        assert (query["ParentType"], query["ParentId"], query["Limit"]) == ("post", 1, 100)
+        assert (query["ParentType"], query["ParentId"], query["Limit"]) == ("post", "1", "100")
 
     @pytest.mark.asyncio
     async def test_empty_data(self, client, http):
@@ -3438,7 +3437,7 @@ class TestGetMessageFolders:
         assert len(result) == 2
         assert result[0].id == 1
         assert result[0].name == "Inbox"
-        assert http.calls(FOLDERS)[0].query["IncludeDeletedFolders"] is False
+        assert http.calls(FOLDERS)[0].query["IncludeDeletedFolders"] == "false"
 
     @pytest.mark.asyncio
     async def test_empty_data(self, client, http):
@@ -3492,7 +3491,7 @@ class TestGetThreadsInBundle:
         assert len(result) == 1
         assert result[0].thread_id == "t1"
         assert result[0].subject == "Hello"
-        assert http.calls(THREADS_IN_BUNDLE)[0].query["BundleId"] == 42
+        assert http.calls(THREADS_IN_BUNDLE)[0].query["BundleId"] == "42"
 
     @pytest.mark.asyncio
     async def test_empty_data(self, client, http):
@@ -3635,10 +3634,10 @@ class TestGetContactList:
         await client.get_contact_list(42)
         assert http.calls(CONTACT_LIST)[0].query == {
             "method": "profiles.getContactlist",
-            "groupId": 42,
+            "groupId": "42",
             "filter": "guardian",
             "field": "name",
-            "page": 1,
+            "page": "1",
             "order": "asc",
         }
 
@@ -3648,7 +3647,7 @@ class TestGetContactList:
         await client.get_contact_list(42, page=3, order="desc", profile_type="child")
         query = http.calls(CONTACT_LIST)[0].query
         assert query["filter"] == "child"
-        assert query["page"] == 3
+        assert query["page"] == "3"
         assert query["order"] == "desc"
 
 
@@ -3684,7 +3683,7 @@ class TestGetContactParents:
         await client.get_contact_parents()
         assert http.calls(CONTACT_PARENTS)[0].query == {
             "method": "profiles.getContactParents",
-            "page": 1,
+            "page": "1",
             "order": "asc",
         }
 
@@ -4070,7 +4069,7 @@ class _UnreachableForMethod(FakeHttpClient):
         self.unreachable = unreachable
 
     async def request(self, method, url, **kwargs):
-        if f"method={self.unreachable}" in url:
+        if Request(method, url, params=kwargs.get("params")).aula_method == self.unreachable:
             raise AulaConnectionError("down", status_code=0)
         return await super().request(method, url, **kwargs)
 
@@ -4281,7 +4280,7 @@ class TestMarkThreadRead:
 
         assert await client.mark_thread_read("42") is True
 
-        seen = [request.url for request in http.requests]
+        seen = [request.wire_url for request in http.requests]
         assert seen[0].startswith(old_url + "?")
         assert len(seen) == 5
         assert all(url.startswith(new_url + "?") for url in seen[1:])
