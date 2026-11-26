@@ -301,3 +301,97 @@ class TestUpdatePresence:
 
         assert "Cancelled." in result.output
         assert _posts(http, presence_client, self.METHOD) == []
+
+    @staticmethod
+    def _saved_day(client, **day):
+        client.get_presence_templates = AsyncMock(
+            return_value=[
+                PresenceWeekTemplate.from_dict(
+                    {
+                        "institutionProfile": {"id": 201},
+                        "dayTemplates": [{"id": 555, "byDate": "2026-12-01T00:00:00", **day}],
+                    }
+                )
+            ]
+        )
+
+    def _send(self, http, client, *args):
+        result = _invoke(update_presence, "--child", "201", "--date", "2026-12-01", *args, "-y")
+        assert result.exit_code == 0, result.output
+        [request] = _posts(http, client, self.METHOD)
+        return request.json
+
+    def test_keeps_the_saved_comment_when_none_is_given(self, http, presence_client):
+        self._saved_day(presence_client, entryTime="08:00", exitTime="16:00", comment="Svømning")
+
+        sent = self._send(http, presence_client, "--exit-time", "14:00")
+
+        assert sent["comment"] == "Svømning"
+
+    def test_an_empty_comment_clears_the_saved_one(self, http, presence_client):
+        self._saved_day(presence_client, entryTime="08:00", exitTime="16:00", comment="Svømning")
+
+        sent = self._send(http, presence_client, "--exit-time", "14:00", "--comment", "")
+
+        assert sent["comment"] == ""
+
+    def test_a_child_who_goes_home_alone_still_does(self, http, presence_client):
+        self._saved_day(
+            presence_client,
+            activityType=1,
+            entryTime="08:00",
+            selfDeciderStartTime="14:00",
+            selfDeciderEndTime="15:30",
+        )
+
+        sent = self._send(http, presence_client, "--entry-time", "08:30")
+
+        assert sent["presenceActivity"] == {
+            "activityType": 1,
+            "selfDecider": {"entryTime": "08:30", "exitStartTime": "14:00", "exitEndTime": "15:30"},
+        }
+
+    def test_a_later_start_than_the_window_end_closes_the_window(self, http, presence_client):
+        self._saved_day(
+            presence_client,
+            activityType=1,
+            entryTime="08:00",
+            selfDeciderStartTime="14:00",
+            selfDeciderEndTime="15:30",
+        )
+
+        sent = self._send(http, presence_client, "--exit-time", "16:00")
+
+        assert sent["presenceActivity"]["selfDecider"] == {
+            "entryTime": "08:00",
+            "exitStartTime": "16:00",
+            "exitEndTime": "16:00",
+        }
+
+    def test_naming_a_pickup_person_means_the_child_is_picked_up(self, http, presence_client):
+        self._saved_day(
+            presence_client,
+            activityType=1,
+            entryTime="08:00",
+            selfDeciderStartTime="14:00",
+            selfDeciderEndTime="15:30",
+        )
+
+        sent = self._send(http, presence_client, "--exit-with", "1")
+
+        assert sent["presenceActivity"] == {
+            "activityType": 0,
+            "pickup": {"entryTime": "08:00", "exitTime": "14:00", "exitWith": "Værge Et (Far)"},
+        }
+
+    def test_a_child_who_goes_home_with_someone_keeps_that(self, http, presence_client):
+        self._saved_day(
+            presence_client, activityType=3, entryTime="08:00", exitTime="15:00", exitWith="Ven"
+        )
+
+        sent = self._send(http, presence_client, "--exit-time", "14:00")
+
+        assert sent["presenceActivity"] == {
+            "activityType": 3,
+            "goHomeWith": {"entryTime": "08:00", "exitTime": "14:00", "exitWith": "Ven"},
+        }

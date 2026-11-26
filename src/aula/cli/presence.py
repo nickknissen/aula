@@ -6,6 +6,7 @@ import click
 
 from ..api_client import AulaApiClient
 from ..models import (
+    ActivityType,
     Child,
     ChildPickupResponsibles,
     DailyOverview,
@@ -208,6 +209,30 @@ class CurrentPlan:
     exit_time: str | None
     exit_with: str | None
     template_id: int | None
+    comment: str | None = None
+    activity_type: ActivityType = ActivityType.PICKED_UP_BY
+    #: The latest time a child who goes home alone may leave.
+    self_decider_end_time: str | None = None
+
+    def activity_for(self, *, new_pickup_person: bool) -> ActivityType:
+        """How the child goes home after the update.
+
+        The day's own choice is kept. Naming who picks the child up means
+        someone does, so a child who would leave alone is then picked up.
+        """
+        if new_pickup_person and self.activity_type in (
+            ActivityType.SELF_DECIDER,
+            ActivityType.SEND_HOME,
+        ):
+            return ActivityType.PICKED_UP_BY
+        return self.activity_type
+
+    def self_decider_end(self, new_exit_time: str | None) -> str | None:
+        """The end of the window to leave in, kept unless the new start passes it."""
+        end = _format_time_or_none(self.self_decider_end_time)
+        if end is None or new_exit_time is None or end >= new_exit_time:
+            return end
+        return None
 
 
 async def _day_templates(
@@ -268,10 +293,21 @@ def current_plan(now: PresenceNow, child_id: int) -> CurrentPlan:
     ov = now.overviews.get(child_id)
     return CurrentPlan(
         entry_time=(tmpl.entry_time if tmpl else None) or (ov.entry_time if ov else None),
-        exit_time=(tmpl.exit_time if tmpl else None) or (ov.exit_time if ov else None),
+        exit_time=(tmpl.exit_time or tmpl.self_decider_start_time if tmpl else None)
+        or (ov.exit_time if ov else None),
         exit_with=(tmpl.exit_with if tmpl else None) or (ov.exit_with if ov else None),
         template_id=tmpl.id if tmpl else None,
+        comment=tmpl.comment if tmpl else (ov.comment if ov else None),
+        activity_type=_known_activity(tmpl.activity_type if tmpl else None),
+        self_decider_end_time=tmpl.self_decider_end_time if tmpl else None,
     )
+
+
+def _known_activity(value: int | None) -> ActivityType:
+    try:
+        return ActivityType(value)
+    except ValueError:
+        return ActivityType.PICKED_UP_BY
 
 
 @cli.command("update-presence")
@@ -545,18 +581,23 @@ async def update_presence(
         success_count = 0
         for c in children:
             plan = current_plan(now_state, c.id)
+            final_exit = exit_time or (_format_time(plan.exit_time) if plan.exit_time else "16:00")
+            activity = plan.activity_for(new_pickup_person=api_exit_with is not None)
             try:
                 await client.update_presence_template(
                     institution_profile_id=c.id,
                     by_date=target,
                     entry_time=entry_time
                     or (_format_time(plan.entry_time) if plan.entry_time else "08:00"),
-                    exit_time=exit_time
-                    or (_format_time(plan.exit_time) if plan.exit_time else "16:00"),
+                    exit_time=final_exit,
+                    activity_type=activity,
                     exit_with=api_exit_with if api_exit_with is not None else plan.exit_with,
-                    comment=comment,
+                    comment=comment if comment is not None else plan.comment,
                     template_id=plan.template_id,
                     repeat_pattern=repeat_pattern,
+                    self_decider_end_time=plan.self_decider_end(final_exit)
+                    if activity is ActivityType.SELF_DECIDER
+                    else None,
                 )
                 echo(f"  ✓ {c.name}")
                 success_count += 1
