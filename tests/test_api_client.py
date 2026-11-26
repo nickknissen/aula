@@ -1208,12 +1208,6 @@ class TestAnswerThatIsNotAJsonObject:
             await call(client_answering(HttpResponse(status_code=200, data=body)))
 
     @pytest.mark.asyncio
-    @pytest.mark.xfail(
-        reason="the request path reads status.code with response.json() before the read can "
-        "turn a ValueError into AulaResponseError, so the ValueError escapes",
-        raises=ValueError,
-        strict=True,
-    )
     @pytest.mark.parametrize(
         "call",
         [

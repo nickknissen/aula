@@ -109,6 +109,14 @@ def _describe_body(response: HttpResponse) -> str:
     )
 
 
+def _json_or_none(response: HttpResponse) -> Any:
+    """The body of ``response``, or None when it is not JSON."""
+    try:
+        return response.json()
+    except ValueError:
+        return None
+
+
 def _response_body(response: HttpResponse) -> dict[str, Any]:
     """Return the JSON object Aula answered with, or raise ``AulaResponseError``."""
     try:
@@ -382,7 +390,7 @@ class AulaApiClient:
         The Aula backend wraps responses in ``{"status": {"code": N, "subCode": M}, "data": ...}``.
         Sub-codes carry auth/session state that HTTP status codes alone don't convey.
         """
-        data = response.json()
+        data = _json_or_none(response)
         if not isinstance(data, dict):
             return None
         status = data.get("status")
@@ -394,7 +402,7 @@ class AulaApiClient:
     @staticmethod
     def _extract_status_code(response: HttpResponse) -> object:
         """Return ``status.code`` from the Aula API response envelope, if any."""
-        data = response.json()
+        data = _json_or_none(response)
         status = data.get("status") if isinstance(data, dict) else None
         return status.get("code") if isinstance(status, dict) else None
 
@@ -513,7 +521,7 @@ class AulaApiClient:
             self._raise_for_sub_code(sub_code, api_method)
 
         if is_aula_call:
-            body = response.json()
+            body = _json_or_none(response)
             status = body.get("status") if isinstance(body, dict) else None
             if isinstance(status, dict) and status.get("code") is not None:
                 code = status["code"]
