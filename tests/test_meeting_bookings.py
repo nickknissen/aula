@@ -15,6 +15,9 @@ from aula.http import AulaResponseError, HttpRequestError, HttpResponse
 from aula.models import CalendarEvent, Child, Profile
 from aula.models.meeting_booking import meeting_bookings, replace_booked_meetings
 from tests.cli_support import patch_get_client
+from tests.fakes import FakeHttpClient, ok, rejected
+
+CALENDAR = "calendar.getEventsByProfileIdsAndResourceIds"
 
 
 @pytest.fixture
@@ -122,27 +125,29 @@ def test_meetings_that_all_fail_raise(row):
 
 
 @pytest.fixture
-def client(row):
-    api = AulaApiClient(http_client=AsyncMock())
-    api._request_with_version_retry = AsyncMock(
-        return_value=HttpResponse(status_code=200, data={"status": {"code": 0}, "data": [row]})
-    )
-    return api
+def http(row):
+    http = FakeHttpClient()
+    http.aula(CALENDAR, ok([row]))
+    return http
+
+
+@pytest.fixture
+def client(http):
+    return AulaApiClient(http)
 
 
 @pytest.mark.asyncio
-async def test_long_range_requests_are_contiguous_and_deduplicated(client):
+async def test_long_range_requests_are_contiguous_and_deduplicated(client, http):
     start = datetime(2026, 10, 1, tzinfo=ZoneInfo("Europe/Copenhagen"))
     end = start + timedelta(days=100)
     bookings = await client.get_meeting_bookings(11, start, end)
-    calls = client._request_with_version_retry.await_args_list
+    calls = http.calls(CALENDAR)
     assert len(calls) == 3
     assert len(bookings) == 1
     previous_end = start
     for call in calls:
-        assert call.args[0] == "post"
-        assert "calendar.getEventsByProfileIdsAndResourceIds" in call.args[1]
-        payload = call.kwargs["json"]
+        assert call.method == "post"
+        payload = call.json
         beginning = datetime.strptime(payload["start"], "%Y-%m-%d %H:%M:%S.%f%z")
         ending = datetime.strptime(payload["end"], "%Y-%m-%d %H:%M:%S.%f%z")
         assert beginning == previous_end
@@ -172,8 +177,8 @@ async def test_range_uses_booked_interval_and_exclusive_end(client):
         {"data": []},
     ],
 )
-async def test_rejected_response_raises(client, body):
-    client._request_with_version_retry.return_value = HttpResponse(status_code=200, data=body)
+async def test_rejected_response_raises(client, http, body):
+    http.aula(CALENDAR, HttpResponse(200, body))
     with pytest.raises(HttpRequestError):
         await client.get_meeting_bookings(
             11, datetime(2026, 1, 1, tzinfo=UTC), datetime(2026, 2, 1, tzinfo=UTC)
@@ -189,8 +194,8 @@ async def test_rejected_response_raises(client, body):
         {"status": {"code": 0}, "data": {"rows": []}},
     ],
 )
-async def test_invalid_response_is_an_aula_response_error(client, body):
-    client._request_with_version_retry.return_value = HttpResponse(status_code=200, data=body)
+async def test_invalid_response_is_an_aula_response_error(client, http, body):
+    http.aula(CALENDAR, HttpResponse(200, body))
     with pytest.raises(AulaResponseError):
         await client.get_meeting_bookings(
             11, datetime(2026, 1, 1, tzinfo=UTC), datetime(2026, 2, 1, tzinfo=UTC)
@@ -198,11 +203,9 @@ async def test_invalid_response_is_an_aula_response_error(client, body):
 
 
 @pytest.mark.asyncio
-async def test_meetings_that_all_fail_are_an_aula_response_error(client, row):
+async def test_meetings_that_all_fail_are_an_aula_response_error(client, http, row):
     broken = {key: value for key, value in row.items() if key != "id"}
-    client._request_with_version_retry.return_value = HttpResponse(
-        status_code=200, data={"status": {"code": 0}, "data": [broken]}
-    )
+    http.aula(CALENDAR, ok([broken]))
     with pytest.raises(AulaResponseError) as exc_info:
         await client.get_meeting_bookings(
             11, datetime(2026, 11, 1, tzinfo=UTC), datetime(2026, 11, 10, tzinfo=UTC)
@@ -211,11 +214,8 @@ async def test_meetings_that_all_fail_are_an_aula_response_error(client, row):
 
 
 @pytest.mark.asyncio
-async def test_later_chunk_failure_never_returns_partial_results(client, row):
-    client._request_with_version_retry.side_effect = [
-        HttpResponse(status_code=200, data={"status": {"code": 0}, "data": [row]}),
-        HttpResponse(status_code=200, data={"status": {"code": 403}, "data": []}),
-    ]
+async def test_later_chunk_failure_never_returns_partial_results(client, http, row):
+    http.aula(CALENDAR, ok([row]), rejected(403))
     with pytest.raises(HttpRequestError):
         await client.get_meeting_bookings(
             11, datetime(2026, 10, 1, tzinfo=UTC), datetime(2027, 1, 1, tzinfo=UTC)
@@ -231,10 +231,10 @@ async def test_later_chunk_failure_never_returns_partial_results(client, row):
         (datetime(2026, 2, 1, tzinfo=UTC), datetime(2026, 1, 1, tzinfo=UTC)),
     ],
 )
-async def test_invalid_bounds_make_no_requests(client, start, end):
+async def test_invalid_bounds_make_no_requests(client, http, start, end):
     with pytest.raises(ValueError):
         await client.get_meeting_bookings(11, start, end)
-    client._request_with_version_retry.assert_not_awaited()
+    assert http.requests == []
 
 
 _WEEK = (
