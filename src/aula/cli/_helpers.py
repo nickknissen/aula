@@ -1,17 +1,23 @@
+from collections import defaultdict
 from collections.abc import Iterable, Sequence
+from dataclasses import dataclass, field
 from zoneinfo import ZoneInfo
 
 from ..api_client import AulaApiClient
 from ..models import (
+    CalendarEvent,
     Child,
     DocendoWeekPlan,
+    Message,
     MessageThread,
     Profile,
 )
 from ..utils.dates import aula_today
 from ..utils.diagnostics import credential_logger
+from ..utils.html import strip_control_chars
 from ..utils.mapping import get_in
 from ..utils.output import (
+    echo,
     print_error,
 )
 from ..utils.week import DANISH_WEEKDAYS
@@ -181,6 +187,89 @@ def _docendo_plan_lines(plan: DocendoWeekPlan) -> list[str]:
                 text[0] = f"{label}: {text[0]}"
             lines.extend(f"  {line}" for line in text)
     return lines
+
+
+def _children_named(children: list[Child], name: str | None) -> list[Child]:
+    """The children whose name contains ``name``, ignoring case; all of them without one."""
+    if not name:
+        return list(children)
+    needle = name.lower()
+    return [c for c in children if needle in c.name.lower()]
+
+
+def _event_slot_lines(events: Iterable[CalendarEvent]) -> list[str]:
+    """One line per timeslot, merging the events that share it."""
+    slots: dict[tuple, list[CalendarEvent]] = defaultdict(list)
+    for ev in sorted(events, key=lambda e: e.start_datetime):
+        slots[(ev.start_datetime, ev.end_datetime)].append(ev)
+    lines = []
+    for (start_dt, end_dt), evs in sorted(slots.items()):
+        time_range = f"{start_dt.strftime('%H:%M')}–{end_dt.strftime('%H:%M')}"
+        titles = " / ".join(dict.fromkeys(ev.title or "Untitled" for ev in evs))
+        locations = list(dict.fromkeys(ev.location for ev in evs if ev.location))
+        teachers = _unique_names(ev.teacher_names for ev in evs)
+        substitutes = _unique_names(ev.substitute_names for ev in evs if ev.has_substitute)
+        parts = [time_range, titles]
+        if locations:
+            parts.append(f"({' / '.join(locations)})")
+        if teachers:
+            parts.append(f"[{' / '.join(teachers)}]")
+        if substitutes:
+            parts.append(f"[Substitute: {' / '.join(substitutes)}]")
+        lines.append(f"- {'  '.join(parts)}")
+    return lines
+
+
+@dataclass
+class UnreadThreads:
+    threads: list[MessageThread]
+    #: Messages per thread ID; None when they could not be fetched.
+    messages: dict[str, list[Message] | None] = field(default_factory=dict)
+
+
+async def _fetch_unread_threads(client: AulaApiClient, *, with_messages: bool) -> UnreadThreads:
+    try:
+        threads = await client.get_message_threads(filter_on="unread")
+    except Exception as e:
+        threads = []
+        _LOGGER.warning("Could not fetch unread messages: %s", e)
+
+    unread = UnreadThreads(threads)
+    if with_messages:
+        for thread in threads:
+            try:
+                unread.messages[thread.thread_id] = await client.get_messages_for_thread(
+                    thread.thread_id
+                )
+            except Exception as e:
+                _LOGGER.warning("Could not fetch messages for thread %s: %s", thread.thread_id, e)
+                unread.messages[thread.thread_id] = None
+    return unread
+
+
+def _print_unread_threads(unread: UnreadThreads) -> None:
+    if not unread.threads:
+        return
+    echo("Unread messages")
+    echo()
+    for thread in unread.threads:
+        echo(strip_control_chars(thread.subject))
+        if meta := _thread_meta(thread):
+            echo(f"  Meta: {strip_control_chars(meta)}")
+        echo()
+        msgs = unread.messages.get(thread.thread_id)
+        if msgs is None:
+            echo()
+            continue
+        for msg in msgs:
+            msg_raw = msg._raw or {}
+            echo(f"Author: {get_in(msg_raw, 'sender.fullName', default='Unknown')}")
+            if send_date := msg_raw.get("sendDateTime", ""):
+                echo(f"Date: {send_date}")
+            for line in msg.content.splitlines():
+                if line.strip():
+                    echo(line)
+            echo()
 
 
 def _thread_meta(thread: MessageThread) -> str:
