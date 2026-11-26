@@ -213,6 +213,24 @@ class _SkippedRecords:
             ) from self.last_error
 
 
+def _parse_records[T](
+    items: Iterable[Any],
+    parse: Callable[[dict[str, Any]], T],
+    record_type: str,
+    status_code: int,
+) -> list[T]:
+    """Parse each object in ``items``, skip the ones that fail, and raise when none parse."""
+    parsed: list[T] = []
+    skipped = _SkippedRecords(record_type)
+    for item in skipped.objects(items):
+        try:
+            parsed.append(parse(item))
+        except _RECORD_ERRORS as e:
+            skipped.add(e, item)
+    skipped.raise_if_none_parsed(parsed, status_code)
+    return parsed
+
+
 def _api_version_of(url: str) -> int | None:
     match = _API_VERSION_PATTERN.match(url)
     return int(match.group(1)) if match else None
@@ -364,7 +382,12 @@ class AulaApiClient:
         # deviceId mirrors the mobile app's context init (discovered via aulalibre).
         await self._request_with_version_retry(
             "get",
-            f"{self.api_url}?method=profiles.getProfileContext&portalrole=guardian&deviceId=aula-cli",
+            self.api_url,
+            params={
+                "method": "profiles.getProfileContext",
+                "portalrole": "guardian",
+                "deviceId": "aula-cli",
+            },
         )
 
         # Session is now established via cookies; access_token no longer needed.
@@ -377,11 +400,7 @@ class AulaApiClient:
             self._csrf_token = self._client.get_cookie(CSRF_TOKEN_COOKIE)
 
     async def _set_correct_api_version(self) -> None:
-        resp = await self._request_with_version_retry(
-            "get",
-            f"{self.api_url}?method=profiles.getProfilesByLogin",
-        )
-        resp.raise_for_status()
+        await self._aula_call("profiles.getProfilesByLogin")
 
     @staticmethod
     def _extract_sub_code(response: HttpResponse) -> int | None:
@@ -540,6 +559,62 @@ class AulaApiClient:
                     )
 
         return response
+
+    async def _aula_call(
+        self,
+        method: str,
+        *,
+        params: dict[str, Any] | None = None,
+        http: str = "get",
+        json: object | None = None,
+    ) -> HttpResponse:
+        """Call the Aula method ``method`` and raise for any answer that is not a success."""
+        response = await self._request_with_version_retry(
+            http, self.api_url, params={"method": method, **(params or {})}, json=json
+        )
+        response.raise_for_status()
+        body = _json_or_none(response)
+        if not (isinstance(body, dict) and isinstance(body.get("status"), dict)):
+            _LOGGER.debug("Aula answered %s without a status envelope", method)
+        return response
+
+    async def _aula_data(self, method: str, **kwargs: Any) -> dict[str, Any]:
+        """The ``data`` object of a successful call, ``{}`` when it is empty."""
+        return _response_data_object(await self._aula_call(method, **kwargs))
+
+    async def _aula_list(self, method: str, **kwargs: Any) -> list[Any]:
+        """The ``data`` list of a successful call, ``[]`` when it is empty."""
+        return _response_data_list(await self._aula_call(method, **kwargs))
+
+    async def _aula_model[T](
+        self, method: str, parse: Callable[[dict[str, Any]], T], what: str, **kwargs: Any
+    ) -> T:
+        """The ``data`` object of a successful call, parsed by ``parse``."""
+        response = await self._aula_call(method, **kwargs)
+        return _parse_object(parse, _response_data_object(response), what, response.status_code)
+
+    async def _aula_records[T](
+        self,
+        method: str,
+        parse: Callable[[dict[str, Any]], T],
+        record_type: str,
+        *,
+        key: str | None = None,
+        **kwargs: Any,
+    ) -> list[T]:
+        """The records in ``data``, or in ``data[key]``, parsed by ``parse``.
+
+        A record that fails to parse is logged and skipped; when every record fails,
+        ``AulaResponseError`` is raised.
+        """
+        response = await self._aula_call(method, **kwargs)
+        if key is None:
+            items = _response_data_list(response)
+        else:
+            items = _as_list(
+                _response_data_object(response).get(key), f"data.{key}", response.status_code
+            )
+        return _parse_records(items, parse, record_type, response.status_code)
 
     async def _refresh_authentication(
         self,
@@ -711,10 +786,7 @@ class AulaApiClient:
             ValueError: If no profile data is found.
             AulaResponseError: If the answer is not in the expected shape.
         """
-        resp = await self._request_with_version_retry(
-            "get", f"{self.api_url}?method=profiles.getProfilesByLogin"
-        )
-        resp.raise_for_status()
+        resp = await self._aula_call("profiles.getProfilesByLogin")
         raw_data_list = _as_list(
             _response_data_object(resp).get("profiles"), "data.profiles", resp.status_code
         )
@@ -729,15 +801,8 @@ class AulaApiClient:
 
         profile_dict = raw_data_list[0]
 
-        children = []
-        skipped = _SkippedRecords("child")
         raw_children = _as_list(profile_dict.get("children"), "children", resp.status_code)
-        for child_dict in skipped.objects(raw_children):
-            try:
-                children.append(Child.from_dict(child_dict))
-            except _RECORD_ERRORS as e:
-                skipped.add(e, child_dict)
-        skipped.raise_if_none_parsed(children, resp.status_code)
+        children = _parse_records(raw_children, Child.from_dict, "child", resp.status_code)
 
         children.extend(await self._extended_access_children({child.id for child in children}))
 
@@ -808,11 +873,9 @@ class AulaApiClient:
 
     async def get_profile_context(self) -> dict[str, Any]:
         """Fetch the profile context for the current guardian session."""
-        resp = await self._request_with_version_retry(
-            "get",
-            f"{self.api_url}?method=profiles.getProfileContext&portalrole=guardian",
+        resp = await self._aula_call(
+            "profiles.getProfileContext", params={"portalrole": "guardian"}
         )
-        resp.raise_for_status()
         return _response_body(resp)
 
     async def get_widgets(self) -> list[WidgetConfiguration]:
@@ -821,24 +884,17 @@ class AulaApiClient:
         Parses ``pageConfiguration.widgetConfigurations`` from the profile context response.
         Only widgets with ``aggregatedDisplayMode == "Shown"`` are included.
         """
-        resp = await self._request_with_version_retry(
-            "get",
-            f"{self.api_url}?method=profiles.getProfileContext&portalrole=guardian",
+        resp = await self._aula_call(
+            "profiles.getProfileContext", params={"portalrole": "guardian"}
         )
-        resp.raise_for_status()
         widget_configs = _as_list(
             get_in(_response_body(resp), "data.pageConfiguration.widgetConfigurations"),
             "data.pageConfiguration.widgetConfigurations",
             resp.status_code,
         )
-        widgets = []
-        skipped = _SkippedRecords("widget configuration")
-        for item in skipped.objects(widget_configs):
-            try:
-                widgets.append(WidgetConfiguration.from_dict(item))
-            except _RECORD_ERRORS as e:
-                skipped.add(e, item)
-        skipped.raise_if_none_parsed(widgets, resp.status_code)
+        widgets = _parse_records(
+            widget_configs, WidgetConfiguration.from_dict, "widget configuration", resp.status_code
+        )
         return [w for w in widgets if w.aggregated_display_mode == "Shown"]
 
     async def get_daily_overview(self, child_id: int) -> DailyOverview | None:
@@ -850,11 +906,7 @@ class AulaApiClient:
             HttpRequestError: If the API returns a 4xx/5xx error.
             AulaResponseError: If the answer is not a list of daily overviews.
         """
-        resp = await self._request_with_version_retry(
-            "get",
-            f"{self.api_url}?method=presence.getDailyOverview&childIds[]={child_id}",
-        )
-        resp.raise_for_status()
+        resp = await self._aula_call("presence.getDailyOverview", params={"childIds[]": [child_id]})
         data = _response_data_list(resp)
         if not data:
             _LOGGER.debug("No daily overview data for child %d", child_id)
@@ -883,28 +935,17 @@ class AulaApiClient:
         actual API responses. Different Aula endpoints use different patterns (e.g.,
         institutionProfileIds[] vs filterInstitutionProfileIds[]).
         """
-        params: dict[str, Any] = {
-            "method": "presence.getPresenceTemplates",
-            "filterInstitutionProfileIds[]": institution_profile_ids,
-            "fromDate": from_date.isoformat(),
-            "toDate": to_date.isoformat(),
-        }
-        resp = await self._request_with_version_retry("get", self.api_url, params=params)
-        resp.raise_for_status()
-        templates = _as_list(
-            _response_data_object(resp).get("presenceWeekTemplates"),
-            "data.presenceWeekTemplates",
-            resp.status_code,
+        return await self._aula_records(
+            "presence.getPresenceTemplates",
+            PresenceWeekTemplate.from_dict,
+            "presence week template",
+            key="presenceWeekTemplates",
+            params={
+                "filterInstitutionProfileIds[]": institution_profile_ids,
+                "fromDate": from_date.isoformat(),
+                "toDate": to_date.isoformat(),
+            },
         )
-        result = []
-        skipped = _SkippedRecords("presence week template")
-        for t in skipped.objects(templates):
-            try:
-                result.append(PresenceWeekTemplate.from_dict(t))
-            except _RECORD_ERRORS as e:
-                skipped.add(e, t)
-        skipped.raise_if_none_parsed(result, resp.status_code)
-        return result
 
     async def update_presence_template(
         self,
@@ -1013,12 +1054,7 @@ class AulaApiClient:
         if template_id is not None:
             payload["id"] = template_id
 
-        resp = await self._request_with_version_retry(
-            "post",
-            f"{self.api_url}?method=presence.updatePresenceTemplate",
-            json=payload,
-        )
-        resp.raise_for_status()
+        await self._aula_call("presence.updatePresenceTemplate", http="post", json=payload)
         return True
 
     async def update_presence_status(
@@ -1065,12 +1101,9 @@ class AulaApiClient:
             "status": status_value,
         }
 
-        resp = await self._request_with_version_retry(
-            "post",
-            f"{self.api_url}?method=presence.updateStatusByInstitutionProfileIds",
-            json=payload,
+        resp = await self._aula_call(
+            "presence.updateStatusByInstitutionProfileIds", http="post", json=payload
         )
-        resp.raise_for_status()
         # The endpoint answers with a bare boolean in "data". Older/proxied
         # responses omit it, so absence is not treated as failure.
         data = _response_body(resp).get("data")
@@ -1116,12 +1149,7 @@ class AulaApiClient:
             ],
             "comment": comment,
         }
-        resp = await self._request_with_version_retry(
-            "post",
-            f"{self.api_url}?method=calendar.addVacation",
-            json=payload,
-        )
-        resp.raise_for_status()
+        await self._aula_call("calendar.addVacation", http="post", json=payload)
         return True
 
     async def get_pickup_responsibles(
@@ -1136,22 +1164,12 @@ class AulaApiClient:
         Returns:
             List of ChildPickupResponsibles, one per child.
         """
-        params: dict[str, Any] = {
-            "method": "presence.getPickupResponsibles",
-            "uniStudentIds[]": child_ids,
-        }
-        resp = await self._request_with_version_retry("get", self.api_url, params=params)
-        resp.raise_for_status()
-        data = _response_data_list(resp)
-        result = []
-        skipped = _SkippedRecords("pickup responsible")
-        for item in skipped.objects(data):
-            try:
-                result.append(ChildPickupResponsibles.from_dict(item))
-            except _RECORD_ERRORS as e:
-                skipped.add(e, item)
-        skipped.raise_if_none_parsed(result, resp.status_code)
-        return result
+        return await self._aula_records(
+            "presence.getPickupResponsibles",
+            ChildPickupResponsibles.from_dict,
+            "pickup responsible",
+            params={"uniStudentIds[]": child_ids},
+        )
 
     async def get_presence_registrations(
         self,
@@ -1212,35 +1230,24 @@ class AulaApiClient:
         to_date: date,
     ) -> list[PresenceRegistration]:
         """Fetch presence registrations for exactly the profiles given."""
-        params: dict[str, Any] = {
-            "method": "presence.getPresenceRegistrations",
-            "institutionProfileIds[]": institution_profile_ids,
-            "fromDate": from_date.isoformat(),
-            "toDate": to_date.isoformat(),
-        }
-        resp = await self._request_with_version_retry("get", self.api_url, params=params)
-        resp.raise_for_status()
-        data = _response_data_list(resp)
-        result = []
-        skipped = _SkippedRecords("presence registration")
-        for item in skipped.objects(data):
-            try:
-                result.append(PresenceRegistration.from_dict(item))
-            except _RECORD_ERRORS as e:
-                skipped.add(e, item)
-        skipped.raise_if_none_parsed(result, resp.status_code)
-        return result
+        return await self._aula_records(
+            "presence.getPresenceRegistrations",
+            PresenceRegistration.from_dict,
+            "presence registration",
+            params={
+                "institutionProfileIds[]": institution_profile_ids,
+                "fromDate": from_date.isoformat(),
+                "toDate": to_date.isoformat(),
+            },
+        )
 
     async def get_presence_registration_detail(
         self, registration_id: int
     ) -> PresenceRegistrationDetail | None:
         """Fetch detail for a single presence registration."""
-        params: dict[str, Any] = {
-            "method": "presence.getPresenceRegistrationDetail",
-            "id": registration_id,
-        }
-        resp = await self._request_with_version_retry("get", self.api_url, params=params)
-        resp.raise_for_status()
+        resp = await self._aula_call(
+            "presence.getPresenceRegistrationDetail", params={"id": registration_id}
+        )
         data = _response_data_object(resp)
         if not data:
             return None
@@ -1253,45 +1260,27 @@ class AulaApiClient:
         institution_profile_ids: list[int] | None = None,
     ) -> list[ChildPresenceState]:
         """Fetch current presence states, optionally filtered by profile IDs."""
-        params: dict[str, Any] = {
-            "method": "presence.getPresenceStates",
-        }
+        params: dict[str, Any] = {}
         if institution_profile_ids:
             params["institutionProfileIds[]"] = institution_profile_ids
-        resp = await self._request_with_version_retry("get", self.api_url, params=params)
-        resp.raise_for_status()
-        data = _response_data_list(resp)
-        result = []
-        skipped = _SkippedRecords("presence state")
-        for item in skipped.objects(data):
-            try:
-                result.append(ChildPresenceState.from_dict(item))
-            except _RECORD_ERRORS as e:
-                skipped.add(e, item)
-        skipped.raise_if_none_parsed(result, resp.status_code)
-        return result
+        return await self._aula_records(
+            "presence.getPresenceStates",
+            ChildPresenceState.from_dict,
+            "presence state",
+            params=params,
+        )
 
     async def get_presence_configuration(
         self,
         child_ids: list[int],
     ) -> list[PresenceConfiguration]:
         """Fetch presence configuration (pickup rules, etc.) by child IDs."""
-        params: dict[str, Any] = {
-            "method": "presence.getPresenceConfigurationByChildIds",
-            "childIds[]": child_ids,
-        }
-        resp = await self._request_with_version_retry("get", self.api_url, params=params)
-        resp.raise_for_status()
-        data = _response_data_list(resp)
-        result = []
-        skipped = _SkippedRecords("presence configuration")
-        for item in skipped.objects(data):
-            try:
-                result.append(PresenceConfiguration.from_dict(item))
-            except _RECORD_ERRORS as e:
-                skipped.add(e, item)
-        skipped.raise_if_none_parsed(result, resp.status_code)
-        return result
+        return await self._aula_records(
+            "presence.getPresenceConfigurationByChildIds",
+            PresenceConfiguration.from_dict,
+            "presence configuration",
+            params={"childIds[]": child_ids},
+        )
 
     async def get_activity_overview(
         self,
@@ -1300,14 +1289,10 @@ class AulaApiClient:
         year: int,
     ) -> PresenceWeekOverview | None:
         """Fetch the activity/week overview for presence."""
-        params: dict[str, Any] = {
-            "method": "presence.getActivityOverview",
-            "institutionProfileIds[]": institution_profile_ids,
-            "week": week,
-            "year": year,
-        }
-        resp = await self._request_with_version_retry("get", self.api_url, params=params)
-        resp.raise_for_status()
+        resp = await self._aula_call(
+            "presence.getActivityOverview",
+            params={"institutionProfileIds[]": institution_profile_ids, "week": week, "year": year},
+        )
         data = _response_data_object(resp)
         if not data:
             return None
@@ -1326,7 +1311,6 @@ class AulaApiClient:
     ) -> list[Notification]:
         """Fetch notifications for the active profile."""
         params: dict[str, Any] = {
-            "method": "notifications.getNotificationsForActiveProfile",
             "offset": offset,
             "limit": limit,
         }
@@ -1337,51 +1321,35 @@ class AulaApiClient:
         if module:
             params["module"] = module
 
-        resp = await self._request_with_version_retry("get", self.api_url, params=params)
-        resp.raise_for_status()
-
-        payload = _response_data_list(resp)
-
-        notifications: list[Notification] = []
-        skipped = _SkippedRecords("notification")
-        for item in skipped.objects(payload):
-            try:
-                notifications.append(Notification.from_dict(item))
-            except _RECORD_ERRORS as e:
-                skipped.add(e, item)
-        skipped.raise_if_none_parsed(notifications, resp.status_code)
+        notifications = await self._aula_records(
+            "notifications.getNotificationsForActiveProfile",
+            Notification.from_dict,
+            "notification",
+            params=params,
+        )
         if limit > 0:
             return notifications[:limit]
         return notifications
 
     async def get_message_threads(self, filter_on: str | None = None) -> list[MessageThread]:
         """Fetch the first page of message threads, sorted by date descending."""
-        url = f"{self.api_url}?method=messaging.getThreads&sortOn=date&orderDirection=desc&page=0"
+        params: dict[str, Any] = {"sortOn": "date", "orderDirection": "desc", "page": 0}
         if filter_on:
-            url += f"&filterOn={filter_on}"
-        resp = await self._request_with_version_retry("get", url)
-        resp.raise_for_status()
-        threads_data = _as_list(
-            _response_data_object(resp).get("threads"), "data.threads", resp.status_code
+            params["filterOn"] = filter_on
+        return await self._aula_records(
+            "messaging.getThreads",
+            MessageThread.from_dict,
+            "message thread",
+            key="threads",
+            params=params,
         )
-
-        threads = []
-        skipped = _SkippedRecords("message thread")
-        for t_dict in skipped.objects(threads_data):
-            try:
-                threads.append(MessageThread.from_dict(t_dict))
-            except _RECORD_ERRORS as e:
-                skipped.add(e, t_dict)
-        skipped.raise_if_none_parsed(threads, resp.status_code)
-        return threads
 
     async def get_messages_for_thread(self, thread_id: str, limit: int = 5) -> list[Message]:
         """Fetches the latest messages for a specific thread."""
-        resp = await self._request_with_version_retry(
-            "get",
-            f"{self.api_url}?method=messaging.getMessagesForThread&threadId={thread_id}&page=0&limit={limit}",
+        resp = await self._aula_call(
+            "messaging.getMessagesForThread",
+            params={"threadId": thread_id, "page": 0, "limit": limit},
         )
-        resp.raise_for_status()
         messages = []
         skipped = _SkippedRecords("message")
         raw_messages = _as_list(
@@ -1400,34 +1368,11 @@ class AulaApiClient:
         skipped.raise_if_none_parsed(messages, resp.status_code)
         return messages
 
-    @staticmethod
-    def _api_data(resp: HttpResponse, api_method: str) -> dict[str, Any]:
-        """Return the ``data`` object of an Aula answer, or raise when it is not a success.
-
-        ``raise_for_status()`` only looks at the HTTP status, but Aula reports its own
-        errors inside an HTTP 200: ``{"status": {"code": N, ...}, "data": ...}``, where
-        ``code`` 0 is success. A body that is not that envelope is not trusted either.
-        """
-        resp.raise_for_status()
-        body = _response_body(resp)
-        status = body.get("status")
-        if not isinstance(status, dict) or status.get("code") != 0:
-            code = status.get("code") if isinstance(status, dict) else None
-            raise HttpRequestError(
-                f"Aula rejected {api_method} (status code {code})", resp.status_code
-            )
-        data = body.get("data")
-        return data if isinstance(data, dict) else {}
-
-    def _thread_messages_url(self, thread_id: str, page: int, limit: int) -> str:
-        """URL for one page of a thread's messages, on the API version in use now.
-
-        Built on every call: a request can negotiate a newer API version, and a URL
-        kept from before that would go to the old one.
-        """
-        return (
-            f"{self.api_url}?method=messaging.getMessagesForThread"
-            f"&threadId={thread_id}&page={page}&limit={limit}"
+    async def _thread_messages(self, thread_id: str, page: int, limit: int) -> dict[str, Any]:
+        """One page of a thread's messages, as Aula's ``data`` object."""
+        return await self._aula_data(
+            "messaging.getMessagesForThread",
+            params={"threadId": thread_id, "page": page, "limit": limit},
         )
 
     async def mark_thread_read(self, thread_id: str) -> bool:
@@ -1467,10 +1412,7 @@ class AulaApiClient:
         newest: dict[str, Any] | None = None
         more = False
         for page in range(_MAX_THREAD_PAGES):
-            resp = await self._request_with_version_retry(
-                "get", self._thread_messages_url(thread_id, page, 20)
-            )
-            data = self._api_data(resp, "messaging.getMessagesForThread")
+            data = await self._thread_messages(thread_id, page, 20)
             owner = data.get("mailBoxOwner")
             if not isinstance(owner, dict) or owner.get("mailBoxOwnerType") != "institutionProfile":
                 raise ValueError(
@@ -1495,9 +1437,9 @@ class AulaApiClient:
         if newest is None or not newest.get("id"):
             return False
 
-        resp = await self._request_with_version_retry(
-            "post",
-            f"{self.api_url}?method=messaging.setLastReadMessage",
+        await self._aula_call(
+            "messaging.setLastReadMessage",
+            http="post",
             json={
                 "threadId": thread_id,
                 "messageId": newest["id"],
@@ -1505,15 +1447,11 @@ class AulaApiClient:
                 "otpInboxId": None,
             },
         )
-        self._api_data(resp, "messaging.setLastReadMessage")
 
-        resp = await self._request_with_version_retry(
-            "get", self._thread_messages_url(thread_id, 0, 1)
-        )
-        marker = self._api_data(resp, "messaging.getMessagesForThread").get("lastReadMessageId")
+        marker = (await self._thread_messages(thread_id, 0, 1)).get("lastReadMessageId")
         if marker != newest["id"]:
             raise HttpRequestError(
-                f"Aula did not confirm the read marker of thread {thread_id}", resp.status_code
+                f"Aula did not confirm the read marker of thread {thread_id}", 200
             )
         return True
 
@@ -1535,51 +1473,41 @@ class AulaApiClient:
             "end": end.strftime("%Y-%m-%d 23:59:59.0000%z"),
         }
 
-        resp = await self._request_with_version_retry(
-            "post",
-            f"{self.api_url}?method=calendar.getEventsByProfileIdsAndResourceIds",
+        events = await self._aula_records(
+            "calendar.getEventsByProfileIdsAndResourceIds",
+            self._calendar_event,
+            "calendar event",
+            http="post",
             json=data,
         )
-
-        resp.raise_for_status()
-        events = []
-        raw_events = _response_data_list(resp)
-
-        skipped = _SkippedRecords("calendar event")
-        for event in skipped.objects(raw_events):
-            try:
-                lesson = event.get("lesson") or {}
-
-                teacher = self._find_participant_by_role(lesson, "primaryTeacher")
-                substitute = self._find_participant_by_role(lesson, "substituteTeacher")
-
-                has_substitute = lesson.get("lessonStatus", "").lower() == "substitute"
-                location = get_in(event, "primaryResource.name")
-                profiles = _profile_ids(event.get("belongsToProfiles"))
-
-                events.append(
-                    CalendarEvent(
-                        id=event.get("id"),
-                        title=event.get("title"),
-                        start_datetime=self._parse_date(event.get("startDateTime")),
-                        end_datetime=self._parse_date(event.get("endDateTime")),
-                        teacher_name=teacher.get("teacherName", ""),
-                        has_substitute=has_substitute,
-                        substitute_name=substitute.get("teacherName"),
-                        teacher_names=_teacher_names(lesson, "primaryTeacher"),
-                        substitute_names=_teacher_names(lesson, "substituteTeacher"),
-                        location=location,
-                        belongs_to=next(iter(profiles), None),
-                        belongs_to_profiles=profiles,
-                        event_type=event.get("type"),
-                        _raw=event,
-                    )
-                )
-            except _RECORD_ERRORS as e:
-                skipped.add(e, event)
-
-        skipped.raise_if_none_parsed(events, resp.status_code)
         return merge_duplicate_lessons(events)
+
+    def _calendar_event(self, event: Any) -> CalendarEvent:
+        lesson = event.get("lesson") or {}
+
+        teacher = self._find_participant_by_role(lesson, "primaryTeacher")
+        substitute = self._find_participant_by_role(lesson, "substituteTeacher")
+
+        has_substitute = lesson.get("lessonStatus", "").lower() == "substitute"
+        location = get_in(event, "primaryResource.name")
+        profiles = _profile_ids(event.get("belongsToProfiles"))
+
+        return CalendarEvent(
+            id=event.get("id"),
+            title=event.get("title"),
+            start_datetime=self._parse_date(event.get("startDateTime")),
+            end_datetime=self._parse_date(event.get("endDateTime")),
+            teacher_name=teacher.get("teacherName", ""),
+            has_substitute=has_substitute,
+            substitute_name=substitute.get("teacherName"),
+            teacher_names=_teacher_names(lesson, "primaryTeacher"),
+            substitute_names=_teacher_names(lesson, "substituteTeacher"),
+            location=location,
+            belongs_to=next(iter(profiles), None),
+            belongs_to_profiles=profiles,
+            event_type=event.get("type"),
+            _raw=event,
+        )
 
     async def get_calendar_events_by_child(
         self, child_ids: list[int], start: datetime, end: datetime
@@ -1653,9 +1581,9 @@ class AulaApiClient:
         cursor = start
         while cursor < end:
             chunk_end = min(cursor + timedelta(days=49), end)
-            resp = await self._request_with_version_retry(
-                "post",
-                f"{self.api_url}?method=calendar.getEventsByProfileIdsAndResourceIds",
+            resp = await self._aula_call(
+                "calendar.getEventsByProfileIdsAndResourceIds",
+                http="post",
                 json={
                     "instProfileIds": [child_id],
                     "resourceIds": [],
@@ -1663,7 +1591,6 @@ class AulaApiClient:
                     "end": chunk_end.strftime("%Y-%m-%d %H:%M:%S.%f%z"),
                 },
             )
-            resp.raise_for_status()
             body = _response_body(resp)
             if get_in(body, "status.code") != 0:
                 raise HttpRequestError(
@@ -1690,138 +1617,78 @@ class AulaApiClient:
         self, event_id: int, occurrence_datetime: str | None = None
     ) -> dict | None:
         """Fetch a single calendar event by ID."""
-        params: dict[str, Any] = {
-            "method": "calendar.getEventById",
-            "eventId": event_id,
-        }
+        params: dict[str, Any] = {"eventId": event_id}
         if occurrence_datetime:
             params["occurrenceDateTime"] = occurrence_datetime
 
-        resp = await self._request_with_version_retry("get", self.api_url, params=params)
-        resp.raise_for_status()
-
-        return _response_data_object(resp) or None
+        return await self._aula_data("calendar.getEventById", params=params) or None
 
     async def get_important_dates(self, limit: int = 10, include_today: bool = True) -> list[dict]:
         """Fetch upcoming important dates."""
-        params: dict[str, Any] = {
-            "method": "calendar.getImportantDates",
-            "limit": limit,
-            "includeToday": include_today,
-        }
-
-        resp = await self._request_with_version_retry("get", self.api_url, params=params)
-        resp.raise_for_status()
-
-        return _response_data_list(resp)
+        return await self._aula_list(
+            "calendar.getImportantDates",
+            params={"limit": limit, "includeToday": include_today},
+        )
 
     async def get_birthday_events(
         self, institution_codes: list[str], start: str, end: str
     ) -> list[dict]:
         """Fetch birthday events for institutions."""
-        params: dict[str, Any] = {
-            "method": "calendar.getBirthdayEventsForInstitutions",
-            "InstCodes[]": institution_codes,
-            "Start": start,
-            "End": end,
-        }
-
-        resp = await self._request_with_version_retry("get", self.api_url, params=params)
-        resp.raise_for_status()
-
-        return _response_data_list(resp)
+        return await self._aula_list(
+            "calendar.getBirthdayEventsForInstitutions",
+            params={"InstCodes[]": institution_codes, "Start": start, "End": end},
+        )
 
     async def get_birthday_events_for_group(
         self, group_id: int, start: str, end: str
     ) -> list[dict]:
         """Fetch birthday events for a group."""
-        params: dict[str, Any] = {
-            "method": "calendar.getBirthdayEventsForGroup",
-            "groupId": group_id,
-            "start": start,
-            "end": end,
-        }
-
-        resp = await self._request_with_version_retry("get", self.api_url, params=params)
-        resp.raise_for_status()
-
-        return _response_data_list(resp)
+        return await self._aula_list(
+            "calendar.getBirthdayEventsForGroup",
+            params={"groupId": group_id, "start": start, "end": end},
+        )
 
     async def get_event_types(self, institution_codes: list[str] | None = None) -> list[dict]:
         """Fetch event types."""
-        params: dict[str, Any] = {
-            "method": "calendar.getEventTypes",
-            "Type": "all",
-        }
+        params: dict[str, Any] = {"Type": "all"}
         if institution_codes:
             params["FilterInstitutionCodes[]"] = institution_codes
 
-        resp = await self._request_with_version_retry("get", self.api_url, params=params)
-        resp.raise_for_status()
-
-        return _response_data_list(resp)
+        return await self._aula_list("calendar.getEventTypes", params=params)
 
     async def get_daily_aggregated_events(
         self, institution_profile_ids: list[int], start: str, end: str
     ) -> list[dict]:
         """Fetch daily aggregated events."""
-        params: dict[str, Any] = {
-            "method": "calendar.getDailyAggregatedEvents",
-            "InstProfileIds[]": institution_profile_ids,
-            "Start": start,
-            "End": end,
-        }
-
-        resp = await self._request_with_version_retry("get", self.api_url, params=params)
-        resp.raise_for_status()
-
-        return _response_data_list(resp)
+        return await self._aula_list(
+            "calendar.getDailyAggregatedEvents",
+            params={"InstProfileIds[]": institution_profile_ids, "Start": start, "End": end},
+        )
 
     async def get_events_for_institutions(
         self, institution_codes: list[str], start: str, end: str
     ) -> list[dict]:
         """Fetch events for institutions."""
-        params: dict[str, Any] = {
-            "method": "calendar.getEventsForInstitutions",
-            "Start": start,
-            "End": end,
-            "InstCodes[]": institution_codes,
-        }
-
-        resp = await self._request_with_version_retry("get", self.api_url, params=params)
-        resp.raise_for_status()
-
-        return _response_data_list(resp)
+        return await self._aula_list(
+            "calendar.getEventsForInstitutions",
+            params={"Start": start, "End": end, "InstCodes[]": institution_codes},
+        )
 
     async def get_daily_event_count_for_group(
         self, group_id: int, start: str, end: str
     ) -> list[dict]:
         """Fetch event count per day for a group."""
-        params: dict[str, Any] = {
-            "method": "calendar.getDailyEventCountForGroup",
-            "GroupId": group_id,
-            "Start": start,
-            "End": end,
-        }
-
-        resp = await self._request_with_version_retry("get", self.api_url, params=params)
-        resp.raise_for_status()
-
-        return _response_data_list(resp)
+        return await self._aula_list(
+            "calendar.getDailyEventCountForGroup",
+            params={"GroupId": group_id, "Start": start, "End": end},
+        )
 
     async def get_events_by_group(self, group_id: int, start: str, end: str) -> list[dict]:
         """Fetch events by group ID."""
-        params: dict[str, Any] = {
-            "method": "calendar.geteventsbygroupid",
-            "groupId": group_id,
-            "start": start,
-            "end": end,
-        }
-
-        resp = await self._request_with_version_retry("get", self.api_url, params=params)
-        resp.raise_for_status()
-
-        return _response_data_list(resp)
+        return await self._aula_list(
+            "calendar.geteventsbygroupid",
+            params={"groupId": group_id, "start": start, "end": end},
+        )
 
     async def get_groups(
         self,
@@ -1842,7 +1709,7 @@ class AulaApiClient:
         Raises:
             ValueError: If neither filter is supplied.
         """
-        params: dict[str, Any] = {"method": "groups.getGroupsByContext"}
+        params: dict[str, Any] = {}
         if child_institution_profile_ids:
             params["childInstitutionProfileIds[]"] = child_institution_profile_ids
         elif institution_codes:
@@ -1852,8 +1719,7 @@ class AulaApiClient:
                 "get_groups requires either institution_codes or child_institution_profile_ids"
             )
 
-        resp = await self._request_with_version_retry("get", self.api_url, params=params)
-        resp.raise_for_status()
+        resp = await self._aula_call("groups.getGroupsByContext", params=params)
 
         data = _response_body(resp).get("data")
         contexts = [data] if isinstance(data, dict) else _as_list(data, "data", resp.status_code)
@@ -1878,14 +1744,7 @@ class AulaApiClient:
 
     async def get_group(self, group_id: int) -> Group | None:
         """Fetch a single group by ID."""
-        params: dict[str, Any] = {
-            "method": "groups.getGroupById",
-            "groupId": group_id,
-        }
-
-        resp = await self._request_with_version_retry("get", self.api_url, params=params)
-        resp.raise_for_status()
-
+        resp = await self._aula_call("groups.getGroupById", params={"groupId": group_id})
         data = _response_data_object(resp)
         if not data:
             return None
@@ -1897,16 +1756,11 @@ class AulaApiClient:
         portal_roles: list[str] | None = None,
     ) -> list[GroupMember]:
         """Fetch members of a group."""
-        params: dict[str, Any] = {
-            "method": "groups.getMembershipsLight",
-            "groupId": group_id,
-        }
+        params: dict[str, Any] = {"groupId": group_id}
         if portal_roles:
             params["portalRoles[]"] = portal_roles
 
-        resp = await self._request_with_version_retry("get", self.api_url, params=params)
-        resp.raise_for_status()
-
+        resp = await self._aula_call("groups.getMembershipsLight", params=params)
         raw_members = _response_data_list(resp)
 
         members: list[GroupMember] = []
@@ -1930,7 +1784,6 @@ class AulaApiClient:
     ) -> list[Post]:
         """Fetch posts from Aula."""
         params = {
-            "method": "posts.getAllPosts",
             "parent": "profile",
             "index": (page - 1) * limit,
             "limit": limit,
@@ -1939,10 +1792,7 @@ class AulaApiClient:
 
         _LOGGER.debug("Fetching posts with params: %s", params)
 
-        resp = await self._request_with_version_retry("get", self.api_url, params=params)
-
-        resp.raise_for_status()
-
+        resp = await self._aula_call("posts.getAllPosts", params=params)
         posts_data = _as_list(
             _response_data_object(resp).get("posts"), "data.posts", resp.status_code
         )
@@ -1965,16 +1815,9 @@ class AulaApiClient:
 
     async def get_post(self, post_id: int) -> Post | None:
         """Fetch a single post by ID."""
-        params = {
-            "method": "posts.getById",
-            "id": post_id,
-        }
-
         _LOGGER.debug("Fetching post %s", post_id)
 
-        resp = await self._request_with_version_retry("get", self.api_url, params=params)
-        resp.raise_for_status()
-
+        resp = await self._aula_call("posts.getById", params={"id": post_id})
         data = _response_data_object(resp)
         if not data:
             return None
@@ -1988,30 +1831,14 @@ class AulaApiClient:
         limit: int = 100,
     ) -> list[Comment]:
         """Fetch comments for a given parent (e.g. post)."""
-        params = {
-            "method": "comments.getComments",
-            "ParentType": parent_type,
-            "ParentId": parent_id,
-            "Limit": limit,
-        }
-
         _LOGGER.debug("Fetching comments for %s %s", parent_type, parent_id)
 
-        resp = await self._request_with_version_retry("get", self.api_url, params=params)
-        resp.raise_for_status()
-
-        comments_data = _response_data_list(resp)
-        comments = []
-        skipped = _SkippedRecords("comment")
-
-        for item in skipped.objects(comments_data):
-            try:
-                comments.append(Comment.from_dict(item))
-            except _RECORD_ERRORS as e:
-                skipped.add(e, item)
-
-        skipped.raise_if_none_parsed(comments, resp.status_code)
-        return comments
+        return await self._aula_records(
+            "comments.getComments",
+            Comment.from_dict,
+            "comment",
+            params={"ParentType": parent_type, "ParentId": parent_id, "Limit": limit},
+        )
 
     async def get_mu_tasks(
         self,
@@ -2159,7 +1986,6 @@ class AulaApiClient:
             filter_by: Filter mode — "all", "tagged", or "own".
         """
         params = {
-            "method": "gallery.getAlbums",
             "index": index,
             "limit": limit,
             "sortOn": sort_on,
@@ -2168,8 +1994,7 @@ class AulaApiClient:
             "filterInstProfileIds[]": institution_profile_ids,
         }
 
-        resp = await self._request_with_version_retry("get", self.api_url, params=params)
-        resp.raise_for_status()
+        resp = await self._aula_call("gallery.getAlbums", params=params)
         data = _response_body(resp).get("data")
         if isinstance(data, dict):
             return _as_list(data.get("albums"), "data.albums", resp.status_code)
@@ -2180,7 +2005,6 @@ class AulaApiClient:
     ) -> list[dict]:
         """Fetch pictures for a specific album as raw dicts."""
         params = {
-            "method": "gallery.getMedia",
             "albumId": album_id,
             "index": 0,
             "limit": limit,
@@ -2190,8 +2014,7 @@ class AulaApiClient:
             "filterInstProfileIds[]": institution_profile_ids,
         }
 
-        resp = await self._request_with_version_retry("get", self.api_url, params=params)
-        resp.raise_for_status()
+        resp = await self._aula_call("gallery.getMedia", params=params)
         data = _response_body(resp).get("data")
         if isinstance(data, dict):
             return _as_list(data.get("results"), "data.results", resp.status_code)
@@ -2264,12 +2087,7 @@ class AulaApiClient:
                 "hasAttachments": has_attachments,
             }
 
-            resp = await self._request_with_version_retry(
-                "post",
-                f"{self.api_url}?method=search.findMessage",
-                json=payload,
-            )
-            resp.raise_for_status()
+            resp = await self._aula_call("search.findMessage", http="post", json=payload)
             data = _response_data_object(resp)
             state.observe_total(data)
             rows = _as_list(data.get("results"), "data.results", resp.status_code)
@@ -2284,14 +2102,9 @@ class AulaApiClient:
                 reason = "exhausted"
                 break
         result = state.result(reason)
-        messages: list[Message] = []
-        skipped = _SkippedRecords("search hit")
-        for row in skipped.objects(result.items):
-            try:
-                messages.append(Message.from_search_hit(row))
-            except _RECORD_ERRORS as e:
-                skipped.add(e, row)
-        skipped.raise_if_none_parsed(messages, resp.status_code)
+        messages = _parse_records(
+            result.items, Message.from_search_hit, "search hit", resp.status_code
+        )
         return PaginationResult(messages, result.complete, result.termination_reason)
 
     @staticmethod
@@ -2314,11 +2127,10 @@ class AulaApiClient:
         """Read threads until a date cutoff, with explicit completeness metadata."""
         state = PaginationState()
         for page in range(MAX_PAGES):
-            resp = await self._request_with_version_retry(
-                "get",
-                f"{self.api_url}?method=messaging.getThreads&sortOn=date&orderDirection=desc&page={page}",
+            resp = await self._aula_call(
+                "messaging.getThreads",
+                params={"sortOn": "date", "orderDirection": "desc", "page": page},
             )
-            resp.raise_for_status()
             data = _response_data_object(resp)
             state.observe_total(data)
             threads = _as_list(data.get("threads"), "data.threads", resp.status_code)
@@ -2349,11 +2161,9 @@ class AulaApiClient:
         """Read a thread's full history with explicit completeness metadata."""
         state = PaginationState()
         for page in range(MAX_PAGES):
-            resp = await self._request_with_version_retry(
-                "get",
-                f"{self.api_url}?method=messaging.getMessagesForThread&threadId={thread_id}&page={page}",
+            resp = await self._aula_call(
+                "messaging.getMessagesForThread", params={"threadId": thread_id, "page": page}
             )
-            resp.raise_for_status()
             data = _response_data_object(resp)
             state.observe_total(data)
             messages = _as_list(data.get("messages"), "data.messages", resp.status_code)
@@ -2376,11 +2186,7 @@ class AulaApiClient:
         Returns the raw JWT, with no ``Bearer `` prefix: each provider puts it
         in its own header. Raises ``AulaResponseError`` when the answer holds no token.
         """
-        resp = await self._request_with_version_retry(
-            "get",
-            f"{self.api_url}?method=aulaToken.getAulaToken&widgetId={widget_id}",
-        )
-        resp.raise_for_status()
+        resp = await self._aula_call("aulaToken.getAulaToken", params={"widgetId": widget_id})
         token = _response_body(resp).get("data")
         if not isinstance(token, str) or not token:
             raise AulaResponseError("Aula answered without a widget token", resp.status_code)
@@ -2399,12 +2205,9 @@ class AulaApiClient:
 
     async def get_message_folders(self, include_deleted: bool = False) -> list[MessageFolder]:
         """Fetch message folders."""
-        params: dict[str, Any] = {
-            "method": "messaging.getFolders",
-            "IncludeDeletedFolders": include_deleted,
-        }
-        resp = await self._request_with_version_retry("get", self.api_url, params=params)
-        resp.raise_for_status()
+        resp = await self._aula_call(
+            "messaging.getFolders", params={"IncludeDeletedFolders": include_deleted}
+        )
         raw = _response_data_list(resp)
         folders: list[MessageFolder] = []
         skipped = _SkippedRecords("message folder")
@@ -2423,44 +2226,29 @@ class AulaApiClient:
         self, institution_profile_ids: list[int] | None = None
     ) -> list[dict]:
         """Fetch common inboxes."""
-        params: dict[str, Any] = {
-            "method": "messaging.getCommonInboxes",
-        }
+        params: dict[str, Any] = {}
         if institution_profile_ids:
             params["InstitutionProfileIds[]"] = institution_profile_ids
-        resp = await self._request_with_version_retry("get", self.api_url, params=params)
-        resp.raise_for_status()
-        return _response_data_list(resp)
+        return await self._aula_list("messaging.getCommonInboxes", params=params)
 
     async def get_threads_in_bundle(self, bundle_id: int) -> list[MessageThread]:
         """Fetch threads in a bundle."""
-        params: dict[str, Any] = {
-            "method": "messaging.getThreadsInBundle",
-            "BundleId": bundle_id,
-        }
-        resp = await self._request_with_version_retry("get", self.api_url, params=params)
-        resp.raise_for_status()
-        raw = _response_data_list(resp)
-        threads: list[MessageThread] = []
-        skipped = _SkippedRecords("bundle thread")
-        for item in skipped.objects(raw):
-            try:
-                threads.append(MessageThread.from_dict(item))
-            except _RECORD_ERRORS as e:
-                skipped.add(e, item)
-        skipped.raise_if_none_parsed(threads, resp.status_code)
-        return threads
+        return await self._aula_records(
+            "messaging.getThreadsInBundle",
+            MessageThread.from_dict,
+            "bundle thread",
+            params={"BundleId": bundle_id},
+        )
 
     async def get_message_info(self, thread_id: str, message_id: str) -> dict | None:
         """Fetch lightweight message info."""
-        params: dict[str, Any] = {
-            "method": "messaging.getMessageInfoLight",
-            "ThreadId": thread_id,
-            "MessageId": message_id,
-        }
-        resp = await self._request_with_version_retry("get", self.api_url, params=params)
-        resp.raise_for_status()
-        return _response_data_object(resp) or None
+        return (
+            await self._aula_data(
+                "messaging.getMessageInfoLight",
+                params={"ThreadId": thread_id, "MessageId": message_id},
+            )
+            or None
+        )
 
     async def find_recipients(
         self,
@@ -2471,7 +2259,6 @@ class AulaApiClient:
     ) -> list[dict]:
         """Find message recipients."""
         params: dict[str, Any] = {
-            "method": "search.findRecipients",
             "Text": text,
             "Limit": limit,
             "TypeAhead": "true",
@@ -2480,30 +2267,23 @@ class AulaApiClient:
             params["DocTypes"] = doc_types
         if portal_roles:
             params["PortalRoles"] = portal_roles
-        resp = await self._request_with_version_retry("get", self.api_url, params=params)
-        resp.raise_for_status()
+        resp = await self._aula_call("search.findRecipients", params=params)
         return _as_list(
             _response_data_object(resp).get("results"), "data.results", resp.status_code
         )
 
     async def find_profiles_and_groups(self, text: str, limit: int = 100) -> dict:
         """Find profiles and groups."""
-        params: dict[str, Any] = {
-            "method": "search.findProfilesAndGroups",
-            "Text": text,
-            "Limit": limit,
-            "Typeahead": "true",
-        }
-        resp = await self._request_with_version_retry("get", self.api_url, params=params)
-        resp.raise_for_status()
-        return _response_data_object(resp)
+        return await self._aula_data(
+            "search.findProfilesAndGroups",
+            params={"Text": text, "Limit": limit, "Typeahead": "true"},
+        )
 
     async def search(
         self, text: str, doc_type: str | None = None, limit: int = 20, offset: int = 0
     ) -> dict:
         """Global search."""
         params: dict[str, Any] = {
-            "method": "search.findGeneric",
             "Text": text,
             "Limit": limit,
             "Offset": offset,
@@ -2511,9 +2291,7 @@ class AulaApiClient:
         }
         if doc_type:
             params["DocType"] = doc_type
-        resp = await self._request_with_version_retry("get", self.api_url, params=params)
-        resp.raise_for_status()
-        return _response_data_object(resp)
+        return await self._aula_data("search.findGeneric", params=params)
 
     async def get_contact_list(
         self,
@@ -2540,17 +2318,16 @@ class AulaApiClient:
                 parents-only group yields nothing for ``child``.
             field: Field to sort by (``name``).
         """
-        params: dict[str, Any] = {
-            "method": "profiles.getContactlist",
-            "groupId": group_id,
-            "filter": profile_type,
-            "field": field,
-            "page": page,
-            "order": order,
-        }
-        resp = await self._request_with_version_retry("get", self.api_url, params=params)
-        resp.raise_for_status()
-        return _response_data_list(resp)
+        return await self._aula_list(
+            "profiles.getContactlist",
+            params={
+                "groupId": group_id,
+                "filter": profile_type,
+                "field": field,
+                "page": page,
+                "order": order,
+            },
+        )
 
     async def get_contact_parents(self, page: int = 1, order: str = "asc") -> list[dict]:
         """Fetch other parents.
@@ -2562,45 +2339,27 @@ class AulaApiClient:
             page: 1-based page number.
             order: ``asc`` or ``desc``.
         """
-        params: dict[str, Any] = {
-            "method": "profiles.getContactParents",
-            "page": page,
-            "order": order,
-        }
-        resp = await self._request_with_version_retry("get", self.api_url, params=params)
-        resp.raise_for_status()
-        return _response_data_list(resp)
+        return await self._aula_list(
+            "profiles.getContactParents", params={"page": page, "order": order}
+        )
 
     async def get_media_by_id(self, media_id: int) -> dict | None:
         """Fetch a single media item by ID."""
-        params: dict[str, Any] = {
-            "method": "gallery.getMediaById",
-            "id": media_id,
-        }
-        resp = await self._request_with_version_retry("get", self.api_url, params=params)
-        resp.raise_for_status()
-        return _response_data_object(resp) or None
+        return await self._aula_data("gallery.getMediaById", params={"id": media_id}) or None
 
     async def get_media_by_profile(
         self, institution_profile_id: int, limit: int = 100
     ) -> list[dict]:
         """Fetch media tagged with a profile."""
-        params: dict[str, Any] = {
-            "method": "gallery.getMediaByInstitutionProfileId",
-            "institutionProfileId": institution_profile_id,
-            "Limit": limit,
-        }
-        resp = await self._request_with_version_retry("get", self.api_url, params=params)
-        resp.raise_for_status()
-        return _response_data_list(resp)
+        return await self._aula_list(
+            "gallery.getMediaByInstitutionProfileId",
+            params={"institutionProfileId": institution_profile_id, "Limit": limit},
+        )
 
     async def keep_alive(self) -> bool:
         """Extend the backend session to prevent timeouts."""
         try:
-            resp = await self._request_with_version_retry(
-                "get", f"{self.api_url}?method=profiles.keepAlive"
-            )
-            resp.raise_for_status()
+            await self._aula_call("profiles.keepAlive")
             return True
         except Exception as e:
             _LOGGER.warning("Keep-alive failed: %s", e)
@@ -2610,13 +2369,10 @@ class AulaApiClient:
         self, institution_profile_id: int
     ) -> ProfileMasterData | None:
         """Fetch extended profile master data (email, phone, address)."""
-        params: dict[str, Any] = {
-            "method": "profiles.getProfileMasterData",
-            "institutionProfileId": institution_profile_id,
-        }
-        resp = await self._request_with_version_retry("get", self.api_url, params=params)
-        resp.raise_for_status()
-        data = _response_data_object(resp)
+        data = await self._aula_data(
+            "profiles.getProfileMasterData",
+            params={"institutionProfileId": institution_profile_id},
+        )
         if not data:
             return None
         try:
@@ -2629,31 +2385,16 @@ class AulaApiClient:
         self, institution_profile_ids: list[int]
     ) -> list[ConsentResponse]:
         """Fetch consent responses for the given institution profile IDs."""
-        params: dict[str, Any] = {
-            "method": "consents.getConsentResponses",
-            "institutionProfileIds[]": institution_profile_ids,
-        }
-        resp = await self._request_with_version_retry("get", self.api_url, params=params)
-        resp.raise_for_status()
-        data = _response_data_list(resp)
-        result: list[ConsentResponse] = []
-        skipped = _SkippedRecords("consent response")
-        for item in skipped.objects(data):
-            try:
-                result.append(ConsentResponse.from_dict(item))
-            except _RECORD_ERRORS as e:
-                skipped.add(e, item)
-        skipped.raise_if_none_parsed(result, resp.status_code)
-        return result
+        return await self._aula_records(
+            "consents.getConsentResponses",
+            ConsentResponse.from_dict,
+            "consent response",
+            params={"institutionProfileIds[]": institution_profile_ids},
+        )
 
     async def get_auto_reply(self) -> AutoReply | None:
         """Fetch the current auto-reply configuration."""
-        params: dict[str, Any] = {
-            "method": "messaging.getAutoReply",
-        }
-        resp = await self._request_with_version_retry("get", self.api_url, params=params)
-        resp.raise_for_status()
-        data = _response_data_object(resp)
+        data = await self._aula_data("messaging.getAutoReply")
         if not data:
             return None
         try:
@@ -2664,25 +2405,13 @@ class AulaApiClient:
 
     async def search_groups(self, text: str, limit: int = 100) -> list[Group]:
         """Search for groups by name."""
-        params: dict[str, Any] = {
-            "method": "search.findGroups",
-            "text": text,
-            "limit": limit,
-        }
-        resp = await self._request_with_version_retry("get", self.api_url, params=params)
-        resp.raise_for_status()
-        results = _as_list(
-            _response_data_object(resp).get("results"), "data.results", resp.status_code
+        return await self._aula_records(
+            "search.findGroups",
+            Group.from_dict,
+            "group search result",
+            key="results",
+            params={"text": text, "limit": limit},
         )
-        groups: list[Group] = []
-        skipped = _SkippedRecords("group search result")
-        for item in skipped.objects(results):
-            try:
-                groups.append(Group.from_dict(item))
-            except _RECORD_ERRORS as e:
-                skipped.add(e, item)
-        skipped.raise_if_none_parsed(groups, resp.status_code)
-        return groups
 
     async def get_secure_documents(
         self, institution_profile_ids: list[int], page_size: int = 20
@@ -2696,16 +2425,15 @@ class AulaApiClient:
         skipped = _SkippedRecords("secure document")
         seen = 0
         while True:
-            resp = await self._request_with_version_retry(
-                "post",
-                f"{self.api_url}?method=documents.getSecureDocuments",
+            resp = await self._aula_call(
+                "documents.getSecureDocuments",
+                http="post",
                 json={
                     "index": seen,
                     "limit": page_size,
                     "filterInstitutionProfileIds": institution_profile_ids,
                 },
             )
-            resp.raise_for_status()
             data = _response_data_object(resp)
             batch = _as_list(data.get("documents"), "data.documents", resp.status_code)
             if not batch:
@@ -2737,14 +2465,10 @@ class AulaApiClient:
         skipped = _SkippedRecords("common file")
         seen = 0
         while True:
-            params: dict[str, Any] = {
-                "method": "commonFiles.getCommonFiles",
-                "index": seen,
-                "limit": page_size,
-                "institutionCodes[]": institution_codes,
-            }
-            resp = await self._request_with_version_retry("get", self.api_url, params=params)
-            resp.raise_for_status()
+            resp = await self._aula_call(
+                "commonFiles.getCommonFiles",
+                params={"index": seen, "limit": page_size, "institutionCodes[]": institution_codes},
+            )
             data = _response_data_object(resp)
             batch = _as_list(data.get("commonFiles"), "data.commonFiles", resp.status_code)
             total = data.get("totalAmount")
@@ -2774,12 +2498,9 @@ class AulaApiClient:
         Aula groups the response by child; the rows are flattened into a single
         list with the child carried on each registration.
         """
-        params: dict[str, Any] = {
-            "method": "presence.getVacationRegistrationsByChildren",
-            "childIds[]": child_ids,
-        }
-        resp = await self._request_with_version_retry("get", self.api_url, params=params)
-        resp.raise_for_status()
+        resp = await self._aula_call(
+            "presence.getVacationRegistrationsByChildren", params={"childIds[]": child_ids}
+        )
         data = _response_data_list(resp)
         result: list[VacationRegistration] = []
         skipped = _SkippedRecords("vacation registration")
@@ -2801,21 +2522,11 @@ class AulaApiClient:
 
     async def get_notification_settings(self) -> list[NotificationSetting]:
         """Fetch notification settings for the active profile."""
-        params: dict[str, Any] = {
-            "method": "notifications.getNotificationSettingsForActiveProfile",
-        }
-        resp = await self._request_with_version_retry("get", self.api_url, params=params)
-        resp.raise_for_status()
-        data = _response_data_list(resp)
-        result: list[NotificationSetting] = []
-        skipped = _SkippedRecords("notification setting")
-        for item in skipped.objects(data):
-            try:
-                result.append(NotificationSetting.from_dict(item))
-            except _RECORD_ERRORS as e:
-                skipped.add(e, item)
-        skipped.raise_if_none_parsed(result, resp.status_code)
-        return result
+        return await self._aula_records(
+            "notifications.getNotificationSettingsForActiveProfile",
+            NotificationSetting.from_dict,
+            "notification setting",
+        )
 
     async def __aenter__(self) -> Self:
         return self
