@@ -15,6 +15,7 @@ from ..const import (
     WIDGET_HUSKELISTEN,
     WIDGET_MEEBOOK,
 )
+from ..http import HttpRequestError
 from ..models import (
     MUTask,
     Profile,
@@ -38,6 +39,7 @@ from ..utils.week import weekday_index
 from ..widgets import EasyIQChildNotInPortal, WidgetContext, easyiq_child_user_ids
 from ._app import _get_client, async_cmd, cli
 from ._helpers import (
+    EASYIQ_ERRORS,
     _child_institution_filter,
     _docendo_plan_lines,
     _docendo_plans_for_child,
@@ -69,7 +71,7 @@ async def widgets(ctx):
     async with await _get_client(ctx) as client:
         try:
             widget_list = await client.get_widgets()
-        except Exception as e:
+        except HttpRequestError as e:
             print_error(f"fetching widgets: {e}")
             return
 
@@ -189,7 +191,7 @@ async def mu_opgaver(ctx, week):
 
         try:
             prof: Profile = await client.get_profile()
-        except Exception as e:
+        except (HttpRequestError, ValueError) as e:
             print_error(f"fetching profile: {e}")
             return
 
@@ -210,7 +212,7 @@ async def mu_opgaver(ctx, week):
                 week,
                 session_uuid,
             )
-        except Exception as e:
+        except HttpRequestError as e:
             print_error(f"fetching tasks: {e}")
             return
 
@@ -247,7 +249,7 @@ async def mu_ugeplan(ctx, week):
 
         try:
             prof: Profile = await client.get_profile()
-        except Exception as e:
+        except (HttpRequestError, ValueError) as e:
             print_error(f"fetching profile: {e}")
             return
 
@@ -270,7 +272,7 @@ async def mu_ugeplan(ctx, week):
                 week,
                 session_uuid,
             )
-        except Exception as e:
+        except HttpRequestError as e:
             print_error(f"fetching weekly plans: {e}")
             return
 
@@ -324,7 +326,7 @@ async def easyiq_ugeplan(ctx, week):
 
         try:
             prof: Profile = await client.get_profile()
-        except Exception as e:
+        except (HttpRequestError, ValueError) as e:
             print_error(f"fetching profile: {e}")
             return
 
@@ -337,7 +339,7 @@ async def easyiq_ugeplan(ctx, week):
             _, institution_filter, session_uuid = WidgetContext.from_children(
                 prof.children, profile_context
             )
-        except Exception as e:
+        except (HttpRequestError, ValueError) as e:
             print_error(f"preparing widget call: {e}", err=ctx.obj.get("OUTPUT_FORMAT") == "json")
             return
         all_child_user_ids = easyiq_child_user_ids(profile_context)
@@ -365,7 +367,7 @@ async def easyiq_ugeplan(ctx, week):
                 except EasyIQChildNotInPortal:
                     _echo_no_easyiq_identity(child.name, "weekly plan", err=True)
                     continue
-                except Exception as e:
+                except EASYIQ_ERRORS as e:
                     print_error(f"fetching EasyIQ weekplan for {child.name}: {e}", err=True)
                     continue
             echo(to_json(all_appointments))
@@ -393,7 +395,7 @@ async def easyiq_ugeplan(ctx, week):
             except EasyIQChildNotInPortal:
                 _echo_no_easyiq_identity(child.name, "weekly plan")
                 continue
-            except Exception as e:
+            except EASYIQ_ERRORS as e:
                 print_error(f"fetching EasyIQ weekplan for {child.name}: {e}")
                 continue
 
@@ -438,7 +440,7 @@ async def easyiq_homework(ctx, week):
 
         try:
             prof: Profile = await client.get_profile()
-        except Exception as e:
+        except (HttpRequestError, ValueError) as e:
             print_error(f"fetching profile: {e}")
             return
 
@@ -451,7 +453,7 @@ async def easyiq_homework(ctx, week):
             _, institution_filter, session_uuid = WidgetContext.from_children(
                 prof.children, profile_context
             )
-        except Exception as e:
+        except (HttpRequestError, ValueError) as e:
             print_error(f"preparing widget call: {e}", err=ctx.obj.get("OUTPUT_FORMAT") == "json")
             return
         all_child_user_ids = easyiq_child_user_ids(profile_context)
@@ -478,7 +480,7 @@ async def easyiq_homework(ctx, week):
                 except EasyIQChildNotInPortal:
                     _echo_no_easyiq_identity(child.name, "homework", err=True)
                     continue
-                except Exception as e:
+                except EASYIQ_ERRORS as e:
                     print_error(f"fetching EasyIQ homework for {child.name}: {e}", err=True)
                     continue
             echo(to_json(all_homework))
@@ -505,7 +507,7 @@ async def easyiq_homework(ctx, week):
             except EasyIQChildNotInPortal:
                 _echo_no_easyiq_identity(child.name, "homework")
                 continue
-            except Exception as e:
+            except EASYIQ_ERRORS as e:
                 print_error(f"fetching EasyIQ homework for {child.name}: {e}")
                 continue
 
@@ -550,7 +552,7 @@ async def meebook_ugeplan(ctx, week):
 
         try:
             prof: Profile = await client.get_profile()
-        except Exception as e:
+        except (HttpRequestError, ValueError) as e:
             print_error(f"fetching profile: {e}")
             return
 
@@ -567,7 +569,7 @@ async def meebook_ugeplan(ctx, week):
             students = await client.widgets.get_meebook_weekplan(
                 child_filter, institution_filter, week, session_uuid
             )
-        except Exception as e:
+        except HttpRequestError as e:
             print_error(f"fetching Meebook weekplan: {e}")
             return
 
@@ -624,13 +626,13 @@ async def docendo_ugeplan(ctx, week):
 
         try:
             prof: Profile = await client.get_profile()
-        except Exception as e:
+        except (HttpRequestError, ValueError) as e:
             print_error(f"fetching profile: {e}")
             return
 
         try:
             plans = await client.widgets.get_docendo_weekplan(week)
-        except Exception as e:
+        except HttpRequestError as e:
             print_error(f"fetching Docendo weekplan: {e}")
             return
 
@@ -672,7 +674,7 @@ async def momo_course(ctx):
 
         try:
             prof: Profile = await client.get_profile()
-        except Exception as e:
+        except (HttpRequestError, ValueError) as e:
             print_error(f"fetching profile: {e}")
             return
 
@@ -689,7 +691,7 @@ async def momo_course(ctx):
             users_with_courses = await client.widgets.get_momo_courses(
                 children, institutions, session_uuid
             )
-        except Exception as e:
+        except HttpRequestError as e:
             print_error(f"fetching MoMo courses: {e}")
             return
 
@@ -729,7 +731,7 @@ async def momo_reminders(ctx):
 
         try:
             prof: Profile = await client.get_profile()
-        except Exception as e:
+        except (HttpRequestError, ValueError) as e:
             print_error(f"fetching profile: {e}")
             return
 
@@ -750,7 +752,7 @@ async def momo_reminders(ctx):
             users = await client.widgets.get_momo_reminders(
                 children, institutions, session_uuid, from_date, due_no_later_than
             )
-        except Exception as e:
+        except HttpRequestError as e:
             print_error(f"fetching reminders: {e}")
             return
 
@@ -830,7 +832,7 @@ async def library_status(ctx):
 
         try:
             prof: Profile = await client.get_profile()
-        except Exception as e:
+        except (HttpRequestError, ValueError) as e:
             print_error(f"fetching profile: {e}")
             return
 
@@ -850,7 +852,7 @@ async def library_status(ctx):
                 institutions,
                 session_uuid,
             )
-        except Exception as e:
+        except HttpRequestError as e:
             print_error(f"fetching library status: {e}")
             return
 

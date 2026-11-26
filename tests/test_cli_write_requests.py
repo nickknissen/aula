@@ -82,6 +82,14 @@ class TestReportSick:
         assert request.method == "post"
         assert request.json == {"institutionProfileIds": [201, 202], "status": status}
 
+    def test_a_bug_is_not_reported_as_an_aula_error(self, client):
+        client.update_presence_status = AsyncMock(side_effect=KeyError("status"))
+
+        result = _invoke(report_sick, "-y")
+
+        assert isinstance(result.exception, KeyError)
+        assert "updating presence status" not in result.output
+
     def test_sends_only_the_chosen_child(self, http, client):
         http.route(f"{client.api_url}?method={self.METHOD}", OK)
 

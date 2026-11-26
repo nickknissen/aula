@@ -1,5 +1,7 @@
 import click
 
+from ..api_client import ThreadScanLimitError
+from ..http import HttpRequestError
 from ..models import (
     Message,
     MessageThread,
@@ -36,7 +38,7 @@ async def messages(ctx, limit, unread, search, folders):
         if folders:
             try:
                 folder_list = await client.get_message_folders()
-            except Exception as e:
+            except HttpRequestError as e:
                 print_error(f"fetching message folders: {e}")
                 return
 
@@ -55,7 +57,7 @@ async def messages(ctx, limit, unread, search, folders):
         if search:
             try:
                 prof: Profile = await client.get_profile()
-            except Exception as e:
+            except (HttpRequestError, ValueError) as e:
                 print_error(f"fetching profile: {e}")
                 return
 
@@ -71,7 +73,7 @@ async def messages(ctx, limit, unread, search, folders):
                     institution_codes=institution_codes,
                     limit=limit,
                 )
-            except Exception as e:
+            except (HttpRequestError, ValueError) as e:
                 print_error(f"searching messages: {e}")
                 return
 
@@ -125,7 +127,7 @@ async def messages(ctx, limit, unread, search, folders):
             filter_on = "unread" if unread else None
             threads: list[MessageThread] = await client.get_message_threads(filter_on=filter_on)
             threads = threads[:limit]
-        except Exception as e:
+        except HttpRequestError as e:
             print_error(f"fetching message threads: {e}")
             return
 
@@ -138,7 +140,7 @@ async def messages(ctx, limit, unread, search, folders):
                         thread.thread_id
                     )
                     t["messages"] = [dict(m) for m in messages_list]
-                except Exception:
+                except HttpRequestError:
                     t["messages"] = []
                 json_threads.append(t)
             echo(to_json(json_threads))
@@ -179,7 +181,7 @@ async def messages(ctx, limit, unread, search, folders):
                             include_title=False,
                         ):
                             echo(f"{line}")
-            except Exception as e:
+            except HttpRequestError as e:
                 print_error(str(e))
 
             if i < len(threads) - 1:
@@ -210,7 +212,7 @@ async def notifications(ctx, offset, limit, module):
                     institution_names[code] = child.institution_name
                 if code not in institution_codes:
                     institution_codes.append(code)
-        except Exception:
+        except HttpRequestError, ValueError:
             # Keep notifications usable even if profile lookup fails.
             institution_names = {}
 
@@ -222,7 +224,7 @@ async def notifications(ctx, offset, limit, module):
                 limit=limit,
                 module=module,
             )
-        except Exception as e:
+        except HttpRequestError as e:
             print_error(f"fetching notifications: {e}")
             return
 
@@ -247,7 +249,7 @@ async def notifications(ctx, offset, limit, module):
                     for a in albums
                     if isinstance(a.get("id"), int) and isinstance(a.get("title"), str)
                 }
-            except Exception:
+            except HttpRequestError:
                 pass
 
         heading = f"Notifications ({len(items)})"
@@ -285,7 +287,7 @@ async def auto_reply(ctx):
     async with await _get_client(ctx) as client:
         try:
             result = await client.get_auto_reply()
-        except Exception as e:
+        except HttpRequestError as e:
             print_error(f"fetching auto-reply: {e}")
             return
 
@@ -330,7 +332,7 @@ async def mark_read(ctx, thread_ids):
         for thread_id in thread_ids:
             try:
                 marked = await client.mark_thread_read(thread_id)
-            except Exception as e:
+            except (HttpRequestError, ValueError, ThreadScanLimitError) as e:
                 print_error(f"marking thread {thread_id} as read: {e}", err=is_json)
                 marked = False
             results.append({"thread_id": thread_id, "marked": marked})

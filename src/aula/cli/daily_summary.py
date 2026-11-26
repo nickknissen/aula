@@ -6,6 +6,7 @@ import click
 
 from ..api_client import AulaApiClient
 from ..const import MIN_UDDANNELSE_TASK_WIDGETS
+from ..http import HttpRequestError
 from ..models import (
     CalendarEvent,
     Child,
@@ -60,7 +61,7 @@ async def _day_templates(
 ) -> dict[int, DayTemplate]:
     try:
         templates = await client.get_presence_templates([c.id for c in children], day, day)
-    except Exception as e:
+    except HttpRequestError as e:
         templates = []
         _LOGGER.warning("Could not fetch presence templates: %s", e)
 
@@ -118,7 +119,7 @@ async def build_daily_summary(
         if is_today:
             try:
                 overview = await client.get_daily_overview(c.id)
-            except Exception as e:
+            except HttpRequestError as e:
                 _LOGGER.warning("Could not fetch daily overview for %s: %s", c.name, e)
         child_days.append(ChildDay(c, overview, templates.get(c.id)))
 
@@ -128,14 +129,14 @@ async def build_daily_summary(
             day.replace(hour=0, minute=0, second=0, microsecond=0),
             day.replace(hour=23, minute=59, second=59, microsecond=0),
         )
-    except Exception as e:
+    except HttpRequestError as e:
         events = []
         _LOGGER.warning("Could not fetch calendar events: %s", e)
 
     widget_error = None
     try:
         widget_ctx = WidgetContext.from_children(prof.children, await client.get_profile_context())
-    except Exception as e:
+    except (HttpRequestError, ValueError) as e:
         widget_ctx = None
         widget_error = str(e)
 
@@ -156,7 +157,7 @@ async def build_daily_summary(
                 f"{iso[0]}-W{iso[1]}",
                 session_uuid,
             )
-        except Exception as e:
+        except HttpRequestError as e:
             all_tasks = []
             _LOGGER.warning("Could not fetch tasks: %s", e)
 
@@ -279,7 +280,7 @@ async def daily_summary(ctx, child, target_date):
     async with await _get_client(ctx) as client:
         try:
             prof: Profile = await client.get_profile()
-        except Exception as e:
+        except (HttpRequestError, ValueError) as e:
             print_error(f"fetching profile: {e}")
             return
 

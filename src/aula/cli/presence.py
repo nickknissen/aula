@@ -5,6 +5,7 @@ from zoneinfo import ZoneInfo
 import click
 
 from ..api_client import AulaApiClient
+from ..http import HttpRequestError
 from ..models import (
     ActivityType,
     Child,
@@ -50,7 +51,7 @@ async def overview(ctx, child_id):
                 for child in prof.children:
                     child_ids.append(child.id)
                     child_names[child.id] = child.name
-            except Exception as e:
+            except (HttpRequestError, ValueError) as e:
                 print_error(f"fetching profile: {e}")
                 return
 
@@ -62,7 +63,7 @@ async def overview(ctx, child_id):
                     results.append(
                         dict(data) if data else {"child_id": c_id, "status": "unavailable"}
                     )
-                except Exception as e:
+                except HttpRequestError as e:
                     results.append({"child_id": c_id, "error": str(e)})
             echo(to_json(results))
             return
@@ -116,7 +117,7 @@ async def overview(ctx, child_id):
                 if i < len(child_ids) - 1:
                     echo()
 
-            except Exception as e:
+            except HttpRequestError as e:
                 print_error(f"fetching overview for child {c_id}: {e}")
 
 
@@ -241,7 +242,7 @@ async def _day_templates(
     """The planned day per child for ``target``; empty when Aula cannot say."""
     try:
         templates = await client.get_presence_templates([c.id for c in children], target, target)
-    except Exception:
+    except HttpRequestError:
         return {}
     by_child: dict[int, DayTemplate] = {}
     for tmpl in templates:
@@ -271,13 +272,13 @@ async def fetch_presence_now(
             ov = await client.get_daily_overview(c.id)
             if ov:
                 overviews[c.id] = ov
-        except Exception as e:
+        except HttpRequestError as e:
             _LOGGER.warning("Could not fetch daily overview for %s: %s", c.name, e)
 
     pickup_data: list[ChildPickupResponsibles] = []
     try:
         pickup_data = await client.get_pickup_responsibles([c.id for c in children])
-    except Exception as e:
+    except HttpRequestError as e:
         _LOGGER.warning("Could not fetch pickup responsibles: %s", e)
 
     return PresenceNow(
@@ -401,7 +402,7 @@ async def update_presence(
     async with await _get_client(ctx) as client:
         try:
             prof: Profile = await client.get_profile()
-        except Exception as e:
+        except (HttpRequestError, ValueError) as e:
             print_error(f"fetching profile: {e}")
             return
 
@@ -601,7 +602,7 @@ async def update_presence(
                 )
                 echo(f"  ✓ {c.name}")
                 success_count += 1
-            except Exception as e:
+            except HttpRequestError as e:
                 echo(f"  ✗ {c.name}: {e}")
 
         echo()
@@ -638,7 +639,7 @@ async def presence_templates(ctx, from_date, to_date):
     async with await _get_client(ctx) as client:
         try:
             prof: Profile = await client.get_profile()
-        except Exception as e:
+        except (HttpRequestError, ValueError) as e:
             print_error(f"fetching profile: {e}")
             return
 
@@ -652,7 +653,7 @@ async def presence_templates(ctx, from_date, to_date):
             templates = await client.get_presence_templates(
                 institution_profile_ids, from_date_d, to_date_d
             )
-        except Exception as e:
+        except HttpRequestError as e:
             print_error(f"fetching presence templates: {e}")
             return
 
@@ -750,7 +751,7 @@ async def presence(ctx, from_date, to_date, week, states):
     async with await _get_client(ctx) as client:
         try:
             prof: Profile = await client.get_profile()
-        except Exception as e:
+        except (HttpRequestError, ValueError) as e:
             print_error(f"fetching profile: {e}")
             return
 
@@ -773,7 +774,7 @@ async def presence(ctx, from_date, to_date, week, states):
                 overview = await client.get_activity_overview(
                     institution_profile_ids, week_int, year_int
                 )
-            except Exception as e:
+            except HttpRequestError as e:
                 print_error(f"fetching activity overview: {e}")
                 return
 
@@ -802,7 +803,7 @@ async def presence(ctx, from_date, to_date, week, states):
         if states:
             try:
                 state_list = await client.get_presence_states(institution_profile_ids)
-            except Exception as e:
+            except HttpRequestError as e:
                 print_error(f"fetching presence states: {e}")
                 return
 
@@ -832,7 +833,7 @@ async def presence(ctx, from_date, to_date, week, states):
             registrations = await client.get_presence_registrations(
                 institution_profile_ids, from_date_d, to_date_d
             )
-        except Exception as e:
+        except HttpRequestError as e:
             print_error(f"fetching presence registrations: {e}")
             echo(
                 "No institution on this account accepted the request. "

@@ -9,6 +9,7 @@ from click.testing import CliRunner
 from aula.cli._helpers import _WIDGET_ID_CACHE
 from aula.cli.weekly_summary import weekly_summary
 from aula.cli.widgets import mu_ugeplan
+from aula.http import HttpRequestError
 from aula.models import Child, Profile
 from aula.models.mu_weekly_letter import MUWeeklyPerson
 from tests.cli_support import patch_get_client
@@ -109,7 +110,7 @@ def test_no_mu_widget_skips_the_provider(client, command):
 
 @pytest.mark.parametrize("command", [mu_ugeplan, weekly_summary])
 def test_unreadable_widget_list_still_attempts_the_preferred_widget(client, command):
-    client.get_widgets.side_effect = RuntimeError("Widget lookup failed")
+    client.get_widgets.side_effect = HttpRequestError("Widget lookup failed", 500)
 
     result = _invoke(command, "text")
 

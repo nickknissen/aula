@@ -29,7 +29,11 @@ from aula.const import (
     WIDGET_MIN_UDDANNELSE_UGEPLAN,
 )
 from aula.http import AulaLoginRequiredError, AulaNotFoundError, AulaServerError, HttpResponse
-from aula.widgets import EasyIQChildNotInPortal, EasyIQWrongChildSession
+from aula.widgets import (
+    EasyIQChildNotInPortal,
+    EasyIQChildrenUnidentified,
+    EasyIQWrongChildSession,
+)
 from aula.widgets.client import _EasyIQContext
 from tests.fakes import FakeHttpClient
 
@@ -1691,7 +1695,9 @@ class TestEasyiqProtocolCorrectIdentifier:
         http.route(EASYIQ_CALENDAR_URL, sibling_lesson)
         http.route(EASYIQ_HOMEWORK_URL, sibling_lesson)
 
-        with pytest.raises(RuntimeError, match="portal did not identify the children"):
+        with pytest.raises(
+            EasyIQChildrenUnidentified, match="portal did not identify the children"
+        ):
             await getattr(client.widgets, reader)(
                 week="2026-W09",
                 institution_filter=["inst-1"],

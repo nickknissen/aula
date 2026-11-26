@@ -1,6 +1,7 @@
 import click
 
 from ..api_client import VACATION_COMMENT_MAX_LENGTH, AulaApiClient, validate_vacation
+from ..http import HttpRequestError
 from ..models import (
     Child,
     DailyOverview,
@@ -87,7 +88,7 @@ async def report_sick(ctx, child_ids, undo, present, yes):
     async with await _get_client(ctx) as client:
         try:
             prof: Profile = await client.get_profile()
-        except Exception as e:
+        except (HttpRequestError, ValueError) as e:
             print_error(f"fetching profile: {e}")
             return
 
@@ -109,7 +110,7 @@ async def report_sick(ctx, child_ids, undo, present, yes):
         blocked: dict[int, str] = {}
         try:
             configs = await client.get_presence_configuration([c.id for c in children])
-        except Exception as e:
+        except HttpRequestError as e:
             _LOGGER.warning("Could not fetch presence configuration: %s", e)
             configs = []
 
@@ -135,7 +136,7 @@ async def report_sick(ctx, child_ids, undo, present, yes):
                 overview = await client.get_daily_overview(c.id)
                 if overview:
                     current[c.id] = overview
-            except Exception as e:
+            except HttpRequestError as e:
                 _LOGGER.warning("Could not fetch daily overview for %s: %s", c.name, e)
 
         if not is_json:
@@ -161,7 +162,7 @@ async def report_sick(ctx, child_ids, undo, present, yes):
         target_ids = [c.id for c in targets]
         try:
             await client.update_presence_status(target_ids, new_status)
-        except Exception as e:
+        except HttpRequestError as e:
             print_error(f"updating presence status: {e}")
             return
 
@@ -204,7 +205,7 @@ async def _vacation_denials(client: AulaApiClient, children: list[Child]) -> dic
 
     try:
         configs = await client.get_presence_configuration([c.id for c in candidates])
-    except Exception as e:
+    except HttpRequestError as e:
         _LOGGER.warning("Could not fetch presence configuration, leaving it to Aula: %s", e)
         return denials
 
@@ -295,7 +296,7 @@ async def register_absence(ctx, child_ids, start_date, end_date, comment, yes):
     async with await _get_client(ctx) as client:
         try:
             prof: Profile = await client.get_profile()
-        except Exception as e:
+        except (HttpRequestError, ValueError) as e:
             print_error(f"fetching profile: {e}", err=is_json)
             ctx.exit(1)
 
@@ -347,7 +348,7 @@ async def register_absence(ctx, child_ids, start_date, end_date, comment, yes):
 
         try:
             await client.add_vacation([c.id for c in targets], start, end, comment)
-        except Exception as e:
+        except (HttpRequestError, ValueError) as e:
             print_error(f"registering absence: {e}", err=is_json)
             ctx.exit(1)
 

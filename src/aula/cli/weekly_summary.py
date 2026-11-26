@@ -16,6 +16,7 @@ from ..const import (
     WIDGET_EASYIQ_HOMEWORK,
     WIDGET_MEEBOOK,
 )
+from ..http import HttpRequestError
 from ..models import (
     Appointment,
     CalendarEvent,
@@ -39,6 +40,7 @@ from ..utils.output import (
 from ..widgets import EasyIQChildNotInPortal, WidgetContext, easyiq_child_user_ids
 from ._app import _get_client, async_cmd, cli
 from ._helpers import (
+    EASYIQ_ERRORS,
     UnreadThreads,
     _child_institution_filter,
     _children_named,
@@ -127,7 +129,7 @@ async def build_weekly_summary(
     week_start, week_end = week_bounds(week)
     try:
         events = await client.get_calendar_events([c.id for c in children], week_start, week_end)
-    except Exception as e:
+    except HttpRequestError as e:
         events = []
         _LOGGER.warning("Could not fetch calendar events: %s", e)
 
@@ -140,14 +142,14 @@ async def build_weekly_summary(
 
     try:
         widget_ctx = WidgetContext.from_children(prof.children, await client.get_profile_context())
-    except Exception as e:
+    except (HttpRequestError, ValueError) as e:
         summary.widget_error = str(e)
         return summary
     child_filter, institution_filter, session_uuid = widget_ctx
 
     try:
         all_child_user_ids = easyiq_child_user_ids(await client.get_profile_context())
-    except Exception as e:
+    except HttpRequestError as e:
         _LOGGER.warning("Could not read children for the EasyIQ child filter: %s", e)
         all_child_user_ids = []
 
@@ -162,7 +164,7 @@ async def build_weekly_summary(
             summary.mu_tasks = await client.widgets.get_mu_tasks(
                 widget_id, child_filter, institution_filter, week, session_uuid
             )
-        except Exception as e:
+        except HttpRequestError as e:
             summary.mu_tasks = []
             _LOGGER.warning("Could not fetch MU tasks: %s", e)
 
@@ -173,7 +175,7 @@ async def build_weekly_summary(
             summary.mu_ugeplan = await client.widgets.get_ugeplan(
                 widget_id, child_filter, institution_filter, week, session_uuid
             )
-        except Exception as e:
+        except HttpRequestError as e:
             summary.mu_ugeplan = []
             _LOGGER.warning("Could not fetch MU ugeplan: %s", e)
 
@@ -182,14 +184,14 @@ async def build_weekly_summary(
             summary.meebook = await client.widgets.get_meebook_weekplan(
                 child_filter, institution_filter, week, session_uuid
             )
-        except Exception as e:
+        except HttpRequestError as e:
             summary.meebook = []
             _LOGGER.warning("Could not fetch Meebook weekplan: %s", e)
 
     if WeeklySummaryProvider.DOCENDO in enabled and await _has_widget(client, WIDGET_DOCENDO):
         try:
             docendo_plans = await client.widgets.get_docendo_weekplan(week)
-        except Exception as e:
+        except HttpRequestError as e:
             docendo_plans = []
             _LOGGER.warning("Could not fetch Docendo weekplan: %s", e)
         only_child = len(prof.children) == 1
@@ -223,7 +225,7 @@ async def build_weekly_summary(
                 # normal does not belong in its output.
                 _LOGGER.info("EasyIQ has no identity for %s; no weekly plan", c.name)
                 continue
-            except Exception as e:
+            except EASYIQ_ERRORS as e:
                 _LOGGER.warning("Could not fetch EasyIQ weekplan for %s: %s", c.name, e)
                 continue
             if appointments:
@@ -249,7 +251,7 @@ async def build_weekly_summary(
             except EasyIQChildNotInPortal:
                 _LOGGER.info("EasyIQ has no identity for %s; no homework", c.name)
                 continue
-            except Exception as e:
+            except EASYIQ_ERRORS as e:
                 _LOGGER.warning("Could not fetch EasyIQ homework for %s: %s", c.name, e)
                 continue
             if homework:
@@ -436,7 +438,7 @@ async def weekly_summary(ctx, child, week, providers):
     async with await _get_client(ctx) as client:
         try:
             prof: Profile = await client.get_profile()
-        except Exception as e:
+        except (HttpRequestError, ValueError) as e:
             print_error(f"fetching profile: {e}")
             return
 

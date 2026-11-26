@@ -3,6 +3,7 @@ from collections.abc import Awaitable, Callable
 import click
 
 from ..api_client import AulaApiClient
+from ..http import HttpRequestError
 from ..models import (
     Group,
     Profile,
@@ -32,7 +33,7 @@ async def _fetch_groups(client: AulaApiClient) -> list[Group] | None:
     """
     try:
         prof: Profile = await client.get_profile()
-    except Exception as e:
+    except (HttpRequestError, ValueError) as e:
         print_error(f"fetching profile: {e}")
         return None
 
@@ -57,7 +58,7 @@ async def _fetch_groups(client: AulaApiClient) -> list[Group] | None:
             institution_codes=institution_codes,
             child_institution_profile_ids=child_institution_profile_ids,
         )
-    except Exception as e:
+    except HttpRequestError as e:
         print_error(f"fetching groups: {e}")
         return None
 
@@ -118,7 +119,7 @@ async def groups(ctx, group_id, members, search_text):
         if search_text:
             try:
                 result = await client.search_groups(search_text)
-            except Exception as e:
+            except HttpRequestError as e:
                 print_error(f"searching groups: {e}")
                 return
 
@@ -137,7 +138,7 @@ async def groups(ctx, group_id, members, search_text):
         if group_id and members:
             try:
                 result = await client.get_group_members(group_id)
-            except Exception as e:
+            except HttpRequestError as e:
                 print_error(f"fetching group members: {e}")
                 return
 
@@ -157,7 +158,7 @@ async def groups(ctx, group_id, members, search_text):
         if group_id:
             try:
                 group = await client.get_group(group_id)
-            except Exception as e:
+            except HttpRequestError as e:
                 print_error(f"fetching group: {e}")
                 return
 
@@ -224,7 +225,7 @@ async def posts(ctx, institution_profile_id, post_id, comments, limit, page):
         if post_id:
             try:
                 post = await client.get_post(post_id)
-            except Exception as e:
+            except HttpRequestError as e:
                 print_error(f"fetching post: {e}")
                 return
 
@@ -238,7 +239,7 @@ async def posts(ctx, institution_profile_id, post_id, comments, limit, page):
                 try:
                     comment_list = await client.get_comments("post", post_id)
                     post_data["comments"] = [dict(c) for c in comment_list]
-                except Exception as e:
+                except HttpRequestError as e:
                     print_error(f"fetching comments: {e}")
 
             if output_json(ctx, post_data):
@@ -270,7 +271,7 @@ async def posts(ctx, institution_profile_id, post_id, comments, limit, page):
             try:
                 prof = await client.get_profile()
                 institution_profile_ids = prof.institution_profile_ids
-            except Exception as e:
+            except (HttpRequestError, ValueError) as e:
                 print_error(f"fetching profile: {e}")
                 return
 
@@ -306,7 +307,7 @@ async def posts(ctx, institution_profile_id, post_id, comments, limit, page):
                 if i < len(posts_list) - 1:
                     echo()
 
-        except Exception as e:
+        except HttpRequestError as e:
             print_error(f"fetching posts: {e}")
             return
 
@@ -322,7 +323,7 @@ async def search(ctx, text, doc_type, limit):
     async with await _get_client(ctx) as client:
         try:
             result = await client.search(text, doc_type=doc_type, limit=limit)
-        except Exception as e:
+        except HttpRequestError as e:
             print_error(f"searching: {e}")
             return
 
@@ -376,7 +377,7 @@ async def contacts(ctx, group_id, parents, profile_type, page):
                 result = await _fetch_contact_pages(
                     lambda p: client.get_contact_parents(page=p), page
                 )
-            except Exception as e:
+            except HttpRequestError as e:
                 print_error(f"fetching parent contacts: {e}")
                 return
         elif group_id:
@@ -393,7 +394,7 @@ async def contacts(ctx, group_id, parents, profile_type, page):
                         lambda p: client.get_contact_list(group_id, page=p, profile_type="child")
                     )
                     result = scope_relations_to_children(result, group_children)
-            except Exception as e:
+            except HttpRequestError as e:
                 print_error(f"fetching contacts: {e}")
                 return
         else:
@@ -438,7 +439,7 @@ async def documents(ctx, common):
     async with await _get_client(ctx) as client:
         try:
             prof = await client.get_profile()
-        except Exception as e:
+        except (HttpRequestError, ValueError) as e:
             print_error(f"fetching profile: {e}")
             return
 
@@ -453,7 +454,7 @@ async def documents(ctx, common):
                 if isinstance(ip, dict) and "id" in ip
             ]
             result = await client.get_secure_documents(own_ids)
-        except Exception as e:
+        except HttpRequestError as e:
             print_error(f"fetching documents: {e}")
             return
 
@@ -487,7 +488,7 @@ def _institution_codes(prof: Profile) -> list[str]:
 async def _print_common_files(ctx: click.Context, client: AulaApiClient, prof: Profile) -> None:
     try:
         files = await client.get_common_files(_institution_codes(prof))
-    except Exception as e:
+    except HttpRequestError as e:
         print_error(f"fetching common files: {e}")
         return
 

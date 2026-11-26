@@ -4,6 +4,7 @@ from dataclasses import dataclass, field
 from zoneinfo import ZoneInfo
 
 from ..api_client import AulaApiClient
+from ..http import HttpRequestError
 from ..models import (
     CalendarEvent,
     Child,
@@ -21,9 +22,12 @@ from ..utils.output import (
     print_error,
 )
 from ..utils.week import DANISH_WEEKDAYS
-from ..widgets import WidgetContext
+from ..widgets import EasyIQChildrenUnidentified, EasyIQWrongChildSession, WidgetContext
 
 _LOGGER = credential_logger(__name__)
+
+#: What a read from EasyIQ raises when it fails, besides a child it does not know.
+EASYIQ_ERRORS = (HttpRequestError, EasyIQWrongChildSession, EasyIQChildrenUnidentified)
 
 
 def _resolve_week(week: str | None) -> str:
@@ -71,7 +75,7 @@ async def _available_widget_ids(client: AulaApiClient) -> set[str] | None:
         try:
             widgets = await client.get_widgets()
             _WIDGET_ID_CACHE[id(client)] = {w.widget_id for w in widgets}
-        except Exception as e:
+        except HttpRequestError as e:
             _LOGGER.warning("Could not read the widget list: %s", e)
             _WIDGET_ID_CACHE[id(client)] = None
 
@@ -126,7 +130,7 @@ async def _get_widget_context(
 ) -> WidgetContext | None:
     try:
         return WidgetContext.from_children(prof.children, await client.get_profile_context())
-    except Exception as e:
+    except (HttpRequestError, ValueError) as e:
         print_error(f"preparing widget call: {e}")
         return None
 
@@ -230,7 +234,7 @@ class UnreadThreads:
 async def _fetch_unread_threads(client: AulaApiClient, *, with_messages: bool) -> UnreadThreads:
     try:
         threads = await client.get_message_threads(filter_on="unread")
-    except Exception as e:
+    except HttpRequestError as e:
         threads = []
         _LOGGER.warning("Could not fetch unread messages: %s", e)
 
@@ -241,7 +245,7 @@ async def _fetch_unread_threads(client: AulaApiClient, *, with_messages: bool) -
                 unread.messages[thread.thread_id] = await client.get_messages_for_thread(
                     thread.thread_id
                 )
-            except Exception as e:
+            except HttpRequestError as e:
                 _LOGGER.warning("Could not fetch messages for thread %s: %s", thread.thread_id, e)
                 unread.messages[thread.thread_id] = None
     return unread

@@ -4,6 +4,7 @@ from zoneinfo import ZoneInfo
 
 import click
 
+from ..http import HttpRequestError
 from ..models import (
     Profile,
 )
@@ -47,7 +48,7 @@ async def calendar(ctx, institution_profile_id, event_id, start_date, end_date):
         if event_id:
             try:
                 event = await client.get_calendar_event(event_id)
-            except Exception as e:
+            except HttpRequestError as e:
                 print_error(f"fetching calendar event: {e}")
                 return
 
@@ -70,7 +71,7 @@ async def calendar(ctx, institution_profile_id, event_id, start_date, end_date):
             try:
                 prof = await client.get_profile()
                 institution_profile_ids = prof.institution_profile_ids
-            except Exception as e:
+            except (HttpRequestError, ValueError) as e:
                 print_error(f"fetching profile to get child IDs: {e}")
                 return
 
@@ -80,7 +81,7 @@ async def calendar(ctx, institution_profile_id, event_id, start_date, end_date):
 
         try:
             events = await client.get_calendar_events(institution_profile_ids, start_date, end_date)
-        except Exception as e:
+        except (HttpRequestError, ValueError) as e:
             print_error(f"fetching calendar events: {e}")
             return
 
@@ -114,7 +115,7 @@ async def important_dates(ctx, limit):
     async with await _get_client(ctx) as client:
         try:
             dates = await client.get_important_dates(limit=limit)
-        except Exception as e:
+        except HttpRequestError as e:
             print_error(f"fetching important dates: {e}")
             return
 
@@ -162,13 +163,13 @@ async def birthdays(ctx, group_id, start_date, end_date):
         if group_id:
             try:
                 result = await client.get_birthday_events_for_group(group_id, start, end)
-            except Exception as e:
+            except HttpRequestError as e:
                 print_error(f"fetching birthdays for group: {e}")
                 return
         else:
             try:
                 prof: Profile = await client.get_profile()
-            except Exception as e:
+            except (HttpRequestError, ValueError) as e:
                 print_error(f"fetching profile: {e}")
                 return
 
@@ -179,7 +180,7 @@ async def birthdays(ctx, group_id, start_date, end_date):
 
             try:
                 result = await client.get_birthday_events(institution_codes, start, end)
-            except Exception as e:
+            except HttpRequestError as e:
                 print_error(f"fetching birthdays: {e}")
                 return
 
@@ -205,7 +206,7 @@ async def vacations(ctx):
     async with await _get_client(ctx) as client:
         try:
             prof = await client.get_profile()
-        except Exception as e:
+        except (HttpRequestError, ValueError) as e:
             print_error(f"fetching profile: {e}")
             return
 
@@ -216,7 +217,7 @@ async def vacations(ctx):
 
         try:
             result = await client.get_vacation_registrations(child_ids)
-        except Exception as e:
+        except HttpRequestError as e:
             print_error(f"fetching vacations: {e}")
             return
 
@@ -288,7 +289,7 @@ async def meetings(ctx, child_id, start_date, end_date):
                 rows.extend({**dict(booking), "child_name": child.name} for booking in bookings)
         except click.BadParameter:
             raise
-        except Exception as exc:
+        except (HttpRequestError, ValueError) as exc:
             raise click.ClickException(f"fetching booked meetings: {exc}") from exc
 
     rows.sort(key=lambda row: row["start_datetime"])

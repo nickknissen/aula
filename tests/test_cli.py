@@ -49,7 +49,12 @@ from aula.const import (
     WIDGET_EASYIQ_LEGACY,
     WIDGET_EASYIQ_WEEKPLAN,
 )
-from aula.http import AulaRefreshTokenConflictError, AulaRejectedError, HttpResponse
+from aula.http import (
+    AulaRefreshTokenConflictError,
+    AulaRejectedError,
+    HttpRequestError,
+    HttpResponse,
+)
 from aula.models import (
     Child,
     CommonFile,
@@ -105,7 +110,7 @@ class TestWidgetAvailability:
     @pytest.mark.asyncio
     async def test_a_failed_lookup_does_not_block_the_command(self):
         """Incomplete information is no reason to refuse to try."""
-        client = self._client([], side_effect=RuntimeError("boom"))
+        client = self._client([], side_effect=HttpRequestError("boom", 500))
 
         assert await _has_widget(client, "0019") is True
 
@@ -121,7 +126,7 @@ class TestWidgetAvailability:
 
     @pytest.mark.asyncio
     async def test_a_failed_lookup_is_not_retried_per_provider(self):
-        client = self._client([], side_effect=RuntimeError("boom"))
+        client = self._client([], side_effect=HttpRequestError("boom", 500))
 
         for widget_id in ("0019", "0030", "0029"):
             await _has_widget(client, widget_id)
@@ -181,7 +186,7 @@ class TestWidgetPreference:
     @pytest.mark.asyncio
     async def test_an_unreadable_list_falls_back_to_the_preferred_widget(self):
         """Same rule as _has_widget: try the call rather than refuse."""
-        client = self._client([], side_effect=RuntimeError("boom"))
+        client = self._client([], side_effect=HttpRequestError("boom", 500))
 
         assert await _first_available_widget(client, MIN_UDDANNELSE_TASK_WIDGETS) == "0030"
 
@@ -250,7 +255,7 @@ class TestWidgetPreference:
 
     @pytest.mark.asyncio
     async def test_easyiq_unreadable_widget_list_optimistically_uses_the_preferred_id(self):
-        client = self._client([], side_effect=RuntimeError("boom"))
+        client = self._client([], side_effect=HttpRequestError("boom", 500))
 
         assert (
             await _first_available_widget(client, EASYIQ_WEEKPLAN_WIDGETS) == WIDGET_EASYIQ_WEEKPLAN
@@ -875,7 +880,9 @@ class TestReportSick:
 
     def test_unreadable_configuration_does_not_block_the_write(self, run, fake_client):
         """Not being able to check permission is not the same as being denied."""
-        fake_client.get_presence_configuration = AsyncMock(side_effect=RuntimeError("boom"))
+        fake_client.get_presence_configuration = AsyncMock(
+            side_effect=HttpRequestError("boom", 500)
+        )
 
         run("-y")
 
@@ -925,7 +932,7 @@ class TestReportSick:
         fake_client.update_presence_status.assert_not_awaited()
 
     def test_api_failure_is_reported(self, run, fake_client):
-        fake_client.update_presence_status = AsyncMock(side_effect=RuntimeError("403"))
+        fake_client.update_presence_status = AsyncMock(side_effect=HttpRequestError("403", 403))
 
         result = run("-y")
 
@@ -1154,7 +1161,9 @@ class TestRegisterAbsence:
 
     def test_unreadable_configuration_leaves_the_decision_to_aula(self, run, fake_client, caplog):
         """Not being able to check permission is not the same as being denied."""
-        fake_client.get_presence_configuration = AsyncMock(side_effect=RuntimeError("boom"))
+        fake_client.get_presence_configuration = AsyncMock(
+            side_effect=HttpRequestError("boom", 500)
+        )
 
         with caplog.at_level(logging.WARNING, logger="aula.cli.absence"):
             result = run(*self.DATES, "-y")
@@ -1243,7 +1252,7 @@ class TestRegisterAbsence:
         assert "✓" not in result.output
 
     def test_write_failure_in_json_mode_keeps_stdout_clean(self, run, fake_client):
-        fake_client.add_vacation = AsyncMock(side_effect=RuntimeError("HTTP 500"))
+        fake_client.add_vacation = AsyncMock(side_effect=HttpRequestError("HTTP 500", 500))
 
         result = run(*self.DATES, "-y", output_format="json")
 
@@ -1656,7 +1665,7 @@ class TestMarkRead:
         assert "✓ 2" in result.output
 
     def test_a_failing_thread_is_reported_and_the_rest_still_run(self, run, fake_client):
-        fake_client.mark_thread_read = AsyncMock(side_effect=[RuntimeError("boom"), True])
+        fake_client.mark_thread_read = AsyncMock(side_effect=[HttpRequestError("boom", 500), True])
 
         result = run("1", "2")
 
@@ -1674,7 +1683,7 @@ class TestMarkRead:
         assert "✗ 1" in result.output
 
     def test_json_output_stays_valid_when_a_thread_fails(self, run, fake_client):
-        fake_client.mark_thread_read = AsyncMock(side_effect=[RuntimeError("boom"), True])
+        fake_client.mark_thread_read = AsyncMock(side_effect=[HttpRequestError("boom", 500), True])
 
         result = run("1", "2", output_format="json")
 
@@ -1705,7 +1714,7 @@ class TestMarkRead:
         ]
 
     def test_json_output_when_every_thread_fails(self, run, fake_client):
-        fake_client.mark_thread_read = AsyncMock(side_effect=RuntimeError("boom"))
+        fake_client.mark_thread_read = AsyncMock(side_effect=HttpRequestError("boom", 500))
 
         result = run("1", "2", output_format="json")
 

@@ -1,5 +1,6 @@
 import click
 
+from ..http import HttpRequestError
 from ..models import (
     Profile,
 )
@@ -58,7 +59,7 @@ async def profile(ctx):
         except ValueError as e:
             print_error(f"fetching or parsing profile data: {e}")
             return
-        except Exception as e:
+        except HttpRequestError as e:
             print_error(f"unexpected failure: {e}")
             return
 
@@ -102,13 +103,13 @@ async def profile_details(ctx, institution_profile_id):
                 else:
                     print_error("no institution profile IDs found")
                     return
-            except Exception as e:
+            except (HttpRequestError, ValueError) as e:
                 print_error(f"fetching profile: {e}")
                 return
 
         try:
             master_data = await client.get_profile_master_data(institution_profile_id)
-        except Exception as e:
+        except HttpRequestError as e:
             print_error(f"fetching profile details: {e}")
             return
 
@@ -147,13 +148,13 @@ async def consents(ctx):
     async with await _get_client(ctx) as client:
         try:
             prof = await client.get_profile()
-        except Exception as e:
+        except (HttpRequestError, ValueError) as e:
             print_error(f"fetching profile: {e}")
             return
 
         try:
             result = await client.get_consent_responses(prof.institution_profile_ids)
-        except Exception as e:
+        except HttpRequestError as e:
             print_error(f"fetching consents: {e}")
             return
 
@@ -184,7 +185,7 @@ async def notification_settings(ctx):
     async with await _get_client(ctx) as client:
         try:
             result = await client.get_notification_settings()
-        except Exception as e:
+        except HttpRequestError as e:
             print_error(f"fetching notification settings: {e}")
             return
 
