@@ -6,8 +6,11 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 from click.testing import CliRunner
 
-from aula.cli import _WIDGET_ID_CACHE, docendo_ugeplan, weekly_summary
+from aula.cli._helpers import _WIDGET_ID_CACHE
+from aula.cli.weekly_summary import weekly_summary
+from aula.cli.widgets import docendo_ugeplan
 from aula.models import Child, DocendoWeekPlan, Profile
+from tests.cli_support import patch_get_client
 
 
 def _child(child_id, name, class_name):
@@ -65,7 +68,7 @@ def client(monkeypatch):
     )
     fake.__aenter__ = AsyncMock(return_value=fake)
     fake.__aexit__ = AsyncMock(return_value=False)
-    monkeypatch.setattr("aula.cli._get_client", AsyncMock(return_value=fake))
+    patch_get_client(monkeypatch, AsyncMock(return_value=fake))
     yield fake
     _WIDGET_ID_CACHE.clear()
 

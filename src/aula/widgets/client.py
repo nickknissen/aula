@@ -57,6 +57,13 @@ class EasyIQWrongChildSession(Exception):
     """
 
 
+class EasyIQChildrenUnidentified(RuntimeError):
+    """The portal did not say which children it knows, and there are several.
+
+    Without that list there is no safe way to tell which child a read returns.
+    """
+
+
 class EasyIQChildNotInPortal(Exception):
     """EasyIQ's portal has no identity for this child, so it has no plan.
 
@@ -598,7 +605,7 @@ class AulaWidgetsClient:
         if easyiq_child_id is None and self._easyiq_children_known:
             raise EasyIQChildNotInPortal(f"EasyIQ's portal lists no child matching {child_user_id}")
         if not self._easyiq_children_known and len(all_child_user_ids) > 1:
-            raise RuntimeError(
+            raise EasyIQChildrenUnidentified(
                 "EasyIQ's portal did not identify the children; "
                 "cannot safely read data for an account with multiple children"
             )

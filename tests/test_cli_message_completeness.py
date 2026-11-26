@@ -6,9 +6,11 @@ from unittest.mock import AsyncMock
 import pytest
 from click.testing import CliRunner
 
-from aula.cli import download_images, messages
+from aula.cli.downloads import download_images
+from aula.cli.messages import messages
 from aula.models import Profile
 from aula.models.pagination import PaginationResult
+from tests.cli_support import patch_get_client
 
 
 def client_for_cli(monkeypatch):
@@ -17,7 +19,7 @@ def client_for_cli(monkeypatch):
     client.get_profile.return_value = Profile(
         profile_id=1, display_name="Tester", children=[], institution_profile_ids=[1]
     )
-    monkeypatch.setattr("aula.cli._get_client", AsyncMock(return_value=client))
+    patch_get_client(monkeypatch, AsyncMock(return_value=client))
     return client
 
 

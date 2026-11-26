@@ -427,7 +427,7 @@ This creates a `SKILL.md` following the [Agent Skills](https://agentskills.io) o
 ```
 src/aula/
   api_client.py             # Async API client (main entry point)
-  cli.py                    # Click CLI commands
+  cli/                      # Click CLI commands, one module per command group
   auth_flow.py              # High-level auth orchestration
   config.py                 # CLI config (~/.config/aula/config.json)
   token_storage.py          # Token persistence (ABC + file impl)

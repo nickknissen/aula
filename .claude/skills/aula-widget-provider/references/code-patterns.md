@@ -134,7 +134,7 @@ Notes:
 - Not all endpoints need a `week` parameter (e.g. MoMo courses)
 - Param key names vary: `childFilter[]`/`institutionFilter[]` vs `children`/`institutions`
 
-## 5. cli.py - Click Command
+## 5. cli/widgets.py - Click Command
 
 All widget CLI commands share this boilerplate:
 

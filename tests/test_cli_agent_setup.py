@@ -1,7 +1,7 @@
 import pytest
 from click.testing import CliRunner
 
-from aula.cli import agent_setup
+from aula.cli.agent import agent_setup
 
 
 @pytest.fixture

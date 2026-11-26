@@ -10,10 +10,11 @@ import pytest
 from click.testing import CliRunner
 
 from aula.api_client import AulaApiClient
-from aula.cli import meetings
+from aula.cli.calendar import meetings
 from aula.http import AulaResponseError, HttpRequestError, HttpResponse
 from aula.models import CalendarEvent, Child, Profile
 from aula.models.meeting_booking import meeting_bookings, replace_booked_meetings
+from tests.cli_support import patch_get_client
 
 
 @pytest.fixture
@@ -325,7 +326,7 @@ def cli_client(monkeypatch, row):
     )
     fake.__aenter__ = AsyncMock(return_value=fake)
     fake.__aexit__ = AsyncMock(return_value=False)
-    monkeypatch.setattr("aula.cli._get_client", AsyncMock(return_value=fake))
+    patch_get_client(monkeypatch, AsyncMock(return_value=fake))
     return fake
 
 
