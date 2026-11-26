@@ -22,7 +22,21 @@ from aula.http import (
     HttpResponse,
 )
 from aula.http_httpx import HttpxHttpClient
-from tests.fakes import FakeHttpClient
+from tests.fakes import FakeHttpClient, http_status, ok, rejected
+
+PROFILES = "profiles.getProfilesByLogin"
+CONTEXT = "profiles.getProfileContext"
+DAILY_OVERVIEW = "presence.getDailyOverview"
+TEMPLATES = "presence.getPresenceTemplates"
+REGISTRATIONS = "presence.getPresenceRegistrations"
+REGISTRATION_DETAIL = "presence.getPresenceRegistrationDetail"
+STATES = "presence.getPresenceStates"
+CONFIGURATION = "presence.getPresenceConfigurationByChildIds"
+VACATIONS = "presence.getVacationRegistrationsByChildren"
+ACTIVITY = "presence.getActivityOverview"
+UPDATE_TEMPLATE = "presence.updatePresenceTemplate"
+UPDATE_STATUS = "presence.updateStatusByInstitutionProfileIds"
+ADD_VACATION = "calendar.addVacation"
 
 
 def search_hit(message):
@@ -43,113 +57,105 @@ class TestGetProfile:
     """Tests for AulaApiClient.get_profile method."""
 
     @pytest.fixture
-    def client(self):
-        http_client = AsyncMock()
-        c = AulaApiClient(http_client=http_client, access_token="test_token")
-        return c
+    def http(self):
+        http = FakeHttpClient()
+        http.aula(CONTEXT, ok({}))
+        return http
 
-    def _make_profile_response(self, profiles):
-        return HttpResponse(status_code=200, data={"data": {"profiles": profiles}})
+    @pytest.fixture
+    def client(self, http):
+        return AulaApiClient(http)
+
+    @staticmethod
+    def _answer_profiles(http, profiles):
+        http.aula(PROFILES, ok({"profiles": profiles}))
 
     @pytest.mark.asyncio
-    async def test_get_profile_happy_path(self, client):
+    async def test_get_profile_happy_path(self, client, http):
         """Valid profile response is parsed correctly."""
         profile_data = {
             "profileId": 123,
-            "displayName": "John Doe",
+            "displayName": "Værge Et",
             "children": [
                 {
                     "id": 456,
                     "profileId": 789,
-                    "name": "Jane Doe",
-                    "institutionProfiles": [{"id": 456, "institutionName": "School A"}],
+                    "name": "Barn Et",
+                    "institutionProfiles": [{"id": 456, "institutionName": "Skole Et"}],
                 }
             ],
             "institutionProfiles": [{"id": 100}],
         }
-        client._request_with_version_retry = AsyncMock(
-            return_value=self._make_profile_response([profile_data])
-        )
+        self._answer_profiles(http, [profile_data])
         profile = await client.get_profile()
         assert profile.profile_id == 123
-        assert profile.display_name == "John Doe"
+        assert profile.display_name == "Værge Et"
         assert len(profile.children) == 1
         assert profile.children[0].id == 456
+        assert len(http.calls(PROFILES)) == 1
 
     @pytest.mark.asyncio
-    async def test_get_profile_empty_profiles_raises(self, client):
+    async def test_get_profile_empty_profiles_raises(self, client, http):
         """Empty profiles list raises ValueError."""
-        client._request_with_version_retry = AsyncMock(return_value=self._make_profile_response([]))
+        self._answer_profiles(http, [])
         with pytest.raises(ValueError, match="No profile data found"):
             await client.get_profile()
 
     @pytest.mark.asyncio
     @pytest.mark.parametrize("profiles", [{"profileId": 900001}, ["profile"], "profile"])
     async def test_profiles_that_are_not_a_list_of_objects_are_an_aula_response_error(
-        self, client, profiles
+        self, client, http, profiles
     ):
-        client._request_with_version_retry = AsyncMock(
-            return_value=self._make_profile_response(profiles)
-        )
+        self._answer_profiles(http, profiles)
         with pytest.raises(AulaResponseError):
             await client.get_profile()
 
     @pytest.mark.asyncio
-    async def test_a_profile_that_does_not_parse_is_an_aula_response_error(self, client):
-        client._request_with_version_retry = AsyncMock(
-            return_value=self._make_profile_response([{"profileId": "not a number"}])
-        )
+    async def test_a_profile_that_does_not_parse_is_an_aula_response_error(self, client, http):
+        self._answer_profiles(http, [{"profileId": "not a number"}])
         with pytest.raises(AulaResponseError, match="main profile") as exc_info:
             await client.get_profile()
         assert isinstance(exc_info.value.__cause__, ValueError)
 
     @pytest.mark.asyncio
     async def test_institution_profiles_that_are_not_a_list_are_an_aula_response_error(
-        self, client
+        self, client, http
     ):
-        client._request_with_version_retry = AsyncMock(
-            return_value=self._make_profile_response(
-                [{"profileId": 900001, "institutionProfiles": "1000001"}]
-            )
-        )
+        self._answer_profiles(http, [{"profileId": 900001, "institutionProfiles": "1000001"}])
         with pytest.raises(AulaResponseError):
             await client.get_profile()
 
     @pytest.mark.asyncio
-    async def test_get_profile_no_children(self, client):
+    async def test_get_profile_no_children(self, client, http):
         """Profile with no children returns empty children list."""
         profile_data = {
             "profileId": 123,
-            "displayName": "John Doe",
+            "displayName": "Værge Et",
             "children": [],
             "institutionProfiles": [],
         }
-        client._request_with_version_retry = AsyncMock(
-            return_value=self._make_profile_response([profile_data])
-        )
+        self._answer_profiles(http, [profile_data])
         profile = await client.get_profile()
         assert profile.children == []
 
     @pytest.mark.asyncio
-    async def test_get_profile_malformed_child_skipped(self, client):
+    async def test_get_profile_malformed_child_skipped(self, client, http):
         """Malformed child entry is skipped with warning."""
         profile_data = {
             "profileId": 123,
-            "displayName": "John Doe",
+            "displayName": "Værge Et",
             "children": [
                 "not a dict",
                 {
                     "id": 456,
                     "profileId": 789,
-                    "name": "Jane Doe",
-                    "institutionProfiles": [{"id": 456, "institutionName": "School A"}],
+                    "name": "Barn Et",
+                    "institutionProfiles": [{"id": 456, "institutionName": "Skole Et"}],
                 },
             ],
             "institutionProfiles": [],
         }
-        client._request_with_version_retry = AsyncMock(
-            return_value=self._make_profile_response([profile_data])
-        )
+        self._answer_profiles(http, [profile_data])
         profile = await client.get_profile()
         assert len(profile.children) == 1
 
@@ -169,7 +175,7 @@ class TestGetProfile:
         }
 
     @pytest.mark.asyncio
-    async def test_get_profile_adds_extended_access_children(self, client):
+    async def test_get_profile_adds_extended_access_children(self, client, http):
         """Children only listed in getProfileContext are added after the own children."""
         own_in_context = {"id": 1, "profileId": 11, "name": "Barn Et", "institutionCode": "A1"}
         extended = {
@@ -179,14 +185,10 @@ class TestGetProfile:
             "userId": "barn2",
             "institutionCode": "B2",
         }
-        context = {
-            "data": {"institutions": [{"name": "Skole B", "children": [extended, own_in_context]}]}
-        }
-        client._request_with_version_retry = AsyncMock(
-            side_effect=[
-                self._make_profile_response([self._profile_with_own_child()]),
-                HttpResponse(status_code=200, data=context),
-            ]
+        self._answer_profiles(http, [self._profile_with_own_child()])
+        http.aula(
+            CONTEXT,
+            ok({"institutions": [{"name": "Skole B", "children": [extended, own_in_context]}]}),
         )
         profile = await client.get_profile()
         assert [c.id for c in profile.children] == [1, 2]
@@ -194,69 +196,50 @@ class TestGetProfile:
         assert profile.children[1].institution_code == "B2"
         assert profile.children[1].user_id == "barn2"
         assert profile.institution_profile_ids == [1, 2]
+        assert http.calls(CONTEXT)[0].query["portalrole"] == "guardian"
 
     @pytest.mark.asyncio
-    async def test_get_profile_context_failure_keeps_own_children(self, client):
-        client._request_with_version_retry = AsyncMock(
-            side_effect=[
-                self._make_profile_response([self._profile_with_own_child()]),
-                HttpResponse(status_code=500, data=None),
-            ]
-        )
+    async def test_get_profile_context_failure_keeps_own_children(self, client, http):
+        self._answer_profiles(http, [self._profile_with_own_child()])
+        http.aula(CONTEXT, http_status(500))
         profile = await client.get_profile()
         assert [c.id for c in profile.children] == [1]
 
     @pytest.mark.asyncio
-    async def test_unparsable_extended_access_child_keeps_own_children(self, client):
-        context = {"data": {"institutions": [{"name": "Skole Et", "children": [{"id": 2}]}]}}
-        client._request_with_version_retry = AsyncMock(
-            side_effect=[
-                self._make_profile_response([self._profile_with_own_child()]),
-                HttpResponse(status_code=200, data=context),
-            ]
-        )
+    async def test_unparsable_extended_access_child_keeps_own_children(self, client, http):
+        self._answer_profiles(http, [self._profile_with_own_child()])
+        http.aula(CONTEXT, ok({"institutions": [{"name": "Skole Et", "children": [{"id": 2}]}]}))
         profile = await client.get_profile()
         assert [c.id for c in profile.children] == [1]
 
     @pytest.mark.asyncio
-    async def test_extended_access_children_that_all_fail_never_raise(self, client):
+    async def test_extended_access_children_that_all_fail_never_raise(self, client, http):
         """The lookup is best effort, so its failures never cost the caller the profile."""
-        context = {"data": {"institutions": [{"name": "Skole Et", "children": [{"id": 2}, "2"]}]}}
-        client._request_with_version_retry = AsyncMock(
-            side_effect=[
-                self._make_profile_response([{"profileId": 900001, "children": []}]),
-                HttpResponse(status_code=200, data=context),
-            ]
+        self._answer_profiles(http, [{"profileId": 900001, "children": []}])
+        http.aula(
+            CONTEXT, ok({"institutions": [{"name": "Skole Et", "children": [{"id": 2}, "2"]}]})
         )
         profile = await client.get_profile()
         assert profile.children == []
 
     @pytest.mark.asyncio
-    async def test_get_profile_context_without_institutions(self, client):
-        client._request_with_version_retry = AsyncMock(
-            side_effect=[
-                self._make_profile_response([self._profile_with_own_child()]),
-                HttpResponse(status_code=200, data={"data": None}),
-            ]
-        )
+    async def test_get_profile_context_without_institutions(self, client, http):
+        self._answer_profiles(http, [self._profile_with_own_child()])
+        http.aula(CONTEXT, ok(None))
         profile = await client.get_profile()
         assert [c.id for c in profile.children] == [1]
 
     @pytest.mark.asyncio
-    async def test_get_profile_http_401_raises_auth_error(self, client):
+    async def test_get_profile_http_401_raises_auth_error(self, client, http):
         """401 response raises AulaAuthenticationError."""
-        client._request_with_version_retry = AsyncMock(
-            return_value=HttpResponse(status_code=401, data=None)
-        )
+        http.aula(PROFILES, http_status(401))
         with pytest.raises(AulaAuthenticationError):
             await client.get_profile()
 
     @pytest.mark.asyncio
-    async def test_get_profile_http_500_raises_server_error(self, client):
+    async def test_get_profile_http_500_raises_server_error(self, client, http):
         """500 response raises AulaServerError."""
-        client._request_with_version_retry = AsyncMock(
-            return_value=HttpResponse(status_code=500, data=None)
-        )
+        http.aula(PROFILES, http_status(500))
         with pytest.raises(AulaServerError):
             await client.get_profile()
 
@@ -265,33 +248,31 @@ class TestIsLoggedIn:
     """Tests for AulaApiClient.is_logged_in method."""
 
     @pytest.fixture
-    def client(self):
-        http_client = AsyncMock()
-        return AulaApiClient(http_client=http_client, access_token="test_token")
+    def http(self):
+        http = FakeHttpClient()
+        http.aula(CONTEXT, ok({}))
+        return http
+
+    @pytest.fixture
+    def client(self, http):
+        return AulaApiClient(http)
 
     @pytest.mark.asyncio
-    async def test_is_logged_in_returns_true(self, client):
+    async def test_is_logged_in_returns_true(self, client, http):
         """Returns True when get_profile succeeds."""
         profile_data = {
             "profileId": 123,
-            "displayName": "John",
+            "displayName": "Værge Et",
             "children": [],
             "institutionProfiles": [],
         }
-        client._request_with_version_retry = AsyncMock(
-            return_value=HttpResponse(
-                status_code=200,
-                data={"data": {"profiles": [profile_data]}},
-            )
-        )
+        http.aula(PROFILES, ok({"profiles": [profile_data]}))
         assert await client.is_logged_in() is True
 
     @pytest.mark.asyncio
-    async def test_is_logged_in_returns_false_on_error(self, client):
+    async def test_is_logged_in_returns_false_on_error(self, client, http):
         """Returns False when get_profile raises any exception."""
-        client._request_with_version_retry = AsyncMock(
-            return_value=HttpResponse(status_code=401, data=None)
-        )
+        http.aula(PROFILES, http_status(401))
         assert await client.is_logged_in() is False
 
 
@@ -299,63 +280,57 @@ class TestGetDailyOverview:
     """Tests for AulaApiClient.get_daily_overview method."""
 
     @pytest.fixture
-    def client(self):
-        http_client = AsyncMock()
-        return AulaApiClient(http_client=http_client, access_token="test_token")
+    def http(self):
+        return FakeHttpClient()
+
+    @pytest.fixture
+    def client(self, http):
+        return AulaApiClient(http)
 
     @pytest.mark.asyncio
-    async def test_happy_path(self, client):
+    async def test_happy_path(self, client, http):
         """Valid daily overview response is parsed."""
         overview_data = {
             "status": 1,
             "institutionProfile": {
                 "id": 456,
-                "institutionName": "School A",
+                "institutionName": "Skole Et",
             },
         }
-        client._request_with_version_retry = AsyncMock(
-            return_value=HttpResponse(status_code=200, data={"data": [overview_data]})
-        )
+        http.aula(DAILY_OVERVIEW, ok([overview_data]))
         result = await client.get_daily_overview(456)
         assert result is not None
         assert result.status is not None
+        assert http.calls(DAILY_OVERVIEW)[0].query["childIds[]"] == "456"
 
     @pytest.mark.asyncio
     @pytest.mark.parametrize("data", [[], None])
-    async def test_a_day_without_an_overview_returns_none_quietly(self, client, caplog, data):
-        client._request_with_version_retry = AsyncMock(
-            return_value=HttpResponse(status_code=200, data={"data": data})
-        )
+    async def test_a_day_without_an_overview_returns_none_quietly(self, client, http, caplog, data):
+        http.aula(DAILY_OVERVIEW, ok(data))
         with caplog.at_level(logging.WARNING, logger="aula"):
             result = await client.get_daily_overview(456)
         assert result is None
         assert all(r.levelno < logging.WARNING for r in caplog.records)
 
     @pytest.mark.asyncio
-    async def test_http_error_raises(self, client):
+    async def test_http_error_raises(self, client, http):
         """HTTP errors are raised."""
-        client._request_with_version_retry = AsyncMock(
-            return_value=HttpResponse(status_code=500, data=None)
-        )
+        http.aula(DAILY_OVERVIEW, http_status(500))
         with pytest.raises(AulaServerError):
             await client.get_daily_overview(456)
 
     @pytest.mark.asyncio
     @pytest.mark.parametrize("data", [{"status": 1}, "overview", [None], [["status", 1]]])
     async def test_data_that_is_not_a_list_of_overviews_is_an_aula_response_error(
-        self, client, data
+        self, client, http, data
     ):
-        client._request_with_version_retry = AsyncMock(
-            return_value=HttpResponse(status_code=200, data={"data": data})
-        )
+        http.aula(DAILY_OVERVIEW, ok(data))
         with pytest.raises(AulaResponseError):
             await client.get_daily_overview(456)
 
     @pytest.mark.asyncio
-    async def test_an_overview_that_fails_to_parse_keeps_the_cause(self, client):
-        client._request_with_version_retry = AsyncMock(
-            return_value=HttpResponse(status_code=200, data={"data": [{"location": 5}]})
-        )
+    async def test_an_overview_that_fails_to_parse_keeps_the_cause(self, client, http):
+        http.aula(DAILY_OVERVIEW, ok([{"location": 5}]))
         with (
             patch("aula.api_client.DailyOverview.from_dict", side_effect=KeyError("institution")),
             pytest.raises(AulaResponseError) as exc_info,
@@ -365,10 +340,10 @@ class TestGetDailyOverview:
 
     @pytest.mark.asyncio
     @pytest.mark.parametrize("body", [None, ["overview"], "overview"])
-    async def test_a_body_that_is_not_an_envelope_is_an_aula_response_error(self, client, body):
-        client._request_with_version_retry = AsyncMock(
-            return_value=HttpResponse(status_code=200, data=body)
-        )
+    async def test_a_body_that_is_not_an_envelope_is_an_aula_response_error(
+        self, client, http, body
+    ):
+        http.aula(DAILY_OVERVIEW, http_status(200, body))
         with pytest.raises(AulaResponseError):
             await client.get_daily_overview(456)
 
@@ -577,53 +552,52 @@ class TestGetPresenceTemplates:
     """Tests for AulaApiClient.get_presence_templates method."""
 
     @pytest.fixture
-    def mock_client(self):
-        """Create a mock API client."""
-        http_client = AsyncMock()
-        client = AulaApiClient(
-            http_client=http_client,
-            access_token="test_token",
-        )
-        return client
+    def http(self):
+        return FakeHttpClient()
+
+    @pytest.fixture
+    def client(self, http):
+        return AulaApiClient(http)
 
     @pytest.mark.asyncio
-    async def test_get_presence_templates_happy_path(self, mock_client):
+    async def test_get_presence_templates_happy_path(self, client, http):
         """Test fetching presence templates with valid data."""
         from aula.models.presence_template import PresenceWeekTemplate
 
-        response_data = {
-            "data": {
-                "presenceWeekTemplates": [
-                    {
-                        "institutionProfile": {
-                            "id": 10,
-                            "profileId": 99,
-                            "institutionName": "School",
-                        },
-                        "dayTemplates": [
-                            {
-                                "id": 1,
-                                "byDate": "2026-02-25",
-                                "entryTime": "08:00",
-                                "exitTime": "16:00",
-                            }
-                        ],
-                    }
-                ]
-            }
+        data = {
+            "presenceWeekTemplates": [
+                {
+                    "institutionProfile": {
+                        "id": 10,
+                        "profileId": 99,
+                        "institutionName": "Skole Et",
+                    },
+                    "dayTemplates": [
+                        {
+                            "id": 1,
+                            "byDate": "2026-02-25",
+                            "entryTime": "08:00",
+                            "exitTime": "16:00",
+                        }
+                    ],
+                }
+            ]
         }
 
-        mock_client._request_with_version_retry = AsyncMock()
-        mock_response = HttpResponse(status_code=200, data=response_data)
-        mock_response.raise_for_status = MagicMock()  # type: ignore[assignment]
-        mock_client._request_with_version_retry.return_value = mock_response
+        http.aula(TEMPLATES, ok(data))
 
-        result = await mock_client.get_presence_templates(
+        result = await client.get_presence_templates(
             [10, 20],
             date(2026, 2, 25),
             date(2026, 2, 25),
         )
 
+        assert http.calls(TEMPLATES)[0].query == {
+            "method": TEMPLATES,
+            "filterInstitutionProfileIds[]": [10, 20],
+            "fromDate": "2026-02-25",
+            "toDate": "2026-02-25",
+        }
         assert len(result) == 1
         assert isinstance(result[0], PresenceWeekTemplate)
         assert result[0].institution_profile is not None
@@ -632,16 +606,11 @@ class TestGetPresenceTemplates:
         assert result[0].day_templates[0].by_date == "2026-02-25"
 
     @pytest.mark.asyncio
-    async def test_get_presence_templates_empty_list(self, mock_client):
+    async def test_get_presence_templates_empty_list(self, client, http):
         """Test fetching with empty templates list."""
-        response_data = {"data": {"presenceWeekTemplates": []}}
+        http.aula(TEMPLATES, ok({"presenceWeekTemplates": []}))
 
-        mock_client._request_with_version_retry = AsyncMock()
-        mock_response = HttpResponse(status_code=200, data=response_data)
-        mock_response.raise_for_status = MagicMock()  # type: ignore[assignment]
-        mock_client._request_with_version_retry.return_value = mock_response
-
-        result = await mock_client.get_presence_templates(
+        result = await client.get_presence_templates(
             [10],
             date(2026, 2, 25),
             date(2026, 2, 25),
@@ -650,16 +619,11 @@ class TestGetPresenceTemplates:
         assert result == []
 
     @pytest.mark.asyncio
-    async def test_get_presence_templates_null_data(self, mock_client):
+    async def test_get_presence_templates_null_data(self, client, http):
         """Test handling when data field is null."""
-        response_data = {"data": None}
+        http.aula(TEMPLATES, ok(None))
 
-        mock_client._request_with_version_retry = AsyncMock()
-        mock_response = HttpResponse(status_code=200, data=response_data)
-        mock_response.raise_for_status = MagicMock()  # type: ignore[assignment]
-        mock_client._request_with_version_retry.return_value = mock_response
-
-        result = await mock_client.get_presence_templates(
+        result = await client.get_presence_templates(
             [10],
             date(2026, 2, 25),
             date(2026, 2, 25),
@@ -668,16 +632,11 @@ class TestGetPresenceTemplates:
         assert result == []
 
     @pytest.mark.asyncio
-    async def test_get_presence_templates_null_presenceWeekTemplates(self, mock_client):
+    async def test_get_presence_templates_null_presenceWeekTemplates(self, client, http):
         """Test handling when presenceWeekTemplates is null."""
-        response_data = {"data": {"presenceWeekTemplates": None}}
+        http.aula(TEMPLATES, ok({"presenceWeekTemplates": None}))
 
-        mock_client._request_with_version_retry = AsyncMock()
-        mock_response = HttpResponse(status_code=200, data=response_data)
-        mock_response.raise_for_status = MagicMock()  # type: ignore[assignment]
-        mock_client._request_with_version_retry.return_value = mock_response
-
-        result = await mock_client.get_presence_templates(
+        result = await client.get_presence_templates(
             [10],
             date(2026, 2, 25),
             date(2026, 2, 25),
@@ -686,30 +645,25 @@ class TestGetPresenceTemplates:
         assert result == []
 
     @pytest.mark.asyncio
-    async def test_get_presence_templates_null_items_in_list(self, mock_client):
+    async def test_get_presence_templates_null_items_in_list(self, client, http):
         """Test handling when list contains null items."""
-        response_data = {
-            "data": {
-                "presenceWeekTemplates": [
-                    {
-                        "institutionProfile": {"id": 10},
-                        "dayTemplates": [{"id": 1, "byDate": "2026-02-25"}],
-                    },
-                    None,  # null item should be skipped
-                    {
-                        "institutionProfile": {"id": 20},
-                        "dayTemplates": [{"id": 2, "byDate": "2026-02-25"}],
-                    },
-                ]
-            }
+        data = {
+            "presenceWeekTemplates": [
+                {
+                    "institutionProfile": {"id": 10},
+                    "dayTemplates": [{"id": 1, "byDate": "2026-02-25"}],
+                },
+                None,  # null item should be skipped
+                {
+                    "institutionProfile": {"id": 20},
+                    "dayTemplates": [{"id": 2, "byDate": "2026-02-25"}],
+                },
+            ]
         }
 
-        mock_client._request_with_version_retry = AsyncMock()
-        mock_response = HttpResponse(status_code=200, data=response_data)
-        mock_response.raise_for_status = MagicMock()  # type: ignore[assignment]
-        mock_client._request_with_version_retry.return_value = mock_response
+        http.aula(TEMPLATES, ok(data))
 
-        result = await mock_client.get_presence_templates(
+        result = await client.get_presence_templates(
             [10, 20],
             date(2026, 2, 25),
             date(2026, 2, 25),
@@ -719,34 +673,29 @@ class TestGetPresenceTemplates:
         assert len(result) == 2
 
     @pytest.mark.asyncio
-    async def test_get_presence_templates_malformed_item(self, mock_client, caplog):
+    async def test_get_presence_templates_malformed_item(self, client, http, caplog):
         """Test handling of malformed template item."""
-        response_data = {
-            "data": {
-                "presenceWeekTemplates": [
-                    {
-                        "institutionProfile": {"id": 10},
-                        "dayTemplates": [{"id": 1, "byDate": "2026-02-25"}],
-                    },
-                    {
-                        "dayTemplates": [{"id": 2}],
-                        # Missing institutionProfile - might cause error
-                    },
-                    {
-                        "institutionProfile": {"id": 30},
-                        "dayTemplates": [{"id": 3, "byDate": "2026-02-26"}],
-                    },
-                ]
-            }
+        data = {
+            "presenceWeekTemplates": [
+                {
+                    "institutionProfile": {"id": 10},
+                    "dayTemplates": [{"id": 1, "byDate": "2026-02-25"}],
+                },
+                {
+                    "dayTemplates": [{"id": 2}],
+                    # Missing institutionProfile - might cause error
+                },
+                {
+                    "institutionProfile": {"id": 30},
+                    "dayTemplates": [{"id": 3, "byDate": "2026-02-26"}],
+                },
+            ]
         }
 
-        mock_client._request_with_version_retry = AsyncMock()
-        mock_response = HttpResponse(status_code=200, data=response_data)
-        mock_response.raise_for_status = MagicMock()  # type: ignore[assignment]
-        mock_client._request_with_version_retry.return_value = mock_response
+        http.aula(TEMPLATES, ok(data))
 
         with caplog.at_level("WARNING"):
-            result = await mock_client.get_presence_templates(
+            result = await client.get_presence_templates(
                 [10, 20, 30],
                 date(2026, 2, 25),
                 date(2026, 2, 25),
@@ -756,63 +705,48 @@ class TestGetPresenceTemplates:
         assert len(result) >= 2  # At least the two valid ones
 
     @pytest.mark.asyncio
-    async def test_get_presence_templates_non_list_presenceWeekTemplates_raises(self, mock_client):
-        response_data = {"data": {"presenceWeekTemplates": "not a list"}}
-
-        mock_client._request_with_version_retry = AsyncMock()
-        mock_response = HttpResponse(status_code=200, data=response_data)
-        mock_response.raise_for_status = MagicMock()  # type: ignore[assignment]
-        mock_client._request_with_version_retry.return_value = mock_response
+    async def test_get_presence_templates_non_list_presenceWeekTemplates_raises(self, client, http):
+        http.aula(TEMPLATES, ok({"presenceWeekTemplates": "not a list"}))
 
         with pytest.raises(AulaResponseError):
-            await mock_client.get_presence_templates(
+            await client.get_presence_templates(
                 [10],
                 date(2026, 2, 25),
                 date(2026, 2, 25),
             )
 
     @pytest.mark.asyncio
-    async def test_get_presence_templates_string_data_raises(self, mock_client):
-        response_data = {"data": "string instead of dict"}
-
-        mock_client._request_with_version_retry = AsyncMock()
-        mock_response = HttpResponse(status_code=200, data=response_data)
-        mock_response.raise_for_status = MagicMock()  # type: ignore[assignment]
-        mock_client._request_with_version_retry.return_value = mock_response
+    async def test_get_presence_templates_string_data_raises(self, client, http):
+        http.aula(TEMPLATES, ok("string instead of dict"))
 
         with pytest.raises(AulaResponseError):
-            await mock_client.get_presence_templates(
+            await client.get_presence_templates(
                 [10],
                 date(2026, 2, 25),
                 date(2026, 2, 25),
             )
 
     @pytest.mark.asyncio
-    async def test_get_presence_templates_non_dict_items(self, mock_client):
+    async def test_get_presence_templates_non_dict_items(self, client, http):
         """Test handling when list contains non-dict items."""
-        response_data = {
-            "data": {
-                "presenceWeekTemplates": [
-                    {
-                        "institutionProfile": {"id": 10},
-                        "dayTemplates": [{"id": 1}],
-                    },
-                    "not a dict",
-                    123,
-                    {
-                        "institutionProfile": {"id": 20},
-                        "dayTemplates": [{"id": 2}],
-                    },
-                ]
-            }
+        data = {
+            "presenceWeekTemplates": [
+                {
+                    "institutionProfile": {"id": 10},
+                    "dayTemplates": [{"id": 1}],
+                },
+                "not a dict",
+                123,
+                {
+                    "institutionProfile": {"id": 20},
+                    "dayTemplates": [{"id": 2}],
+                },
+            ]
         }
 
-        mock_client._request_with_version_retry = AsyncMock()
-        mock_response = HttpResponse(status_code=200, data=response_data)
-        mock_response.raise_for_status = MagicMock()  # type: ignore[assignment]
-        mock_client._request_with_version_retry.return_value = mock_response
+        http.aula(TEMPLATES, ok(data))
 
-        result = await mock_client.get_presence_templates(
+        result = await client.get_presence_templates(
             [10, 20],
             date(2026, 2, 25),
             date(2026, 2, 25),
@@ -2626,55 +2560,50 @@ class TestGetPresenceRegistrations:
     """Tests for AulaApiClient.get_presence_registrations method."""
 
     @pytest.fixture
-    def client(self):
-        http_client = AsyncMock()
-        client = AulaApiClient(http_client=http_client, access_token="test_token")
-        return client
+    def http(self):
+        return FakeHttpClient()
+
+    @pytest.fixture
+    def client(self, http):
+        return AulaApiClient(http)
 
     @pytest.mark.asyncio
-    async def test_happy_path(self, client):
-        response_data = {
-            "data": [
-                {"id": 1, "institutionProfileId": 201, "status": 3, "date": "2026-03-08"},
-            ]
-        }
-        client._request_with_version_retry = AsyncMock(
-            return_value=HttpResponse(status_code=200, data=response_data)
+    async def test_happy_path(self, client, http):
+        http.aula(
+            REGISTRATIONS,
+            ok([{"id": 1, "institutionProfileId": 201, "status": 3, "date": "2026-03-08"}]),
         )
         result = await client.get_presence_registrations([201], date(2026, 3, 8), date(2026, 3, 8))
         assert len(result) == 1
         assert result[0].id == 1
         assert result[0].institution_profile_id == 201
+        assert http.calls(REGISTRATIONS)[0].query == {
+            "method": REGISTRATIONS,
+            "institutionProfileIds[]": [201],
+            "fromDate": "2026-03-08",
+            "toDate": "2026-03-08",
+        }
 
     @pytest.mark.asyncio
-    async def test_empty_data(self, client):
-        client._request_with_version_retry = AsyncMock(
-            return_value=HttpResponse(status_code=200, data={"data": []})
-        )
+    async def test_empty_data(self, client, http):
+        http.aula(REGISTRATIONS, ok([]))
         result = await client.get_presence_registrations([201], date(2026, 3, 8), date(2026, 3, 8))
         assert result == []
 
     @pytest.mark.asyncio
-    async def test_non_list_data(self, client):
-        client._request_with_version_retry = AsyncMock(
-            return_value=HttpResponse(status_code=200, data={"data": None})
-        )
+    async def test_non_list_data(self, client, http):
+        http.aula(REGISTRATIONS, ok(None))
         result = await client.get_presence_registrations([201], date(2026, 3, 8), date(2026, 3, 8))
         assert result == []
 
     @pytest.mark.asyncio
-    async def test_batch_400_retries_each_profile_and_keeps_what_works(self, client):
+    async def test_batch_400_retries_each_profile_and_keeps_what_works(self, client, http):
         """One profile without presence must not blank out the others."""
-        ok = HttpResponse(
-            status_code=200,
-            data={"data": [{"id": 1, "institutionProfileId": 201, "status": 3}]},
-        )
-        client._request_with_version_retry = AsyncMock(
-            side_effect=[
-                HttpResponse(status_code=400, data=None),  # both profiles at once
-                ok,  # 201 alone
-                HttpResponse(status_code=400, data=None),  # 202 alone
-            ]
+        http.aula(
+            REGISTRATIONS,
+            http_status(400),
+            ok([{"id": 1, "institutionProfileId": 201, "status": 3}]),
+            http_status(400),
         )
 
         result = await client.get_presence_registrations(
@@ -2682,58 +2611,52 @@ class TestGetPresenceRegistrations:
         )
 
         assert [r.institution_profile_id for r in result] == [201]
-        retried = client._request_with_version_retry.await_args_list
-        assert [c.kwargs["params"]["institutionProfileIds[]"] for c in retried] == [
+        assert [c.query["institutionProfileIds[]"] for c in http.calls(REGISTRATIONS)] == [
             [201, 202],
             [201],
             [202],
         ]
 
     @pytest.mark.asyncio
-    async def test_batch_400_raises_when_no_profile_can_be_read(self, client):
-        client._request_with_version_retry = AsyncMock(
-            return_value=HttpResponse(status_code=400, data=None)
-        )
+    async def test_batch_400_raises_when_no_profile_can_be_read(self, client, http):
+        http.aula(REGISTRATIONS, http_status(400))
 
         with pytest.raises(HttpRequestError):
             await client.get_presence_registrations([201, 202], date(2026, 3, 8), date(2026, 3, 8))
 
     @pytest.mark.asyncio
-    async def test_single_profile_failure_is_not_retried(self, client):
-        client._request_with_version_retry = AsyncMock(
-            return_value=HttpResponse(status_code=400, data=None)
-        )
+    async def test_single_profile_failure_is_not_retried(self, client, http):
+        http.aula(REGISTRATIONS, http_status(400))
 
         with pytest.raises(HttpRequestError):
             await client.get_presence_registrations([201], date(2026, 3, 8), date(2026, 3, 8))
 
-        assert client._request_with_version_retry.await_count == 1
+        assert len(http.calls(REGISTRATIONS)) == 1
 
 
 class TestGetPresenceRegistrationDetail:
     """Tests for AulaApiClient.get_presence_registration_detail method."""
 
     @pytest.fixture
-    def client(self):
-        http_client = AsyncMock()
-        return AulaApiClient(http_client=http_client, access_token="test_token")
+    def http(self):
+        return FakeHttpClient()
+
+    @pytest.fixture
+    def client(self, http):
+        return AulaApiClient(http)
 
     @pytest.mark.asyncio
-    async def test_happy_path(self, client):
-        response_data = {"data": {"id": 555, "childName": "Barn Et", "status": 1}}
-        client._request_with_version_retry = AsyncMock(
-            return_value=HttpResponse(status_code=200, data=response_data)
-        )
+    async def test_happy_path(self, client, http):
+        http.aula(REGISTRATION_DETAIL, ok({"id": 555, "childName": "Barn Et", "status": 1}))
         result = await client.get_presence_registration_detail(555)
         assert result is not None
         assert result.id == 555
         assert result.child_name == "Barn Et"
+        assert http.calls(REGISTRATION_DETAIL)[0].query["id"] == 555
 
     @pytest.mark.asyncio
-    async def test_null_data(self, client):
-        client._request_with_version_retry = AsyncMock(
-            return_value=HttpResponse(status_code=200, data={"data": None})
-        )
+    async def test_null_data(self, client, http):
+        http.aula(REGISTRATION_DETAIL, ok(None))
         result = await client.get_presence_registration_detail(555)
         assert result is None
 
@@ -2742,66 +2665,63 @@ class TestGetPresenceStates:
     """Tests for AulaApiClient.get_presence_states method."""
 
     @pytest.fixture
-    def client(self):
-        http_client = AsyncMock()
-        return AulaApiClient(http_client=http_client, access_token="test_token")
+    def http(self):
+        http = FakeHttpClient()
+        http.aula(STATES, ok([{"institutionProfileId": 201, "status": 3}]))
+        return http
+
+    @pytest.fixture
+    def client(self, http):
+        return AulaApiClient(http)
 
     @pytest.mark.asyncio
-    async def test_happy_path(self, client):
-        response_data = {"data": [{"institutionProfileId": 201, "status": 3}]}
-        client._request_with_version_retry = AsyncMock(
-            return_value=HttpResponse(status_code=200, data=response_data)
-        )
+    async def test_happy_path(self, client, http):
         result = await client.get_presence_states([201])
         assert len(result) == 1
         assert result[0].institution_profile_id == 201
+        assert http.calls(STATES)[0].query["institutionProfileIds[]"] == [201]
 
     @pytest.mark.asyncio
-    async def test_no_filter(self, client):
-        response_data = {"data": [{"institutionProfileId": 201, "status": 3}]}
-        client._request_with_version_retry = AsyncMock(
-            return_value=HttpResponse(status_code=200, data=response_data)
-        )
+    async def test_no_filter(self, client, http):
         result = await client.get_presence_states()
         assert len(result) == 1
+        assert "institutionProfileIds[]" not in http.calls(STATES)[0].query
 
 
 class TestGetPresenceConfiguration:
     """Tests for AulaApiClient.get_presence_configuration method."""
 
     @pytest.fixture
-    def client(self):
-        http_client = AsyncMock()
-        return AulaApiClient(http_client=http_client, access_token="test_token")
+    def http(self):
+        return FakeHttpClient()
+
+    @pytest.fixture
+    def client(self, http):
+        return AulaApiClient(http)
 
     @pytest.mark.asyncio
-    async def test_happy_path(self, client):
-        response_data = {
-            "data": [
-                {
-                    "uniStudentId": 201,
-                    "presenceConfiguration": {
-                        "institution": {"institutionCode": "G90001", "name": "Test"},
-                        "pickup": True,
-                        "goHomeWith": True,
-                        "selfDecider": False,
-                    },
-                }
-            ]
-        }
-        client._request_with_version_retry = AsyncMock(
-            return_value=HttpResponse(status_code=200, data=response_data)
-        )
+    async def test_happy_path(self, client, http):
+        data = [
+            {
+                "uniStudentId": 201,
+                "presenceConfiguration": {
+                    "institution": {"institutionCode": "G90001", "name": "Skole Et"},
+                    "pickup": True,
+                    "goHomeWith": True,
+                    "selfDecider": False,
+                },
+            }
+        ]
+        http.aula(CONFIGURATION, ok(data))
         result = await client.get_presence_configuration([201])
         assert len(result) == 1
         assert result[0].child_id == 201
         assert result[0].pickup is True
+        assert http.calls(CONFIGURATION)[0].query["childIds[]"] == [201]
 
     @pytest.mark.asyncio
-    async def test_empty_data(self, client):
-        client._request_with_version_retry = AsyncMock(
-            return_value=HttpResponse(status_code=200, data={"data": []})
-        )
+    async def test_empty_data(self, client, http):
+        http.aula(CONFIGURATION, ok([]))
         result = await client.get_presence_configuration([201])
         assert result == []
 
@@ -2917,35 +2837,34 @@ class TestGetVacationRegistrations:
     """Tests for AulaApiClient.get_vacation_registrations method."""
 
     @pytest.fixture
-    def client(self):
-        http_client = AsyncMock()
-        return AulaApiClient(http_client=http_client, access_token="test_token")
+    def http(self):
+        return FakeHttpClient()
+
+    @pytest.fixture
+    def client(self, http):
+        return AulaApiClient(http)
 
     @pytest.mark.asyncio
-    async def test_happy_path_flattens_groups(self, client):
-        response_data = {
-            "data": [
-                {
-                    "child": {"id": 201, "name": "Barn Et"},
-                    "vacationRegistrations": [
-                        {
-                            "vacationRegistrationId": 1,
-                            "title": "Sommerferie",
-                            "startDate": "2026-07-01",
-                            "endDate": "2026-07-14",
-                        },
-                        {"vacationRegistrationId": 2, "title": "Efterårsferie"},
-                    ],
-                },
-                {
-                    "child": {"id": 202, "name": "Barn To"},
-                    "vacationRegistrations": [{"vacationRegistrationId": 3, "title": "Juleferie"}],
-                },
-            ]
-        }
-        client._request_with_version_retry = AsyncMock(
-            return_value=HttpResponse(status_code=200, data=response_data)
-        )
+    async def test_happy_path_flattens_groups(self, client, http):
+        data = [
+            {
+                "child": {"id": 201, "name": "Barn Et"},
+                "vacationRegistrations": [
+                    {
+                        "vacationRegistrationId": 1,
+                        "title": "Sommerferie",
+                        "startDate": "2026-07-01",
+                        "endDate": "2026-07-14",
+                    },
+                    {"vacationRegistrationId": 2, "title": "Efterårsferie"},
+                ],
+            },
+            {
+                "child": {"id": 202, "name": "Barn To"},
+                "vacationRegistrations": [{"vacationRegistrationId": 3, "title": "Juleferie"}],
+            },
+        ]
+        http.aula(VACATIONS, ok(data))
 
         result = await client.get_vacation_registrations([201, 202])
 
@@ -2955,43 +2874,34 @@ class TestGetVacationRegistrations:
         assert result[0].start_date == "2026-07-01"
 
     @pytest.mark.asyncio
-    async def test_sends_child_ids_to_by_children_method(self, client):
-        client._request_with_version_retry = AsyncMock(
-            return_value=HttpResponse(status_code=200, data={"data": []})
-        )
+    async def test_sends_child_ids_to_by_children_method(self, client, http):
+        http.aula(VACATIONS, ok([]))
 
         await client.get_vacation_registrations([201, 202])
 
-        _, kwargs = client._request_with_version_retry.call_args
-        assert kwargs["params"] == {
+        assert http.calls(VACATIONS)[0].query == {
             "method": "presence.getVacationRegistrationsByChildren",
             "childIds[]": [201, 202],
         }
 
     @pytest.mark.asyncio
-    async def test_empty_data(self, client):
-        client._request_with_version_retry = AsyncMock(
-            return_value=HttpResponse(status_code=200, data={"data": []})
-        )
+    async def test_empty_data(self, client, http):
+        http.aula(VACATIONS, ok([]))
 
         assert await client.get_vacation_registrations([201]) == []
 
     @pytest.mark.asyncio
-    async def test_skips_groups_without_registrations(self, client):
-        response_data = {
-            "data": [
-                {"child": {"id": 201, "name": "Barn Et"}},
-                {"child": {"id": 202, "name": "Barn To"}, "vacationRegistrations": None},
-                "not-a-group",
-                {
-                    "child": {"id": 203, "name": "Barn Tre"},
-                    "vacationRegistrations": [{"vacationRegistrationId": 5}, "not-a-row"],
-                },
-            ]
-        }
-        client._request_with_version_retry = AsyncMock(
-            return_value=HttpResponse(status_code=200, data=response_data)
-        )
+    async def test_skips_groups_without_registrations(self, client, http):
+        data = [
+            {"child": {"id": 201, "name": "Barn Et"}},
+            {"child": {"id": 202, "name": "Barn To"}, "vacationRegistrations": None},
+            "not-a-group",
+            {
+                "child": {"id": 203, "name": "Barn Tre"},
+                "vacationRegistrations": [{"vacationRegistrationId": 5}, "not-a-row"],
+            },
+        ]
+        http.aula(VACATIONS, ok(data))
 
         result = await client.get_vacation_registrations([201, 202, 203])
 
@@ -2999,12 +2909,10 @@ class TestGetVacationRegistrations:
         assert result[0].child_name == "Barn Tre"
 
     @pytest.mark.asyncio
-    async def test_group_without_child_still_parses(self, client):
-        response_data = {
-            "data": [{"vacationRegistrations": [{"vacationRegistrationId": 9, "title": "Ferie"}]}]
-        }
-        client._request_with_version_retry = AsyncMock(
-            return_value=HttpResponse(status_code=200, data=response_data)
+    async def test_group_without_child_still_parses(self, client, http):
+        http.aula(
+            VACATIONS,
+            ok([{"vacationRegistrations": [{"vacationRegistrationId": 9, "title": "Ferie"}]}]),
         )
 
         result = await client.get_vacation_registrations([201])
@@ -3013,10 +2921,8 @@ class TestGetVacationRegistrations:
         assert result[0].child_id == 0
 
     @pytest.mark.asyncio
-    async def test_non_list_data(self, client):
-        client._request_with_version_retry = AsyncMock(
-            return_value=HttpResponse(status_code=200, data={"data": None})
-        )
+    async def test_non_list_data(self, client, http):
+        http.aula(VACATIONS, ok(None))
 
         assert await client.get_vacation_registrations([201]) == []
 
@@ -3025,37 +2931,40 @@ class TestGetActivityOverview:
     """Tests for AulaApiClient.get_activity_overview method."""
 
     @pytest.fixture
-    def client(self):
-        http_client = AsyncMock()
-        return AulaApiClient(http_client=http_client, access_token="test_token")
+    def http(self):
+        return FakeHttpClient()
+
+    @pytest.fixture
+    def client(self, http):
+        return AulaApiClient(http)
 
     @pytest.mark.asyncio
-    async def test_happy_path(self, client):
-        response_data = {
-            "data": {
-                "days": [
-                    {
-                        "date": "2026-03-02",
-                        "activities": [
-                            {"title": "Matematik", "startTime": "08:00", "endTime": "09:00"}
-                        ],
-                    }
-                ]
-            }
+    async def test_happy_path(self, client, http):
+        data = {
+            "days": [
+                {
+                    "date": "2026-03-02",
+                    "activities": [
+                        {"title": "Matematik", "startTime": "08:00", "endTime": "09:00"}
+                    ],
+                }
+            ]
         }
-        client._request_with_version_retry = AsyncMock(
-            return_value=HttpResponse(status_code=200, data=response_data)
-        )
+        http.aula(ACTIVITY, ok(data))
         result = await client.get_activity_overview([201], week=10, year=2026)
         assert result is not None
         assert len(result.days) == 1
         assert result.days[0].activities[0].title == "Matematik"
+        assert http.calls(ACTIVITY)[0].query == {
+            "method": ACTIVITY,
+            "institutionProfileIds[]": [201],
+            "week": 10,
+            "year": 2026,
+        }
 
     @pytest.mark.asyncio
-    async def test_null_data(self, client):
-        client._request_with_version_retry = AsyncMock(
-            return_value=HttpResponse(status_code=200, data={"data": None})
-        )
+    async def test_null_data(self, client, http):
+        http.aula(ACTIVITY, ok(None))
         result = await client.get_activity_overview([201], week=10, year=2026)
         assert result is None
 
@@ -3959,25 +3868,28 @@ class TestUpdatePresenceTemplate:
     """Tests for AulaApiClient.update_presence_template method."""
 
     @pytest.fixture
-    def mock_client(self):
-        """Create a mock API client with a stubbed request layer."""
-        client = AulaApiClient(http_client=AsyncMock(), access_token="test_token")
-        mock_response = HttpResponse(status_code=200, data={"status": {"code": 200}})
-        mock_response.raise_for_status = MagicMock()  # type: ignore[assignment]
-        client._request_with_version_retry = AsyncMock(return_value=mock_response)
-        return client
+    def http(self):
+        http = FakeHttpClient()
+        http.aula(UPDATE_TEMPLATE, ok())
+        return http
+
+    @pytest.fixture
+    def client(self, http):
+        return AulaApiClient(http)
 
     @staticmethod
-    def _payload(mock_client):
+    def _payload(http):
         """Return the JSON body of the recorded request."""
-        return mock_client._request_with_version_retry.await_args.kwargs["json"]
+        [call] = http.calls(UPDATE_TEMPLATE)
+        assert call.method == "post"
+        return call.json
 
     @pytest.mark.asyncio
-    async def test_accepts_activity_type_enum(self, mock_client):
+    async def test_accepts_activity_type_enum(self, client, http):
         """An ActivityType member is serialised as its int value."""
         from aula.models.presence import ActivityType
 
-        await mock_client.update_presence_template(
+        await client.update_presence_template(
             institution_profile_id=10,
             by_date=date(2026, 2, 25),
             entry_time="08:00",
@@ -3986,7 +3898,7 @@ class TestUpdatePresenceTemplate:
             exit_with="Værge Et (Far)",
         )
 
-        activity = self._payload(mock_client)["presenceActivity"]
+        activity = self._payload(http)["presenceActivity"]
         assert activity["activityType"] == 3
         assert activity["goHomeWith"] == {
             "entryTime": "08:00",
@@ -3995,9 +3907,9 @@ class TestUpdatePresenceTemplate:
         }
 
     @pytest.mark.asyncio
-    async def test_accepts_raw_int_for_compatibility(self, mock_client):
+    async def test_accepts_raw_int_for_compatibility(self, client, http):
         """A raw int still selects the same activity shape as the enum."""
-        await mock_client.update_presence_template(
+        await client.update_presence_template(
             institution_profile_id=10,
             by_date=date(2026, 2, 25),
             entry_time="08:00",
@@ -4005,7 +3917,7 @@ class TestUpdatePresenceTemplate:
             activity_type=1,
         )
 
-        activity = self._payload(mock_client)["presenceActivity"]
+        activity = self._payload(http)["presenceActivity"]
         assert activity["activityType"] == 1
         assert activity["selfDecider"] == {
             "entryTime": "08:00",
@@ -4014,11 +3926,11 @@ class TestUpdatePresenceTemplate:
         }
 
     @pytest.mark.asyncio
-    async def test_self_decider_leaves_within_a_window(self, mock_client):
+    async def test_self_decider_leaves_within_a_window(self, client, http):
         """A self-decider may leave between exit_time and self_decider_end_time."""
         from aula.models.presence import ActivityType
 
-        await mock_client.update_presence_template(
+        await client.update_presence_template(
             institution_profile_id=10,
             by_date=date(2026, 2, 25),
             entry_time="08:00",
@@ -4027,7 +3939,7 @@ class TestUpdatePresenceTemplate:
             self_decider_end_time="16:00",
         )
 
-        activity = self._payload(mock_client)["presenceActivity"]
+        activity = self._payload(http)["presenceActivity"]
         assert activity["selfDecider"] == {
             "entryTime": "08:00",
             "exitStartTime": "14:00",
@@ -4035,10 +3947,10 @@ class TestUpdatePresenceTemplate:
         }
 
     @pytest.mark.asyncio
-    async def test_self_decider_end_time_needs_self_decider(self, mock_client):
+    async def test_self_decider_end_time_needs_self_decider(self, client, http):
         """Any other activity type would drop the end time, so it is refused."""
         with pytest.raises(ValueError, match="self_decider_end_time"):
-            await mock_client.update_presence_template(
+            await client.update_presence_template(
                 institution_profile_id=10,
                 by_date=date(2026, 2, 25),
                 entry_time="08:00",
@@ -4047,12 +3959,12 @@ class TestUpdatePresenceTemplate:
                 self_decider_end_time="16:00",
             )
 
-        mock_client._request_with_version_retry.assert_not_awaited()
+        assert http.requests == []
 
     @pytest.mark.asyncio
-    async def test_defaults_to_picked_up_by(self, mock_client):
+    async def test_defaults_to_picked_up_by(self, client, http):
         """Omitting activity_type keeps the previous default of 0."""
-        await mock_client.update_presence_template(
+        await client.update_presence_template(
             institution_profile_id=10,
             by_date=date(2026, 2, 25),
             entry_time="08:00",
@@ -4060,14 +3972,14 @@ class TestUpdatePresenceTemplate:
             exit_with="Mor",
         )
 
-        activity = self._payload(mock_client)["presenceActivity"]
+        activity = self._payload(http)["presenceActivity"]
         assert activity["activityType"] == 0
         assert activity["pickup"]["exitWith"] == "Mor"
 
     @pytest.mark.asyncio
-    async def test_unknown_activity_type_uses_flat_shape(self, mock_client):
+    async def test_unknown_activity_type_uses_flat_shape(self, client, http):
         """An int Aula adds later is passed through rather than rejected."""
-        await mock_client.update_presence_template(
+        await client.update_presence_template(
             institution_profile_id=10,
             by_date=date(2026, 2, 25),
             entry_time="08:00",
@@ -4075,7 +3987,7 @@ class TestUpdatePresenceTemplate:
             activity_type=99,
         )
 
-        activity = self._payload(mock_client)["presenceActivity"]
+        activity = self._payload(http)["presenceActivity"]
         assert activity == {
             "activityType": 99,
             "entryTime": "08:00",
@@ -4083,11 +3995,11 @@ class TestUpdatePresenceTemplate:
         }
 
     @pytest.mark.asyncio
-    async def test_drop_off_time_uses_flat_shape(self, mock_client):
+    async def test_drop_off_time_uses_flat_shape(self, client, http):
         """DROP_OFF_TIME has no nested sub-object."""
         from aula.models.presence import ActivityType
 
-        await mock_client.update_presence_template(
+        await client.update_presence_template(
             institution_profile_id=10,
             by_date=date(2026, 2, 25),
             entry_time="08:00",
@@ -4095,7 +4007,7 @@ class TestUpdatePresenceTemplate:
             activity_type=ActivityType.DROP_OFF_TIME,
         )
 
-        activity = self._payload(mock_client)["presenceActivity"]
+        activity = self._payload(http)["presenceActivity"]
         assert activity == {
             "activityType": 4,
             "entryTime": "08:00",
@@ -4107,82 +4019,80 @@ class TestUpdatePresenceStatus:
     """Tests for AulaApiClient.update_presence_status method."""
 
     @pytest.fixture
-    def mock_client(self):
-        """Create a mock API client whose request layer records the call."""
-        client = AulaApiClient(http_client=AsyncMock(), access_token="test_token")
-        mock_response = HttpResponse(status_code=200, data={"status": {"code": 200}, "data": True})
-        mock_response.raise_for_status = MagicMock()  # type: ignore[assignment]
-        client._request_with_version_retry = AsyncMock(return_value=mock_response)
-        return client
+    def http(self):
+        http = FakeHttpClient()
+        http.aula(UPDATE_STATUS, ok(True))
+        return http
+
+    @pytest.fixture
+    def client(self, http):
+        return AulaApiClient(http)
 
     @staticmethod
-    def _call(mock_client):
-        """Return the recorded (args, kwargs) of the request."""
-        return mock_client._request_with_version_retry.await_args
+    def _sent(http):
+        """Return the one recorded request."""
+        [call] = http.calls(UPDATE_STATUS)
+        return call
 
     @pytest.mark.asyncio
-    async def test_posts_sick_status_for_profile_ids(self, mock_client):
+    async def test_posts_sick_status_for_profile_ids(self, client, http):
         """The sick report is a POST of profile IDs plus the status number."""
         from aula.models.presence import PresenceState
 
-        result = await mock_client.update_presence_status([201, 202], PresenceState.SICK)
+        result = await client.update_presence_status([201, 202], PresenceState.SICK)
 
-        method, url = self._call(mock_client).args
-        assert method == "post"
-        assert url.endswith("?method=presence.updateStatusByInstitutionProfileIds")
-        assert self._call(mock_client).kwargs["json"] == {
+        sent = self._sent(http)
+        assert sent.method == "post"
+        assert sent.url.endswith("?method=presence.updateStatusByInstitutionProfileIds")
+        assert sent.json == {
             "institutionProfileIds": [201, 202],
             "status": 1,
         }
         assert result is True
 
     @pytest.mark.asyncio
-    async def test_undo_sends_not_present(self, mock_client):
+    async def test_undo_sends_not_present(self, client, http):
         """Taking the report back is the same call with a different status."""
         from aula.models.presence import PresenceState
 
-        await mock_client.update_presence_status([201], PresenceState.NOT_PRESENT)
+        await client.update_presence_status([201], PresenceState.NOT_PRESENT)
 
-        assert self._call(mock_client).kwargs["json"]["status"] == 0
+        assert self._sent(http).json["status"] == 0
 
     @pytest.mark.asyncio
-    async def test_accepts_raw_int_for_compatibility(self, mock_client):
+    async def test_accepts_raw_int_for_compatibility(self, client, http):
         """A status Aula adds later still reaches the backend."""
-        await mock_client.update_presence_status([201], 42)
+        await client.update_presence_status([201], 42)
 
-        assert self._call(mock_client).kwargs["json"]["status"] == 42
+        assert self._sent(http).json["status"] == 42
 
     @pytest.mark.asyncio
-    async def test_returns_the_boolean_aula_answers_with(self, mock_client):
+    async def test_returns_the_boolean_aula_answers_with(self, client, http):
         """A false body is reported as failure, not swallowed."""
         from aula.models.presence import PresenceState
 
-        response = HttpResponse(status_code=200, data={"status": {"code": 200}, "data": False})
-        response.raise_for_status = MagicMock()  # type: ignore[assignment]
-        mock_client._request_with_version_retry = AsyncMock(return_value=response)
+        http.aula(UPDATE_STATUS, ok(False))
 
-        assert await mock_client.update_presence_status([201], PresenceState.SICK) is False
+        assert await client.update_presence_status([201], PresenceState.SICK) is False
 
     @pytest.mark.asyncio
-    async def test_missing_data_is_treated_as_success(self, mock_client):
+    async def test_missing_data_is_treated_as_success(self, client, http):
         """Aula answering without a body is not a failure signal."""
         from aula.models.presence import PresenceState
 
-        response = HttpResponse(status_code=200, data={"status": {"code": 200}})
-        response.raise_for_status = MagicMock()  # type: ignore[assignment]
-        mock_client._request_with_version_retry = AsyncMock(return_value=response)
+        http.aula(UPDATE_STATUS, http_status(200, {"status": {"code": 0}}))
 
-        assert await mock_client.update_presence_status([201], PresenceState.SICK) is True
+        assert await client.update_presence_status([201], PresenceState.SICK) is True
 
     @pytest.mark.asyncio
-    async def test_empty_profile_ids_raises_before_the_request(self, mock_client):
+    async def test_empty_profile_ids_raises_before_the_request(self, client, http):
         """An empty list would write nothing, so it is a caller error."""
         from aula.models.presence import PresenceState
 
         with pytest.raises(ValueError, match="at least one profile ID"):
-            await mock_client.update_presence_status([], PresenceState.SICK)
+            await client.update_presence_status([], PresenceState.SICK)
 
-        mock_client._request_with_version_retry.assert_not_awaited()
+        assert http.requests == []
 
 
 class TestValidateVacation:
@@ -4247,26 +4157,26 @@ class TestAddVacation:
         monkeypatch.setattr("aula.api_client.aula_today", lambda: self.TODAY)
 
     @staticmethod
-    def _client(*responses):
-        """A client whose transport answers with ``responses`` in turn."""
-        http = AsyncMock()
-        http.request.side_effect = list(responses)
-        http.get_cookie = MagicMock(return_value=None)
-        return AulaApiClient(http_client=http), http
+    def _client(*answers):
+        """A client whose transport answers calendar.addVacation with ``answers`` in turn."""
+        http = FakeHttpClient()
+        if answers:
+            http.aula(ADD_VACATION, *answers)
+        return AulaApiClient(http), http
 
     @pytest.mark.asyncio
     async def test_posts_the_portal_payload_to_add_vacation(self):
         """The body must match what the guardian portal sends, key for key."""
-        client, http = self._client(HttpResponse(200, {"status": {"code": 0}, "data": None}))
+        client, http = self._client(ok())
 
         result = await client.add_vacation(
             [201, 202], date(2026, 11, 2), date(2026, 11, 6), "Familietur"
         )
 
-        method, url = http.request.await_args.args
-        assert method == "post"
-        assert url == f"{API_URL}{API_VERSION}?method=calendar.addVacation"
-        assert http.request.await_args.kwargs["json"] == {
+        [sent] = http.calls(ADD_VACATION)
+        assert sent.method == "post"
+        assert sent.url == f"{API_URL}{API_VERSION}?method=calendar.addVacation"
+        assert sent.json == {
             "childIds": [201, 202],
             "intervals": [{"startDate": "2026-11-02", "endDate": "2026-11-06"}],
             "comment": "Familietur",
@@ -4276,11 +4186,11 @@ class TestAddVacation:
     @pytest.mark.asyncio
     async def test_omitted_comment_is_sent_as_empty_string(self):
         """The portal sends an empty string, not null or a missing key."""
-        client, http = self._client(HttpResponse(200, {"status": {"code": 0}}))
+        client, http = self._client(http_status(200, {"status": {"code": 0}}))
 
         await client.add_vacation([201], self.TODAY, self.TODAY)
 
-        assert http.request.await_args.kwargs["json"]["comment"] == ""
+        assert http.calls(ADD_VACATION)[0].json["comment"] == ""
 
     @pytest.mark.asyncio
     async def test_empty_child_ids_raise_before_the_request(self):
@@ -4290,7 +4200,7 @@ class TestAddVacation:
         with pytest.raises(ValueError, match="at least one child ID"):
             await client.add_vacation([], self.TODAY, self.TODAY)
 
-        http.request.assert_not_awaited()
+        assert http.requests == []
 
     @pytest.mark.asyncio
     @pytest.mark.parametrize(
@@ -4310,12 +4220,12 @@ class TestAddVacation:
         with pytest.raises(ValueError):
             await client.add_vacation([201], start, end, comment)
 
-        http.request.assert_not_awaited()
+        assert http.requests == []
 
     @pytest.mark.asyncio
     async def test_aula_rejection_raises(self):
         """An error envelope on HTTP 200 must not read as a registered absence."""
-        client, _ = self._client(HttpResponse(200, {"status": {"code": 10, "subCode": 33}}))
+        client, _ = self._client(rejected(10, 33))
 
         with pytest.raises(AulaRejectedError, match="calendar.addVacation"):
             await client.add_vacation([201], self.TODAY, self.TODAY)
@@ -4323,7 +4233,7 @@ class TestAddVacation:
     @pytest.mark.asyncio
     async def test_http_failure_raises(self):
         """A server error must not read as a registered absence."""
-        client, _ = self._client(HttpResponse(500, {"status": {"code": 0}}))
+        client, _ = self._client(http_status(500, {"status": {"code": 0}}))
 
         with pytest.raises(AulaServerError):
             await client.add_vacation([201], self.TODAY, self.TODAY)

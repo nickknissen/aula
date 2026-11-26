@@ -290,7 +290,9 @@ class TestCreateClient:
 
     STORED_COOKIES = {"PHPSESSID": "session0001", CSRF_TOKEN_COOKIE: "csrf-token"}
     REFUSED = HttpResponse(200, {"status": {"code": 10}})
-    OK = HttpResponse(200, {"status": {"code": 0}, "data": {"ok": True}})
+    OK = HttpResponse(
+        200, {"status": {"code": 0}, "data": {"threads": [{"id": "1000001", "subject": "Emne"}]}}
+    )
 
     async def _refreshed_client(self, http: FakeHttpClient, *answers: HttpResponse):
         api = f"{API_URL}{API_VERSION}"
@@ -316,9 +318,9 @@ class TestCreateClient:
             new_callable=AsyncMock,
             return_value={"access_token": "access-2"},
         ):
-            response = await client._request_with_version_retry("get", url)
+            threads = await client.get_message_threads()
 
-        assert response.json()["data"] == {"ok": True}
+        assert [thread.thread_id for thread in threads] == ["1000001"]
         assert len(http.requests_to(url)) == 3
         assert http.cookies == self.STORED_COOKIES
 
@@ -335,7 +337,7 @@ class TestCreateClient:
             ),
             pytest.raises(AulaRejectedError),
         ):
-            await client._request_with_version_retry("get", url)
+            await client.get_message_threads()
 
         assert len(http.requests_to(url)) == 3
 

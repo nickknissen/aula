@@ -94,12 +94,3 @@ async def test_recovered_auth_envelope_returns_successful_reader_result():
     )
     assert await client.get_calendar_events([100], datetime(2026, 3, 1), datetime(2026, 3, 1)) == []
     refresh.assert_awaited_once()
-
-
-@pytest.mark.asyncio
-async def test_vendor_shape_is_not_validated_as_an_aula_envelope():
-    response = HttpResponse(200, {"status": {"code": 999}, "data": []})
-    client = client_with_responses(response)
-    assert (
-        await client._request_with_version_retry("get", "https://vendor.example/data") is response
-    )
