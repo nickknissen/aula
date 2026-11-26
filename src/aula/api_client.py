@@ -586,13 +586,6 @@ class AulaApiClient:
         """The ``data`` list of a successful call, ``[]`` when it is empty."""
         return _response_data_list(await self._aula_call(method, **kwargs))
 
-    async def _aula_model[T](
-        self, method: str, parse: Callable[[dict[str, Any]], T], what: str, **kwargs: Any
-    ) -> T:
-        """The ``data`` object of a successful call, parsed by ``parse``."""
-        response = await self._aula_call(method, **kwargs)
-        return _parse_object(parse, _response_data_object(response), what, response.status_code)
-
     async def _aula_records[T](
         self,
         method: str,
@@ -602,11 +595,7 @@ class AulaApiClient:
         key: str | None = None,
         **kwargs: Any,
     ) -> list[T]:
-        """The records in ``data``, or in ``data[key]``, parsed by ``parse``.
-
-        A record that fails to parse is logged and skipped; when every record fails,
-        ``AulaResponseError`` is raised.
-        """
+        """The records in ``data``, or in ``data[key]``, parsed by ``parse``."""
         response = await self._aula_call(method, **kwargs)
         if key is None:
             items = _response_data_list(response)
@@ -1448,10 +1437,13 @@ class AulaApiClient:
             },
         )
 
-        marker = (await self._thread_messages(thread_id, 0, 1)).get("lastReadMessageId")
-        if marker != newest["id"]:
+        resp = await self._aula_call(
+            "messaging.getMessagesForThread",
+            params={"threadId": thread_id, "page": 0, "limit": 1},
+        )
+        if _response_data_object(resp).get("lastReadMessageId") != newest["id"]:
             raise HttpRequestError(
-                f"Aula did not confirm the read marker of thread {thread_id}", 200
+                f"Aula did not confirm the read marker of thread {thread_id}", resp.status_code
             )
         return True
 
