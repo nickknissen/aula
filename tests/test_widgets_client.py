@@ -71,7 +71,10 @@ def _aula_client(
 
 
 def _sent(http: FakeHttpClient) -> list[tuple[str, str]]:
-    return [(request.method, request.url) for request in http.requests]
+    return [
+        (request.method, request.wire_url if request.aula_method else request.url)
+        for request in http.requests
+    ]
 
 
 class _InterleavingHttpClient(FakeHttpClient):

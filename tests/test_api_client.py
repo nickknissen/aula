@@ -3861,7 +3861,7 @@ class TestUpdatePresenceStatus:
 
         sent = self._sent(http)
         assert sent.method == "post"
-        assert sent.url.endswith("?method=presence.updateStatusByInstitutionProfileIds")
+        assert sent.aula_method == "presence.updateStatusByInstitutionProfileIds"
         assert sent.json == {
             "institutionProfileIds": [201, 202],
             "status": 1,
@@ -3993,7 +3993,7 @@ class TestAddVacation:
 
         [sent] = http.calls(ADD_VACATION)
         assert sent.method == "post"
-        assert sent.url == f"{API_URL}{API_VERSION}?method=calendar.addVacation"
+        assert sent.wire_url == f"{API_URL}{API_VERSION}?method=calendar.addVacation"
         assert sent.json == {
             "childIds": [201, 202],
             "intervals": [{"startDate": "2026-11-02", "endDate": "2026-11-06"}],
