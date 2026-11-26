@@ -37,6 +37,31 @@ ACTIVITY = "presence.getActivityOverview"
 UPDATE_TEMPLATE = "presence.updatePresenceTemplate"
 UPDATE_STATUS = "presence.updateStatusByInstitutionProfileIds"
 ADD_VACATION = "calendar.addVacation"
+THREADS = "messaging.getThreads"
+THREAD_MESSAGES = "messaging.getMessagesForThread"
+SET_LAST_READ = "messaging.setLastReadMessage"
+FIND_MESSAGE = "search.findMessage"
+FOLDERS = "messaging.getFolders"
+COMMON_INBOXES = "messaging.getCommonInboxes"
+THREADS_IN_BUNDLE = "messaging.getThreadsInBundle"
+MESSAGE_INFO = "messaging.getMessageInfoLight"
+FIND_RECIPIENTS = "search.findRecipients"
+CONTACT_LIST = "profiles.getContactlist"
+CONTACT_PARENTS = "profiles.getContactParents"
+CALENDAR = "calendar.getEventsByProfileIdsAndResourceIds"
+EVENT = "calendar.getEventById"
+IMPORTANT_DATES = "calendar.getImportantDates"
+BIRTHDAYS = "calendar.getBirthdayEventsForInstitutions"
+GROUP_BIRTHDAYS = "calendar.getBirthdayEventsForGroup"
+EVENT_TYPES = "calendar.getEventTypes"
+DAILY_AGGREGATED = "calendar.getDailyAggregatedEvents"
+INSTITUTION_EVENTS = "calendar.getEventsForInstitutions"
+GROUP_EVENT_COUNT = "calendar.getDailyEventCountForGroup"
+GROUP_EVENTS = "calendar.geteventsbygroupid"
+POSTS = "posts.getAllPosts"
+POST = "posts.getById"
+COMMENTS = "comments.getComments"
+NOTIFICATIONS = "notifications.getNotificationsForActiveProfile"
 
 
 def search_hit(message):
@@ -352,56 +377,55 @@ class TestGetMessageThreads:
     """Tests for AulaApiClient.get_message_threads method."""
 
     @pytest.fixture
-    def client(self):
-        http_client = AsyncMock()
-        return AulaApiClient(http_client=http_client, access_token="test_token")
+    def http(self):
+        return FakeHttpClient()
+
+    @pytest.fixture
+    def client(self, http):
+        return AulaApiClient(http)
 
     @pytest.mark.asyncio
-    async def test_happy_path(self, client):
+    async def test_happy_path(self, client, http):
         """Valid threads response is parsed."""
-        client._request_with_version_retry = AsyncMock(
-            return_value=HttpResponse(
-                status_code=200,
-                data={
-                    "data": {
-                        "threads": [
-                            {"id": "t1", "subject": "Hello"},
-                            {"id": "t2", "subject": "World"},
-                        ]
-                    }
-                },
-            )
+        http.aula(
+            THREADS,
+            ok(
+                {
+                    "threads": [
+                        {"id": "t1", "subject": "Hello"},
+                        {"id": "t2", "subject": "World"},
+                    ]
+                }
+            ),
         )
         threads = await client.get_message_threads()
         assert len(threads) == 2
         assert threads[0].subject == "Hello"
+        query = http.calls(THREADS)[0].query
+        assert (query["sortOn"], query["orderDirection"], query["page"]) == ("date", "desc", "0")
 
     @pytest.mark.asyncio
-    async def test_threads_carry_their_parsed_fields(self, client):
-        client._request_with_version_retry = AsyncMock(
-            return_value=HttpResponse(
-                status_code=200,
-                data={
-                    "data": {
-                        "threads": [
-                            {
-                                "id": 1000001,
-                                "subject": "Emne Et",
-                                "read": True,
-                                "latestMessage": {
-                                    "id": "1000003",
-                                    "sendDateTime": "2026-11-03T14:30:00+01:00",
-                                    "text": {"html": "<p>Besked Et</p>"},
-                                },
-                                "recipients": [{"fullName": "Værge Et", "shortName": "VE"}],
-                                "regardingChildren": [
-                                    {"profileId": 1000008, "displayName": "Barn Et"}
-                                ],
-                            }
-                        ]
-                    }
-                },
-            )
+    async def test_threads_carry_their_parsed_fields(self, client, http):
+        http.aula(
+            THREADS,
+            ok(
+                {
+                    "threads": [
+                        {
+                            "id": 1000001,
+                            "subject": "Emne Et",
+                            "read": True,
+                            "latestMessage": {
+                                "id": "1000003",
+                                "sendDateTime": "2026-11-03T14:30:00+01:00",
+                                "text": {"html": "<p>Besked Et</p>"},
+                            },
+                            "recipients": [{"fullName": "Værge Et", "shortName": "VE"}],
+                            "regardingChildren": [{"profileId": 1000008, "displayName": "Barn Et"}],
+                        }
+                    ]
+                }
+            ),
         )
         [thread] = await client.get_message_threads()
         assert thread.thread_id == "1000001"
@@ -413,40 +437,31 @@ class TestGetMessageThreads:
         assert [c.profile_id for c in thread.regarding_children] == [1000008]
 
     @pytest.mark.asyncio
-    async def test_empty_threads(self, client):
+    async def test_empty_threads(self, client, http):
         """Empty threads list returns empty."""
-        client._request_with_version_retry = AsyncMock(
-            return_value=HttpResponse(status_code=200, data={"data": {"threads": []}})
-        )
+        http.aula(THREADS, ok({"threads": []}))
         assert await client.get_message_threads() == []
 
     @pytest.mark.asyncio
-    async def test_malformed_thread_skipped(self, client, caplog):
+    async def test_malformed_thread_skipped(self, client, http, caplog):
         """Malformed thread entry is skipped."""
-        client._request_with_version_retry = AsyncMock(
-            return_value=HttpResponse(
-                status_code=200,
-                data={
-                    "data": {
-                        "threads": [
-                            {"id": "t1", "subject": "Good"},
-                            {"id": "t2", "subject": "Also Good"},
-                        ]
-                    }
-                },
-            )
+        http.aula(
+            THREADS,
+            ok(
+                {
+                    "threads": [
+                        {"id": "t1", "subject": "Good"},
+                        {"id": "t2", "subject": "Also Good"},
+                    ]
+                }
+            ),
         )
         threads = await client.get_message_threads()
         assert len(threads) == 2
 
     @pytest.mark.asyncio
-    async def test_a_thread_that_is_not_an_object_is_skipped(self, client):
-        client._request_with_version_retry = AsyncMock(
-            return_value=HttpResponse(
-                status_code=200,
-                data={"data": {"threads": ["t1", {"id": "t2", "subject": "Good"}]}},
-            )
-        )
+    async def test_a_thread_that_is_not_an_object_is_skipped(self, client, http):
+        http.aula(THREADS, ok({"threads": ["t1", {"id": "t2", "subject": "Good"}]}))
         threads = await client.get_message_threads()
         assert [thread.thread_id for thread in threads] == ["t2"]
 
@@ -455,94 +470,91 @@ class TestGetMessagesForThread:
     """Tests for AulaApiClient.get_messages_for_thread method."""
 
     @pytest.fixture
-    def client(self):
-        http_client = AsyncMock()
-        return AulaApiClient(http_client=http_client, access_token="test_token")
+    def http(self):
+        return FakeHttpClient()
+
+    @pytest.fixture
+    def client(self, http):
+        return AulaApiClient(http)
 
     @pytest.mark.asyncio
-    async def test_happy_path(self, client):
+    async def test_happy_path(self, client, http):
         """Valid messages response is parsed."""
-        client._request_with_version_retry = AsyncMock(
-            return_value=HttpResponse(
-                status_code=200,
-                data={
-                    "data": {
-                        "messages": [
-                            {
-                                "id": "m1",
-                                "messageType": "Message",
-                                "text": {"html": "<p>Hello</p>"},
-                            }
-                        ]
-                    }
-                },
-            )
+        http.aula(
+            THREAD_MESSAGES,
+            ok(
+                {
+                    "messages": [
+                        {
+                            "id": "m1",
+                            "messageType": "Message",
+                            "text": {"html": "<p>Hello</p>"},
+                        }
+                    ]
+                }
+            ),
         )
         messages = await client.get_messages_for_thread("t1", limit=5)
         assert len(messages) == 1
         assert messages[0].id == "m1"
+        query = http.calls(THREAD_MESSAGES)[0].query
+        assert (query["threadId"], query["page"], query["limit"]) == ("t1", "0", "5")
 
     @pytest.mark.asyncio
-    async def test_non_message_type_skipped(self, client):
+    async def test_non_message_type_skipped(self, client, http):
         """Non-Message types are skipped."""
-        client._request_with_version_retry = AsyncMock(
-            return_value=HttpResponse(
-                status_code=200,
-                data={
-                    "data": {
-                        "messages": [
-                            {"id": "m1", "messageType": "SystemMessage", "text": "hi"},
-                            {
-                                "id": "m2",
-                                "messageType": "Message",
-                                "text": {"html": "<p>Real</p>"},
-                            },
-                        ]
-                    }
-                },
-            )
+        http.aula(
+            THREAD_MESSAGES,
+            ok(
+                {
+                    "messages": [
+                        {"id": "m1", "messageType": "SystemMessage", "text": "hi"},
+                        {
+                            "id": "m2",
+                            "messageType": "Message",
+                            "text": {"html": "<p>Real</p>"},
+                        },
+                    ]
+                }
+            ),
         )
         messages = await client.get_messages_for_thread("t1", limit=5)
         assert len(messages) == 1
         assert messages[0].id == "m2"
 
     @pytest.mark.asyncio
-    async def test_limit_respected(self, client):
+    async def test_limit_respected(self, client, http):
         """Limit on number of messages is respected."""
-        client._request_with_version_retry = AsyncMock(
-            return_value=HttpResponse(
-                status_code=200,
-                data={
-                    "data": {
-                        "messages": [
-                            {
-                                "id": f"m{i}",
-                                "messageType": "Message",
-                                "text": {"html": f"<p>{i}</p>"},
-                            }
-                            for i in range(10)
-                        ]
-                    }
-                },
-            )
+        http.aula(
+            THREAD_MESSAGES,
+            ok(
+                {
+                    "messages": [
+                        {
+                            "id": f"m{i}",
+                            "messageType": "Message",
+                            "text": {"html": f"<p>{i}</p>"},
+                        }
+                        for i in range(10)
+                    ]
+                }
+            ),
         )
         messages = await client.get_messages_for_thread("t1", limit=3)
         assert len(messages) == 3
 
     @pytest.mark.asyncio
-    async def test_a_message_that_is_not_an_object_is_skipped(self, client):
-        client._request_with_version_retry = AsyncMock(
-            return_value=HttpResponse(
-                status_code=200,
-                data={
-                    "data": {
-                        "messages": [
-                            "m1",
-                            {"id": "m2", "messageType": "Message", "text": {"html": "<p>2</p>"}},
-                        ]
-                    }
-                },
-            )
+    async def test_a_message_that_is_not_an_object_is_skipped(self, client, http):
+        http.aula(
+            THREAD_MESSAGES,
+            ok(
+                {
+                    "messages": [
+                        "m1",
+                        {"id": "m2", "messageType": "Message", "text": {"html": "<p>2</p>"}},
+                    ]
+                }
+            ),
         )
         messages = await client.get_messages_for_thread("t1", limit=5)
         assert [message.id for message in messages] == ["m2"]
@@ -760,57 +772,52 @@ class TestPaginationSafetyGuards:
     """Tests for MAX_PAGES safety guards in pagination methods."""
 
     @pytest.fixture
-    def client(self):
-        http_client = AsyncMock()
-        return AulaApiClient(http_client=http_client, access_token="test_token")
+    def http(self):
+        return FakeHttpClient()
+
+    @pytest.fixture
+    def client(self, http):
+        return AulaApiClient(http)
 
     @pytest.mark.asyncio
-    async def test_get_all_message_threads_stops_repeated_pages_within_max_pages(self, client):
+    async def test_get_all_message_threads_stops_repeated_pages_within_max_pages(
+        self, client, http
+    ):
         """get_all_message_threads stops at MAX_PAGES."""
         # Return threads with recent dates so cutoff never triggers
-        client._request_with_version_retry = AsyncMock(
-            return_value=HttpResponse(
-                status_code=200,
-                data={"data": {"threads": [thread_item("t1", "2026-12-01T00:00:00+01:00")]}},
-            )
-        )
+        http.aula(THREADS, ok({"threads": [thread_item("t1", "2026-12-01T00:00:00+01:00")]}))
 
         with patch("aula.api_client.MAX_PAGES", 3):
             result = await client.get_all_message_threads(date(2020, 1, 1))
 
-        assert client._request_with_version_retry.call_count == 2
+        assert [call.query["page"] for call in http.calls(THREADS)] == ["0", "1"]
         assert len(result) == 1
 
     @pytest.mark.asyncio
-    async def test_get_all_messages_for_thread_stops_repeated_pages_within_max_pages(self, client):
+    async def test_get_all_messages_for_thread_stops_repeated_pages_within_max_pages(
+        self, client, http
+    ):
         """get_all_messages_for_thread stops at MAX_PAGES."""
-        client._request_with_version_retry = AsyncMock(
-            return_value=HttpResponse(
-                status_code=200,
-                data={"data": {"messages": [{"id": "m1", "text": "hello"}]}},
-            )
-        )
+        http.aula(THREAD_MESSAGES, ok({"messages": [{"id": "m1", "text": "hello"}]}))
 
         with patch("aula.api_client.MAX_PAGES", 3):
             result = await client.get_all_messages_for_thread("t1")
 
-        assert client._request_with_version_retry.call_count == 2
+        assert [call.query["page"] for call in http.calls(THREAD_MESSAGES)] == ["0", "1"]
         assert len(result) == 1
 
     @pytest.mark.asyncio
-    async def test_search_messages_stops_repeated_pages_within_max_pages(self, client):
+    async def test_search_messages_stops_repeated_pages_within_max_pages(self, client, http):
         """search_messages stops at MAX_PAGES."""
         # Return results that never exhaust totalSize so pagination continues
-        client._request_with_version_retry = AsyncMock(
-            return_value=HttpResponse(
-                status_code=200,
-                data={
-                    "data": {
-                        "results": [search_hit({"id": "m1", "text": {"html": "<p>hi</p>"}})],
-                        "totalSize": 99999,
-                    }
-                },
-            )
+        http.aula(
+            FIND_MESSAGE,
+            ok(
+                {
+                    "results": [search_hit({"id": "m1", "text": {"html": "<p>hi</p>"}})],
+                    "totalSize": 99999,
+                }
+            ),
         )
 
         with patch("aula.api_client.MAX_PAGES", 3):
@@ -821,47 +828,33 @@ class TestPaginationSafetyGuards:
                 limit=1,
             )
 
-        assert client._request_with_version_retry.call_count == 2
+        assert [call.json["offset"] for call in http.calls(FIND_MESSAGE)] == [0, 1]
         assert len(result) == 1
 
     @pytest.mark.asyncio
-    async def test_get_all_message_threads_stops_on_empty(self, client):
+    async def test_get_all_message_threads_stops_on_empty(self, client, http):
         """get_all_message_threads stops when no threads returned (before MAX_PAGES)."""
-        client._request_with_version_retry = AsyncMock(
-            side_effect=[
-                HttpResponse(
-                    status_code=200,
-                    data={"data": {"threads": [thread_item("t1", "2026-12-01T00:00:00+01:00")]}},
-                ),
-                HttpResponse(
-                    status_code=200,
-                    data={"data": {"threads": []}},
-                ),
-            ]
+        http.aula(
+            THREADS,
+            ok({"threads": [thread_item("t1", "2026-12-01T00:00:00+01:00")]}),
+            ok({"threads": []}),
         )
 
         result = await client.get_all_message_threads(date(2020, 1, 1))
-        assert client._request_with_version_retry.call_count == 2
+        assert [call.query["page"] for call in http.calls(THREADS)] == ["0", "1"]
         assert len(result) == 1
 
     @pytest.mark.asyncio
-    async def test_get_all_messages_for_thread_stops_on_empty(self, client):
+    async def test_get_all_messages_for_thread_stops_on_empty(self, client, http):
         """get_all_messages_for_thread stops when no messages returned."""
-        client._request_with_version_retry = AsyncMock(
-            side_effect=[
-                HttpResponse(
-                    status_code=200,
-                    data={"data": {"messages": [{"id": "m1", "text": "hi"}]}},
-                ),
-                HttpResponse(
-                    status_code=200,
-                    data={"data": {"messages": []}},
-                ),
-            ]
+        http.aula(
+            THREAD_MESSAGES,
+            ok({"messages": [{"id": "m1", "text": "hi"}]}),
+            ok({"messages": []}),
         )
 
         result = await client.get_all_messages_for_thread("t1")
-        assert client._request_with_version_retry.call_count == 2
+        assert [call.query["page"] for call in http.calls(THREAD_MESSAGES)] == ["0", "1"]
         assert len(result) == 1
 
 
@@ -1556,12 +1549,12 @@ class TestGetCalendarEvents:
     """Tests for AulaApiClient.get_calendar_events method."""
 
     @pytest.fixture
-    def client(self):
-        http_client = AsyncMock()
-        c = AulaApiClient(http_client=http_client, access_token="test_token")
-        c._access_token = None
-        c._csrf_token = "csrf"
-        return c
+    def http(self):
+        return FakeHttpClient()
+
+    @pytest.fixture
+    def client(self, http):
+        return AulaApiClient(http)
 
     @pytest.mark.asyncio
     @pytest.mark.parametrize(
@@ -1575,15 +1568,13 @@ class TestGetCalendarEvents:
         ],
         ids=["naive", "local-dates-reversed-despite-ordered-instants"],
     )
-    async def test_reversed_dates_raise_before_http_request(self, start, end):
-        http_client = AsyncMock()
-        http_client.request.return_value = HttpResponse(status_code=200, data={"data": []})
-        client = AulaApiClient(http_client=http_client, access_token="test_token")
+    async def test_reversed_dates_raise_before_http_request(self, client, http, start, end):
+        http.aula(CALENDAR, ok([]))
 
         with pytest.raises(ValueError, match="start date.*end date"):
             await client.get_calendar_events([100], start, end)
 
-        http_client.request.assert_not_awaited()
+        assert http.requests == []
 
     @pytest.mark.asyncio
     @pytest.mark.parametrize(
@@ -1629,13 +1620,12 @@ class TestGetCalendarEvents:
         ],
     )
     async def test_valid_dates_preserve_whole_day_request_and_parse_events(
-        self, start, end, expected_start, expected_end
+        self, client, http, start, end, expected_start, expected_end
     ):
-        http_client = AsyncMock()
-        http_client.request.return_value = HttpResponse(
-            status_code=200,
-            data={
-                "data": [
+        http.aula(
+            CALENDAR,
+            ok(
+                [
                     {
                         "id": 1,
                         "title": "Math",
@@ -1644,9 +1634,8 @@ class TestGetCalendarEvents:
                         "belongsToProfiles": [100],
                     }
                 ]
-            },
+            ),
         )
-        client = AulaApiClient(http_client=http_client, access_token="test_token")
 
         events = await client.get_calendar_events(
             [100], datetime.fromisoformat(start), datetime.fromisoformat(end)
@@ -1655,8 +1644,9 @@ class TestGetCalendarEvents:
         assert len(events) == 1
         assert events[0].id == 1
         assert events[0].title == "Math"
-        http_client.request.assert_awaited_once()
-        assert http_client.request.call_args.kwargs["json"] == {
+        [call] = http.calls(CALENDAR)
+        assert call.method == "post"
+        assert call.json == {
             "instProfileIds": [100],
             "resourceIds": [],
             "start": expected_start,
@@ -1664,7 +1654,7 @@ class TestGetCalendarEvents:
         }
 
     @pytest.mark.asyncio
-    async def test_happy_path_with_lesson(self, client):
+    async def test_happy_path_with_lesson(self, client, http):
         """Events with lesson participants are parsed correctly."""
         raw_events = [
             {
@@ -1683,9 +1673,7 @@ class TestGetCalendarEvents:
                 },
             }
         ]
-        client._request_with_version_retry = AsyncMock(
-            return_value=HttpResponse(status_code=200, data={"data": raw_events})
-        )
+        http.aula(CALENDAR, ok(raw_events))
 
         events = await client.get_calendar_events([100], datetime(2026, 3, 1), datetime(2026, 3, 1))
 
@@ -1698,16 +1686,14 @@ class TestGetCalendarEvents:
         assert events[0].belongs_to == 100
 
     @pytest.mark.asyncio
-    async def test_empty_events_list(self, client):
+    async def test_empty_events_list(self, client, http):
         """Empty events list returns empty."""
-        client._request_with_version_retry = AsyncMock(
-            return_value=HttpResponse(status_code=200, data={"data": []})
-        )
+        http.aula(CALENDAR, ok([]))
         events = await client.get_calendar_events([100], datetime(2026, 3, 1), datetime(2026, 3, 1))
         assert events == []
 
     @pytest.mark.asyncio
-    async def test_event_with_no_lesson(self, client):
+    async def test_event_with_no_lesson(self, client, http):
         """Event with no lesson data uses graceful defaults."""
         raw_events = [
             {
@@ -1719,9 +1705,7 @@ class TestGetCalendarEvents:
                 "lesson": None,
             }
         ]
-        client._request_with_version_retry = AsyncMock(
-            return_value=HttpResponse(status_code=200, data={"data": raw_events})
-        )
+        http.aula(CALENDAR, ok(raw_events))
 
         events = await client.get_calendar_events([100], datetime(2026, 3, 2), datetime(2026, 3, 2))
 
@@ -1731,7 +1715,7 @@ class TestGetCalendarEvents:
         assert events[0].location is None
 
     @pytest.mark.asyncio
-    async def test_malformed_event_skipped(self, client, caplog):
+    async def test_malformed_event_skipped(self, client, http, caplog):
         """Malformed event is skipped and logged."""
         raw_events = [
             {"id": 1, "title": "Bad", "startDateTime": "not-a-date"},
@@ -1743,32 +1727,26 @@ class TestGetCalendarEvents:
                 "belongsToProfiles": [],
             },
         ]
-        client._request_with_version_retry = AsyncMock(
-            return_value=HttpResponse(status_code=200, data={"data": raw_events})
-        )
+        http.aula(CALENDAR, ok(raw_events))
 
         events = await client.get_calendar_events([100], datetime(2026, 3, 1), datetime(2026, 3, 1))
         assert len(events) == 1
         assert events[0].title == "Good"
 
     @pytest.mark.asyncio
-    async def test_non_list_data_raises(self, client):
-        client._request_with_version_retry = AsyncMock(
-            return_value=HttpResponse(status_code=200, data={"data": "unexpected"})
-        )
+    async def test_non_list_data_raises(self, client, http):
+        http.aula(CALENDAR, ok("unexpected"))
         with pytest.raises(AulaResponseError):
             await client.get_calendar_events([100], datetime(2026, 3, 1), datetime(2026, 3, 1))
 
     @pytest.mark.asyncio
-    async def test_null_data_returns_empty(self, client):
-        client._request_with_version_retry = AsyncMock(
-            return_value=HttpResponse(status_code=200, data={"data": None})
-        )
+    async def test_null_data_returns_empty(self, client, http):
+        http.aula(CALENDAR, ok(None))
         events = await client.get_calendar_events([100], datetime(2026, 3, 1), datetime(2026, 3, 1))
         assert events == []
 
     @pytest.mark.asyncio
-    async def test_co_taught_lesson_returned_once(self, client):
+    async def test_co_taught_lesson_returned_once(self, client, http):
         """Aula's one-row-per-adult duplicates collapse to one event."""
         raw_events = [
             {
@@ -1798,9 +1776,7 @@ class TestGetCalendarEvents:
                 },
             },
         ]
-        client._request_with_version_retry = AsyncMock(
-            return_value=HttpResponse(status_code=200, data={"data": raw_events})
-        )
+        http.aula(CALENDAR, ok(raw_events))
 
         events = await client.get_calendar_events(
             [100], datetime(2026, 9, 14), datetime(2026, 9, 14)
@@ -1810,7 +1786,7 @@ class TestGetCalendarEvents:
         assert events[0].teacher_names == ["Laerer 1", "Laerer 2"]
 
     @pytest.mark.asyncio
-    async def test_multiple_teachers_on_one_row(self, client):
+    async def test_multiple_teachers_on_one_row(self, client, http):
         """Several primary teachers inside a single row are all read."""
         raw_events = [
             {
@@ -1827,9 +1803,7 @@ class TestGetCalendarEvents:
                 },
             }
         ]
-        client._request_with_version_retry = AsyncMock(
-            return_value=HttpResponse(status_code=200, data={"data": raw_events})
-        )
+        http.aula(CALENDAR, ok(raw_events))
 
         events = await client.get_calendar_events([100], datetime(2026, 3, 1), datetime(2026, 3, 1))
 
@@ -1838,7 +1812,7 @@ class TestGetCalendarEvents:
         assert events[0].teacher_name == "Lærer Et"
 
     @pytest.mark.asyncio
-    async def test_shared_event_keeps_every_profile_and_its_type(self, client):
+    async def test_shared_event_keeps_every_profile_and_its_type(self, client, http):
         """A lesson twins share names both children, not just the first."""
         raw_events = [
             {
@@ -1850,9 +1824,7 @@ class TestGetCalendarEvents:
                 "belongsToProfiles": [100, 200],
             }
         ]
-        client._request_with_version_retry = AsyncMock(
-            return_value=HttpResponse(status_code=200, data={"data": raw_events})
-        )
+        http.aula(CALENDAR, ok(raw_events))
 
         events = await client.get_calendar_events(
             [100, 200], datetime(2026, 3, 1), datetime(2026, 3, 1)
@@ -1864,7 +1836,7 @@ class TestGetCalendarEvents:
 
     @pytest.mark.asyncio
     @pytest.mark.parametrize("profiles", [None, "100", [None, "100"]])
-    async def test_unusable_profiles_keep_the_event_unowned(self, client, profiles):
+    async def test_unusable_profiles_keep_the_event_unowned(self, client, http, profiles):
         """An event whose profiles cannot be read is kept, belonging to no one."""
         raw_events = [
             {
@@ -1875,9 +1847,7 @@ class TestGetCalendarEvents:
                 "belongsToProfiles": profiles,
             }
         ]
-        client._request_with_version_retry = AsyncMock(
-            return_value=HttpResponse(status_code=200, data={"data": raw_events})
-        )
+        http.aula(CALENDAR, ok(raw_events))
 
         events = await client.get_calendar_events([100], datetime(2026, 3, 1), datetime(2026, 3, 1))
 
@@ -1905,27 +1875,25 @@ class TestGetCalendarEventsByChild:
         }
 
     @pytest.fixture
-    def client(self):
-        c = AulaApiClient(http_client=AsyncMock(), access_token="test_token")
-        c._request_with_version_retry = AsyncMock()
-        c.get_meeting_bookings = AsyncMock(return_value=[])
-        return c
+    def http(self):
+        return FakeHttpClient()
 
-    def _answer(self, client, rows):
-        client._request_with_version_retry.return_value = HttpResponse(
-            status_code=200, data={"status": {"code": 0}, "data": rows}
-        )
+    @pytest.fixture
+    def client(self, http):
+        return AulaApiClient(http)
 
     @pytest.mark.asyncio
-    async def test_shared_event_is_listed_under_every_child_it_names(self, client):
+    async def test_shared_event_is_listed_under_every_child_it_names(self, client, http):
         """Twins in one class both get the shared lesson."""
-        self._answer(
-            client,
-            [
-                self._row(1, "Math", [100, 200]),
-                self._row(2, "Music", [200]),
-                self._row(3, "Other family", [300]),
-            ],
+        http.aula(
+            CALENDAR,
+            ok(
+                [
+                    self._row(1, "Math", [100, 200]),
+                    self._row(2, "Music", [200]),
+                    self._row(3, "Other family", [300]),
+                ]
+            ),
         )
 
         calendars = await client.get_calendar_events_by_child([100, 200], self.START, self.END)
@@ -1935,15 +1903,12 @@ class TestGetCalendarEventsByChild:
             200: [1, 2],
         }
         # One calendar request covers both children.
-        client._request_with_version_retry.assert_awaited_once()
-        assert client._request_with_version_retry.call_args.kwargs["json"]["instProfileIds"] == [
-            100,
-            200,
-        ]
+        [call] = http.calls(CALENDAR)
+        assert call.json["instProfileIds"] == [100, 200]
 
     @pytest.mark.asyncio
-    async def test_every_requested_child_has_a_list(self, client):
-        self._answer(client, [])
+    async def test_every_requested_child_has_a_list(self, client, http):
+        http.aula(CALENDAR, ok([]))
 
         assert await client.get_calendar_events_by_child([100, 200], self.START, self.END) == {
             100: [],
@@ -1951,30 +1916,28 @@ class TestGetCalendarEventsByChild:
         }
 
     @pytest.mark.asyncio
-    async def test_no_meeting_in_range_makes_no_booking_requests(self, client):
-        self._answer(client, [self._row(1, "Math", [100])])
+    async def test_no_meeting_in_range_makes_no_booking_requests(self, client, http):
+        http.aula(CALENDAR, ok([self._row(1, "Math", [100])]))
 
         await client.get_calendar_events_by_child([100, 200], self.START, self.END)
 
-        client.get_meeting_bookings.assert_not_awaited()
+        assert len(http.calls(CALENDAR)) == 1
 
     @pytest.mark.asyncio
-    async def test_meeting_reads_each_childs_bookings_over_the_same_whole_days(self, client):
-        self._answer(client, [self._row(42, "Samtale", [100], "school_home_meeting")])
+    async def test_meeting_reads_each_childs_bookings_over_the_same_whole_days(self, client, http):
+        http.aula(CALENDAR, ok([self._row(42, "Samtale", [100], "school_home_meeting")]), ok([]))
 
         await client.get_calendar_events_by_child([100, 200], self.START, self.END)
 
-        calls = client.get_meeting_bookings.await_args_list
-        assert [call.args[0] for call in calls] == [100, 200]
-        _, start, end = calls[0].args
-        assert start == datetime(2026, 3, 2, tzinfo=UTC)
-        assert end == datetime(2026, 3, 7, tzinfo=UTC)
+        _, *booking_reads = http.calls(CALENDAR)
+        assert [read.json["instProfileIds"] for read in booking_reads] == [[100], [200]]
+        assert booking_reads[0].json["start"] == "2026-03-02 00:00:00.000000+0000"
+        assert booking_reads[0].json["end"] == "2026-03-07 00:00:00.000000+0000"
 
     @pytest.mark.asyncio
-    async def test_failed_booking_read_keeps_that_childs_calendar(self, client, caplog):
+    async def test_failed_booking_read_keeps_that_childs_calendar(self, client, http, caplog):
         meeting = self._row(42, "Samtale", [100], "school_home_meeting")
-        self._answer(client, [meeting])
-        client.get_meeting_bookings.side_effect = AulaServerError("Server error", 500)
+        http.aula(CALENDAR, ok([meeting]), http_status(500))
 
         with caplog.at_level(logging.WARNING, logger="aula.api_client"):
             calendars = await client.get_calendar_events_by_child([100], self.START, self.END)
@@ -1983,9 +1946,12 @@ class TestGetCalendarEventsByChild:
         assert "Could not fetch booked meetings for child 100" in caplog.text
 
     @pytest.mark.asyncio
-    async def test_auth_error_on_booking_read_raises(self, client):
-        self._answer(client, [self._row(42, "Samtale", [100], "school_home_meeting")])
-        client.get_meeting_bookings.side_effect = AulaSessionExpiredError("expired", 401)
+    async def test_auth_error_on_booking_read_raises(self, client, http):
+        http.aula(
+            CALENDAR,
+            ok([self._row(42, "Samtale", [100], "school_home_meeting")]),
+            rejected(10, 23),
+        )
 
         with pytest.raises(AulaSessionExpiredError):
             await client.get_calendar_events_by_child([100], self.START, self.END)
@@ -2000,23 +1966,25 @@ class TestGetCalendarEventsByChild:
         ],
         ids=["naive-start", "naive-end", "reversed"],
     )
-    async def test_invalid_bounds_make_no_requests(self, client, start, end):
+    async def test_invalid_bounds_make_no_requests(self, client, http, start, end):
         with pytest.raises(ValueError):
             await client.get_calendar_events_by_child([100], start, end)
-        client._request_with_version_retry.assert_not_awaited()
+        assert http.requests == []
 
 
 class TestGetPosts:
     """Tests for AulaApiClient.get_posts method."""
 
     @pytest.fixture
-    def client(self):
-        http_client = AsyncMock()
-        c = AulaApiClient(http_client=http_client, access_token="test_token")
-        return c
+    def http(self):
+        return FakeHttpClient()
+
+    @pytest.fixture
+    def client(self, http):
+        return AulaApiClient(http)
 
     @pytest.mark.asyncio
-    async def test_happy_path(self, client):
+    async def test_happy_path(self, client, http):
         """Posts with id and title are parsed via Post.from_dict."""
         posts_data = [
             {
@@ -2028,16 +1996,17 @@ class TestGetPosts:
                 "attachments": [],
             }
         ]
-        client._request_with_version_retry = AsyncMock(
-            return_value=HttpResponse(status_code=200, data={"data": {"posts": posts_data}})
-        )
+        http.aula(POSTS, ok({"posts": posts_data}))
         posts = await client.get_posts([100])
         assert len(posts) == 1
         assert posts[0].id == 10
         assert posts[0].title == "School Trip"
+        query = http.calls(POSTS)[0].query
+        assert query["parent"] == "profile"
+        assert query["institutionProfileIds[]"] == [100]
 
     @pytest.mark.asyncio
-    async def test_posts_missing_required_fields_skipped(self, client):
+    async def test_posts_missing_required_fields_skipped(self, client, http):
         """Posts without id or title are skipped."""
         posts_data = [
             {"title": "No ID"},
@@ -2050,15 +2019,13 @@ class TestGetPosts:
                 "attachments": [],
             },
         ]
-        client._request_with_version_retry = AsyncMock(
-            return_value=HttpResponse(status_code=200, data={"data": {"posts": posts_data}})
-        )
+        http.aula(POSTS, ok({"posts": posts_data}))
         posts = await client.get_posts([100])
         assert len(posts) == 1
         assert posts[0].id == 20
 
     @pytest.mark.asyncio
-    async def test_non_dict_post_data_skipped(self, client):
+    async def test_non_dict_post_data_skipped(self, client, http):
         """Non-dict entries in posts list are skipped."""
         posts_data = [
             "not a dict",
@@ -2070,59 +2037,54 @@ class TestGetPosts:
                 "attachments": [],
             },
         ]
-        client._request_with_version_retry = AsyncMock(
-            return_value=HttpResponse(status_code=200, data={"data": {"posts": posts_data}})
-        )
+        http.aula(POSTS, ok({"posts": posts_data}))
         posts = await client.get_posts([100])
         assert len(posts) == 1
         assert posts[0].id == 30
 
     @pytest.mark.asyncio
-    async def test_empty_posts(self, client):
+    async def test_empty_posts(self, client, http):
         """Empty posts list returns empty."""
-        client._request_with_version_retry = AsyncMock(
-            return_value=HttpResponse(status_code=200, data={"data": {"posts": []}})
-        )
+        http.aula(POSTS, ok({"posts": []}))
         posts = await client.get_posts([100])
         assert posts == []
 
     @pytest.mark.asyncio
     @pytest.mark.parametrize(("page", "limit", "index"), [(1, 10, 0), (2, 5, 5), (3, 10, 20)])
-    async def test_page_is_sent_as_item_offset(self, client, page, limit, index):
-        client._request_with_version_retry = AsyncMock(
-            return_value=HttpResponse(status_code=200, data={"data": {"posts": []}})
-        )
+    async def test_page_is_sent_as_item_offset(self, client, http, page, limit, index):
+        http.aula(POSTS, ok({"posts": []}))
         await client.get_posts([100], page=page, limit=limit)
-        params = client._request_with_version_retry.call_args.kwargs["params"]
-        assert params["index"] == index
-        assert params["limit"] == limit
+        query = http.calls(POSTS)[0].query
+        assert query["index"] == index
+        assert query["limit"] == limit
 
 
 class TestGetNotificationsForActiveProfile:
     """Tests for AulaApiClient.get_notifications_for_active_profile method."""
 
     @pytest.fixture
-    def client(self):
-        http_client = AsyncMock()
-        return AulaApiClient(http_client=http_client, access_token="test_token")
+    def http(self):
+        return FakeHttpClient()
+
+    @pytest.fixture
+    def client(self, http):
+        return AulaApiClient(http)
 
     @pytest.mark.asyncio
-    async def test_happy_path(self, client):
+    async def test_happy_path(self, client, http):
         """Valid notification list is parsed."""
-        client._request_with_version_retry = AsyncMock(
-            return_value=HttpResponse(
-                status_code=200,
-                data={
-                    "data": [
-                        {
-                            "id": 1,
-                            "title": "Ny besked",
-                            "module": "messaging",
-                            "createdAt": "2026-02-27T10:00:00",
-                        }
-                    ]
-                },
-            )
+        http.aula(
+            NOTIFICATIONS,
+            ok(
+                [
+                    {
+                        "id": 1,
+                        "title": "Ny besked",
+                        "module": "messaging",
+                        "createdAt": "2026-02-27T10:00:00",
+                    }
+                ]
+            ),
         )
 
         items = await client.get_notifications_for_active_profile(offset=5, limit=10)
@@ -2132,57 +2094,44 @@ class TestGetNotificationsForActiveProfile:
         assert items[0].title == "Ny besked"
         assert items[0].module == "messaging"
 
-        _, kwargs = client._request_with_version_retry.call_args
-        assert kwargs["params"]["method"] == "notifications.getNotificationsForActiveProfile"
-        assert kwargs["params"]["offset"] == 5
-        assert kwargs["params"]["limit"] == 10
+        query = http.calls(NOTIFICATIONS)[0].query
+        assert query["offset"] == 5
+        assert query["limit"] == 10
 
     @pytest.mark.asyncio
-    async def test_children_and_institution_codes_forwarded(self, client):
+    async def test_children_and_institution_codes_forwarded(self, client, http):
         """Children IDs and institution codes are included in query params."""
-        client._request_with_version_retry = AsyncMock(
-            return_value=HttpResponse(status_code=200, data={"data": []})
-        )
+        http.aula(NOTIFICATIONS, ok([]))
 
         await client.get_notifications_for_active_profile(
             children_ids=[111, 222],
             institution_codes=["G90001", "900001"],
         )
 
-        _, kwargs = client._request_with_version_retry.call_args
-        assert kwargs["params"]["activeChildrenIds[]"] == [111, 222]
-        assert kwargs["params"]["activeInstitutionCodes[]"] == ["G90001", "900001"]
+        query = http.calls(NOTIFICATIONS)[0].query
+        assert query["activeChildrenIds[]"] == [111, 222]
+        assert query["activeInstitutionCodes[]"] == ["G90001", "900001"]
 
     @pytest.mark.asyncio
-    async def test_module_filter_is_forwarded(self, client):
+    async def test_module_filter_is_forwarded(self, client, http):
         """Optional module filter is included in query params."""
-        client._request_with_version_retry = AsyncMock(
-            return_value=HttpResponse(status_code=200, data={"data": []})
-        )
+        http.aula(NOTIFICATIONS, ok([]))
 
         await client.get_notifications_for_active_profile(module="messaging")
 
-        _, kwargs = client._request_with_version_retry.call_args
-        assert kwargs["params"]["module"] == "messaging"
+        assert http.calls(NOTIFICATIONS)[0].query["module"] == "messaging"
 
     @pytest.mark.asyncio
-    async def test_non_list_data_raises(self, client):
-        client._request_with_version_retry = AsyncMock(
-            return_value=HttpResponse(status_code=200, data={"data": {"results": []}})
-        )
+    async def test_non_list_data_raises(self, client, http):
+        http.aula(NOTIFICATIONS, ok({"results": []}))
 
         with pytest.raises(AulaResponseError):
             await client.get_notifications_for_active_profile()
 
     @pytest.mark.asyncio
-    async def test_malformed_items_are_skipped(self, client):
+    async def test_malformed_items_are_skipped(self, client, http):
         """Malformed entries are skipped while valid ones are returned."""
-        client._request_with_version_retry = AsyncMock(
-            return_value=HttpResponse(
-                status_code=200,
-                data={"data": ["bad", {"id": 2, "heading": "Fallback title"}]},
-            )
-        )
+        http.aula(NOTIFICATIONS, ok(["bad", {"id": 2, "heading": "Fallback title"}]))
 
         items = await client.get_notifications_for_active_profile()
         assert len(items) == 1
@@ -2190,27 +2139,25 @@ class TestGetNotificationsForActiveProfile:
         assert items[0].title == "Fallback title"
 
     @pytest.mark.asyncio
-    async def test_notification_android_fields_are_mapped(self, client):
+    async def test_notification_android_fields_are_mapped(self, client, http):
         """Android-style notification payload keys map to model fields."""
-        client._request_with_version_retry = AsyncMock(
-            return_value=HttpResponse(
-                status_code=200,
-                data={
-                    "data": [
-                        {
-                            "notificationId": "PostSharedWithMe:3000001:Badge",
-                            "postTitle": "Afslutning for Lærer Et",
-                            "notificationArea": "Posts",
-                            "notificationEventType": "PostSharedWithMe",
-                            "notificationType": "Badge",
-                            "institutionCode": "G90001",
-                            "triggered": "2026-02-27T08:57:31+00:00",
-                            "expires": "2026-05-28T08:57:31+00:00",
-                            "postId": 3000001,
-                        }
-                    ]
-                },
-            )
+        http.aula(
+            NOTIFICATIONS,
+            ok(
+                [
+                    {
+                        "notificationId": "PostSharedWithMe:3000001:Badge",
+                        "postTitle": "Afslutning for Lærer Et",
+                        "notificationArea": "Posts",
+                        "notificationEventType": "PostSharedWithMe",
+                        "notificationType": "Badge",
+                        "institutionCode": "G90001",
+                        "triggered": "2026-02-27T08:57:31+00:00",
+                        "expires": "2026-05-28T08:57:31+00:00",
+                        "postId": 3000001,
+                    }
+                ]
+            ),
         )
 
         items = await client.get_notifications_for_active_profile(limit=1)
@@ -2226,19 +2173,9 @@ class TestGetNotificationsForActiveProfile:
         assert items[0].post_id == 3000001
 
     @pytest.mark.asyncio
-    async def test_limit_is_applied_client_side(self, client):
+    async def test_limit_is_applied_client_side(self, client, http):
         """Client-side limit protects output if API ignores limit."""
-        client._request_with_version_retry = AsyncMock(
-            return_value=HttpResponse(
-                status_code=200,
-                data={
-                    "data": [
-                        {"id": 1, "title": "A"},
-                        {"id": 2, "title": "B"},
-                    ]
-                },
-            )
-        )
+        http.aula(NOTIFICATIONS, ok([{"id": 1, "title": "A"}, {"id": 2, "title": "B"}]))
 
         items = await client.get_notifications_for_active_profile(limit=1)
         assert len(items) == 1
@@ -2249,78 +2186,67 @@ class TestSearchMessages:
     """Tests for AulaApiClient.search_messages method."""
 
     @pytest.fixture
-    def client(self):
-        http_client = AsyncMock()
-        c = AulaApiClient(http_client=http_client, access_token="test_token")
-        c._access_token = None
-        c._csrf_token = "csrf"
-        return c
+    def http(self):
+        return FakeHttpClient()
+
+    @pytest.fixture
+    def client(self, http):
+        return AulaApiClient(http)
 
     @pytest.mark.asyncio
-    async def test_single_page(self, client):
+    async def test_single_page(self, client, http):
         """Single page of results is returned."""
-        client._request_with_version_retry = AsyncMock(
-            return_value=HttpResponse(
-                status_code=200,
-                data={
-                    "data": {
-                        "results": [
-                            search_hit({"id": "m1", "text": {"html": "<p>Hello</p>"}}),
-                            search_hit({"id": "m2", "text": "Plain text"}),
-                        ],
-                        "totalSize": 2,
-                    }
-                },
-            )
+        http.aula(
+            FIND_MESSAGE,
+            ok(
+                {
+                    "results": [
+                        search_hit({"id": "m1", "text": {"html": "<p>Hello</p>"}}),
+                        search_hit({"id": "m2", "text": "Plain text"}),
+                    ],
+                    "totalSize": 2,
+                }
+            ),
         )
         messages = await client.search_messages([1], ["INST1"])
         assert len(messages) == 2
         assert messages[0].content_html == "<p>Hello</p>"
         assert messages[1].content_html == "Plain text"
+        [call] = http.calls(FIND_MESSAGE)
+        assert call.method == "post"
+        assert call.json["activeChildrenInstitutionProfileIds"] == [1]
+        assert call.json["institutionCodes"] == ["INST1"]
 
     @pytest.mark.asyncio
-    async def test_multi_page_pagination(self, client):
+    async def test_multi_page_pagination(self, client, http):
         """Pagination fetches multiple pages until offset >= totalSize."""
-        page1 = HttpResponse(
-            status_code=200,
-            data={
-                "data": {
-                    "results": [search_hit({"id": "m1", "text": "page1"})],
-                    "totalSize": 2,
-                }
-            },
+        http.aula(
+            FIND_MESSAGE,
+            ok({"results": [search_hit({"id": "m1", "text": "page1"})], "totalSize": 2}),
+            ok({"results": [search_hit({"id": "m2", "text": "page2"})], "totalSize": 2}),
         )
-        page2 = HttpResponse(
-            status_code=200,
-            data={
-                "data": {
-                    "results": [search_hit({"id": "m2", "text": "page2"})],
-                    "totalSize": 2,
-                }
-            },
-        )
-        client._request_with_version_retry = AsyncMock(side_effect=[page1, page2])
         messages = await client.search_messages([1], ["INST1"], limit=1)
         assert len(messages) == 2
-        assert client._request_with_version_retry.call_count == 2
+        assert [(c.json["offset"], c.json["limit"]) for c in http.calls(FIND_MESSAGE)] == [
+            (0, 1),
+            (1, 1),
+        ]
 
     @pytest.mark.asyncio
-    async def test_text_as_dict_vs_string(self, client):
+    async def test_text_as_dict_vs_string(self, client, http):
         """Text field handled as dict with html key or as plain string."""
-        client._request_with_version_retry = AsyncMock(
-            return_value=HttpResponse(
-                status_code=200,
-                data={
-                    "data": {
-                        "results": [
-                            search_hit({"id": "m1", "text": {"html": "<b>bold</b>"}}),
-                            search_hit({"id": "m2", "text": "plain"}),
-                            search_hit({"id": "m3", "text": 12345}),
-                        ],
-                        "totalSize": 3,
-                    }
-                },
-            )
+        http.aula(
+            FIND_MESSAGE,
+            ok(
+                {
+                    "results": [
+                        search_hit({"id": "m1", "text": {"html": "<b>bold</b>"}}),
+                        search_hit({"id": "m2", "text": "plain"}),
+                        search_hit({"id": "m3", "text": 12345}),
+                    ],
+                    "totalSize": 3,
+                }
+            ),
         )
         messages = await client.search_messages([1], ["INST1"])
         assert messages[0].content_html == "<b>bold</b>"
@@ -2328,100 +2254,92 @@ class TestSearchMessages:
         assert messages[2].content_html == ""
 
     @pytest.mark.asyncio
-    async def test_attachments_are_parsed(self, client):
+    async def test_attachments_are_parsed(self, client, http):
         """A search filtered on attachments returns them on the message."""
-        client._request_with_version_retry = AsyncMock(
-            return_value=HttpResponse(
-                status_code=200,
-                data={
-                    "data": {
-                        "results": [
-                            search_hit(
-                                {
-                                    "id": "m1",
-                                    "text": {"html": "<p>See the plan</p>"},
-                                    "attachments": [
-                                        {
-                                            "id": 5002,
+        http.aula(
+            FIND_MESSAGE,
+            ok(
+                {
+                    "results": [
+                        search_hit(
+                            {
+                                "id": "m1",
+                                "text": {"html": "<p>See the plan</p>"},
+                                "attachments": [
+                                    {
+                                        "id": 5002,
+                                        "name": "weekplan.pdf",
+                                        "file": {
                                             "name": "weekplan.pdf",
-                                            "file": {
-                                                "name": "weekplan.pdf",
-                                                "url": "https://files.example.test/weekplan.pdf",
-                                            },
-                                        }
-                                    ],
-                                }
-                            )
-                        ],
-                        "totalSize": 1,
-                    }
-                },
-            )
+                                            "url": "https://files.example.test/weekplan.pdf",
+                                        },
+                                    }
+                                ],
+                            }
+                        )
+                    ],
+                    "totalSize": 1,
+                }
+            ),
         )
         messages = await client.search_messages([1], ["INST1"], has_attachments=True)
         assert messages[0].has_attachments is True
         assert messages[0].attachments[0].url == "https://files.example.test/weekplan.pdf"
+        assert http.calls(FIND_MESSAGE)[0].json["hasAttachments"] is True
 
     @pytest.mark.asyncio
-    async def test_empty_results_stops(self, client):
+    async def test_empty_results_stops(self, client, http):
         """Empty results stops pagination immediately."""
-        client._request_with_version_retry = AsyncMock(
-            return_value=HttpResponse(
-                status_code=200,
-                data={"data": {"results": [], "totalSize": 0}},
-            )
-        )
+        http.aula(FIND_MESSAGE, ok({"results": [], "totalSize": 0}))
         messages = await client.search_messages([1], ["INST1"])
         assert messages == []
-        assert client._request_with_version_retry.call_count == 1
+        assert len(http.calls(FIND_MESSAGE)) == 1
 
 
 class TestGetAllMessageThreads:
     """Tests for AulaApiClient.get_all_message_threads cutoff logic."""
 
     @pytest.fixture
-    def client(self):
-        http_client = AsyncMock()
-        c = AulaApiClient(http_client=http_client, access_token="test_token")
-        return c
+    def http(self):
+        return FakeHttpClient()
+
+    @pytest.fixture
+    def client(self, http):
+        return AulaApiClient(http)
 
     @pytest.mark.asyncio
-    async def test_stops_at_first_thread_older_than_cutoff(self, client):
-        client._request_with_version_retry = AsyncMock(
-            return_value=HttpResponse(
-                status_code=200,
-                data={
-                    "data": {
-                        "threads": [
-                            thread_item("t1", "2026-03-01T10:00:00+01:00"),
-                            thread_item("t2", "2026-01-01T10:00:00+01:00"),
-                            thread_item("t3", "2026-03-01T10:00:00+01:00"),
-                        ]
-                    }
-                },
-            )
+    async def test_stops_at_first_thread_older_than_cutoff(self, client, http):
+        http.aula(
+            THREADS,
+            ok(
+                {
+                    "threads": [
+                        thread_item("t1", "2026-03-01T10:00:00+01:00"),
+                        thread_item("t2", "2026-01-01T10:00:00+01:00"),
+                        thread_item("t3", "2026-03-01T10:00:00+01:00"),
+                    ]
+                }
+            ),
         )
         result = await client.get_all_message_threads_result(date(2026, 2, 1))
         assert result.termination_reason == "cutoff"
         assert [thread["id"] for thread in result.items] == ["t1"]
-        assert client._request_with_version_retry.call_count == 1
+        assert [call.query["page"] for call in http.calls(THREADS)] == ["0"]
 
     @pytest.mark.asyncio
-    async def test_skips_threads_that_are_not_objects(self, client):
-        client._request_with_version_retry = AsyncMock(
-            return_value=HttpResponse(
-                status_code=200,
-                data={
-                    "data": {
-                        "threads": [
-                            None,
-                            "t0",
-                            thread_item("t1", "2026-03-01T10:00:00+01:00"),
-                            thread_item("t2", "2026-01-01T10:00:00+01:00"),
-                        ]
-                    }
-                },
-            )
+    async def test_skips_threads_that_are_not_objects(self, client, http):
+        http.aula(
+            THREADS,
+            ok(
+                {
+                    "threads": [
+                        None,
+                        "t0",
+                        thread_item("t1", "2026-03-01T10:00:00+01:00"),
+                        thread_item("t2", "2026-01-01T10:00:00+01:00"),
+                    ]
+                }
+            ),
         )
         result = await client.get_all_message_threads_result(date(2026, 2, 1))
         assert result.termination_reason == "cutoff"
@@ -2439,14 +2357,9 @@ class TestGetAllMessageThreads:
         ],
         ids=["no-latest-message", "no-send-date-time", "null", "empty", "unparseable"],
     )
-    async def test_undated_thread_does_not_stop_the_read(self, client, undated):
-        client._request_with_version_retry = AsyncMock(
-            return_value=HttpResponse(
-                status_code=200,
-                data={
-                    "data": {"threads": [undated, thread_item("t2", "2026-01-01T10:00:00+01:00")]}
-                },
-            )
+    async def test_undated_thread_does_not_stop_the_read(self, client, http, undated):
+        http.aula(
+            THREADS, ok({"threads": [undated, thread_item("t2", "2026-01-01T10:00:00+01:00")]})
         )
         result = await client.get_all_message_threads_result(date(2026, 2, 1))
         assert result.termination_reason == "cutoff"
@@ -2457,45 +2370,39 @@ class TestGetAllMessagesForThread:
     """Tests for AulaApiClient.get_all_messages_for_thread pagination."""
 
     @pytest.fixture
-    def client(self):
-        http_client = AsyncMock()
-        return AulaApiClient(http_client=http_client, access_token="test_token")
+    def http(self):
+        return FakeHttpClient()
+
+    @pytest.fixture
+    def client(self, http):
+        return AulaApiClient(http)
 
     @pytest.mark.asyncio
-    async def test_collects_across_pages(self, client):
+    async def test_collects_across_pages(self, client, http):
         """Messages are collected across multiple pages."""
-        client._request_with_version_retry = AsyncMock(
-            side_effect=[
-                HttpResponse(
-                    status_code=200,
-                    data={"data": {"messages": [{"id": "m1"}, {"id": "m2"}]}},
-                ),
-                HttpResponse(
-                    status_code=200,
-                    data={"data": {"messages": [{"id": "m3"}]}},
-                ),
-                HttpResponse(
-                    status_code=200,
-                    data={"data": {"messages": []}},
-                ),
-            ]
+        http.aula(
+            THREAD_MESSAGES,
+            ok({"messages": [{"id": "m1"}, {"id": "m2"}]}),
+            ok({"messages": [{"id": "m3"}]}),
+            ok({"messages": []}),
         )
         result = await client.get_all_messages_for_thread("t1")
         assert len(result) == 3
         assert [m["id"] for m in result] == ["m1", "m2", "m3"]
+        calls = http.calls(THREAD_MESSAGES)
+        assert [(c.query["threadId"], c.query["page"]) for c in calls] == [
+            ("t1", "0"),
+            ("t1", "1"),
+            ("t1", "2"),
+        ]
 
     @pytest.mark.asyncio
-    async def test_stops_on_empty_page(self, client):
+    async def test_stops_on_empty_page(self, client, http):
         """Stops immediately when first page is empty."""
-        client._request_with_version_retry = AsyncMock(
-            return_value=HttpResponse(
-                status_code=200,
-                data={"data": {"messages": []}},
-            )
-        )
+        http.aula(THREAD_MESSAGES, ok({"messages": []}))
         result = await client.get_all_messages_for_thread("t1")
         assert result == []
-        assert client._request_with_version_retry.call_count == 1
+        assert len(http.calls(THREAD_MESSAGES)) == 1
 
 
 class TestGetGalleryAlbums:
@@ -3185,70 +3092,61 @@ class TestGetCalendarEvent:
     """Tests for AulaApiClient.get_calendar_event method."""
 
     @pytest.fixture
-    def client(self):
-        http_client = AsyncMock()
-        return AulaApiClient(http_client=http_client, access_token="test_token")
+    def http(self):
+        return FakeHttpClient()
+
+    @pytest.fixture
+    def client(self, http):
+        return AulaApiClient(http)
 
     @pytest.mark.asyncio
-    async def test_happy_path(self, client):
-        client._request_with_version_retry = AsyncMock(
-            return_value=HttpResponse(
-                status_code=200,
-                data={"data": {"id": 1, "title": "Parent meeting"}},
-            )
-        )
+    async def test_happy_path(self, client, http):
+        http.aula(EVENT, ok({"id": 1, "title": "Parent meeting"}))
         result = await client.get_calendar_event(1)
         assert result is not None
         assert result["id"] == 1
+        query = http.calls(EVENT)[0].query
+        assert query["eventId"] == 1
+        assert "occurrenceDateTime" not in query
 
     @pytest.mark.asyncio
-    async def test_null_data(self, client):
-        client._request_with_version_retry = AsyncMock(
-            return_value=HttpResponse(status_code=200, data={"data": None})
-        )
+    async def test_null_data(self, client, http):
+        http.aula(EVENT, ok(None))
         result = await client.get_calendar_event(1)
         assert result is None
 
     @pytest.mark.asyncio
-    async def test_with_occurrence_datetime(self, client):
-        client._request_with_version_retry = AsyncMock(
-            return_value=HttpResponse(
-                status_code=200,
-                data={"data": {"id": 1, "title": "Recurring"}},
-            )
-        )
+    async def test_with_occurrence_datetime(self, client, http):
+        http.aula(EVENT, ok({"id": 1, "title": "Recurring"}))
         result = await client.get_calendar_event(1, occurrence_datetime="2026-03-16")
         assert result is not None
-        client._request_with_version_retry.assert_called_once()
-        call_kwargs = client._request_with_version_retry.call_args
-        assert call_kwargs[1]["params"]["occurrenceDateTime"] == "2026-03-16"
+        [call] = http.calls(EVENT)
+        assert call.query["occurrenceDateTime"] == "2026-03-16"
 
 
 class TestGetImportantDates:
     """Tests for AulaApiClient.get_important_dates method."""
 
     @pytest.fixture
-    def client(self):
-        http_client = AsyncMock()
-        return AulaApiClient(http_client=http_client, access_token="test_token")
+    def http(self):
+        return FakeHttpClient()
+
+    @pytest.fixture
+    def client(self, http):
+        return AulaApiClient(http)
 
     @pytest.mark.asyncio
-    async def test_happy_path(self, client):
-        client._request_with_version_retry = AsyncMock(
-            return_value=HttpResponse(
-                status_code=200,
-                data={"data": [{"id": 1, "title": "School holiday"}]},
-            )
-        )
+    async def test_happy_path(self, client, http):
+        http.aula(IMPORTANT_DATES, ok([{"id": 1, "title": "School holiday"}]))
         result = await client.get_important_dates()
         assert len(result) == 1
         assert result[0]["title"] == "School holiday"
+        query = http.calls(IMPORTANT_DATES)[0].query
+        assert (query["limit"], query["includeToday"]) == (10, True)
 
     @pytest.mark.asyncio
-    async def test_empty_data(self, client):
-        client._request_with_version_retry = AsyncMock(
-            return_value=HttpResponse(status_code=200, data={"data": []})
-        )
+    async def test_empty_data(self, client, http):
+        http.aula(IMPORTANT_DATES, ok([]))
         result = await client.get_important_dates()
         assert result == []
 
@@ -3257,27 +3155,24 @@ class TestGetBirthdayEvents:
     """Tests for AulaApiClient.get_birthday_events method."""
 
     @pytest.fixture
-    def client(self):
-        http_client = AsyncMock()
-        return AulaApiClient(http_client=http_client, access_token="test_token")
+    def http(self):
+        return FakeHttpClient()
+
+    @pytest.fixture
+    def client(self, http):
+        return AulaApiClient(http)
 
     @pytest.mark.asyncio
-    async def test_happy_path(self, client):
-        client._request_with_version_retry = AsyncMock(
-            return_value=HttpResponse(
-                status_code=200,
-                data={"data": [{"name": "Alice", "birthday": "2020-03-16"}]},
-            )
-        )
+    async def test_happy_path(self, client, http):
+        http.aula(BIRTHDAYS, ok([{"name": "Barn Et", "birthday": "2020-03-16"}]))
         result = await client.get_birthday_events(["INST1"], "2026-03-01", "2026-03-31")
         assert len(result) == 1
-        assert result[0]["name"] == "Alice"
+        assert result[0]["name"] == "Barn Et"
+        assert len(http.calls(BIRTHDAYS)) == 1
 
     @pytest.mark.asyncio
-    async def test_empty_data(self, client):
-        client._request_with_version_retry = AsyncMock(
-            return_value=HttpResponse(status_code=200, data={"data": []})
-        )
+    async def test_empty_data(self, client, http):
+        http.aula(BIRTHDAYS, ok([]))
         result = await client.get_birthday_events(["INST1"], "2026-03-01", "2026-03-31")
         assert result == []
 
@@ -3286,164 +3181,158 @@ class TestGetBirthdayEventsForGroup:
     """Tests for AulaApiClient.get_birthday_events_for_group method."""
 
     @pytest.fixture
-    def client(self):
-        http_client = AsyncMock()
-        return AulaApiClient(http_client=http_client, access_token="test_token")
+    def http(self):
+        return FakeHttpClient()
+
+    @pytest.fixture
+    def client(self, http):
+        return AulaApiClient(http)
 
     @pytest.mark.asyncio
-    async def test_happy_path(self, client):
-        client._request_with_version_retry = AsyncMock(
-            return_value=HttpResponse(
-                status_code=200,
-                data={"data": [{"name": "Bob", "birthday": "2019-05-10"}]},
-            )
-        )
+    async def test_happy_path(self, client, http):
+        http.aula(GROUP_BIRTHDAYS, ok([{"name": "Barn To", "birthday": "2019-05-10"}]))
         result = await client.get_birthday_events_for_group(42, "2026-03-01", "2026-03-31")
         assert len(result) == 1
-        assert result[0]["name"] == "Bob"
+        assert result[0]["name"] == "Barn To"
+        assert len(http.calls(GROUP_BIRTHDAYS)) == 1
 
 
 class TestGetEventTypes:
     """Tests for AulaApiClient.get_event_types method."""
 
     @pytest.fixture
-    def client(self):
-        http_client = AsyncMock()
-        return AulaApiClient(http_client=http_client, access_token="test_token")
+    def http(self):
+        return FakeHttpClient()
+
+    @pytest.fixture
+    def client(self, http):
+        return AulaApiClient(http)
 
     @pytest.mark.asyncio
-    async def test_happy_path(self, client):
-        client._request_with_version_retry = AsyncMock(
-            return_value=HttpResponse(
-                status_code=200,
-                data={"data": [{"id": 1, "name": "Meeting"}]},
-            )
-        )
+    async def test_happy_path(self, client, http):
+        http.aula(EVENT_TYPES, ok([{"id": 1, "name": "Meeting"}]))
         result = await client.get_event_types()
         assert len(result) == 1
         assert result[0]["name"] == "Meeting"
+        assert len(http.calls(EVENT_TYPES)) == 1
 
 
 class TestGetDailyAggregatedEvents:
     """Tests for AulaApiClient.get_daily_aggregated_events method."""
 
     @pytest.fixture
-    def client(self):
-        http_client = AsyncMock()
-        return AulaApiClient(http_client=http_client, access_token="test_token")
+    def http(self):
+        return FakeHttpClient()
+
+    @pytest.fixture
+    def client(self, http):
+        return AulaApiClient(http)
 
     @pytest.mark.asyncio
-    async def test_happy_path(self, client):
-        client._request_with_version_retry = AsyncMock(
-            return_value=HttpResponse(
-                status_code=200,
-                data={"data": [{"date": "2026-03-16", "count": 3}]},
-            )
-        )
+    async def test_happy_path(self, client, http):
+        http.aula(DAILY_AGGREGATED, ok([{"date": "2026-03-16", "count": 3}]))
         result = await client.get_daily_aggregated_events([1, 2], "2026-03-01", "2026-03-31")
         assert len(result) == 1
         assert result[0]["count"] == 3
+        assert len(http.calls(DAILY_AGGREGATED)) == 1
 
 
 class TestGetEventsForInstitutions:
     """Tests for AulaApiClient.get_events_for_institutions method."""
 
     @pytest.fixture
-    def client(self):
-        http_client = AsyncMock()
-        return AulaApiClient(http_client=http_client, access_token="test_token")
+    def http(self):
+        return FakeHttpClient()
+
+    @pytest.fixture
+    def client(self, http):
+        return AulaApiClient(http)
 
     @pytest.mark.asyncio
-    async def test_happy_path(self, client):
-        client._request_with_version_retry = AsyncMock(
-            return_value=HttpResponse(
-                status_code=200,
-                data={"data": [{"id": 1, "title": "School event"}]},
-            )
-        )
+    async def test_happy_path(self, client, http):
+        http.aula(INSTITUTION_EVENTS, ok([{"id": 1, "title": "School event"}]))
         result = await client.get_events_for_institutions(["INST1"], "2026-03-01", "2026-03-31")
         assert len(result) == 1
         assert result[0]["title"] == "School event"
+        assert len(http.calls(INSTITUTION_EVENTS)) == 1
 
 
 class TestGetDailyEventCountForGroup:
     """Tests for AulaApiClient.get_daily_event_count_for_group method."""
 
     @pytest.fixture
-    def client(self):
-        http_client = AsyncMock()
-        return AulaApiClient(http_client=http_client, access_token="test_token")
+    def http(self):
+        return FakeHttpClient()
+
+    @pytest.fixture
+    def client(self, http):
+        return AulaApiClient(http)
 
     @pytest.mark.asyncio
-    async def test_happy_path(self, client):
-        client._request_with_version_retry = AsyncMock(
-            return_value=HttpResponse(
-                status_code=200,
-                data={"data": [{"date": "2026-03-16", "count": 5}]},
-            )
-        )
+    async def test_happy_path(self, client, http):
+        http.aula(GROUP_EVENT_COUNT, ok([{"date": "2026-03-16", "count": 5}]))
         result = await client.get_daily_event_count_for_group(42, "2026-03-01", "2026-03-31")
         assert len(result) == 1
         assert result[0]["count"] == 5
+        assert len(http.calls(GROUP_EVENT_COUNT)) == 1
 
 
 class TestGetEventsByGroup:
     """Tests for AulaApiClient.get_events_by_group method."""
 
     @pytest.fixture
-    def client(self):
-        http_client = AsyncMock()
-        return AulaApiClient(http_client=http_client, access_token="test_token")
+    def http(self):
+        return FakeHttpClient()
+
+    @pytest.fixture
+    def client(self, http):
+        return AulaApiClient(http)
 
     @pytest.mark.asyncio
-    async def test_happy_path(self, client):
-        client._request_with_version_retry = AsyncMock(
-            return_value=HttpResponse(
-                status_code=200,
-                data={"data": [{"id": 1, "title": "Group event"}]},
-            )
-        )
+    async def test_happy_path(self, client, http):
+        http.aula(GROUP_EVENTS, ok([{"id": 1, "title": "Group event"}]))
         result = await client.get_events_by_group(42, "2026-03-01", "2026-03-31")
         assert len(result) == 1
         assert result[0]["title"] == "Group event"
+        assert len(http.calls(GROUP_EVENTS)) == 1
 
 
 class TestGetPost:
     """Tests for AulaApiClient.get_post method."""
 
     @pytest.fixture
-    def client(self):
-        http_client = AsyncMock()
-        return AulaApiClient(http_client=http_client, access_token="test_token")
+    def http(self):
+        return FakeHttpClient()
+
+    @pytest.fixture
+    def client(self, http):
+        return AulaApiClient(http)
 
     @pytest.mark.asyncio
-    async def test_happy_path(self, client):
-        client._request_with_version_retry = AsyncMock(
-            return_value=HttpResponse(
-                status_code=200,
-                data={
-                    "data": {
-                        "id": 1,
-                        "title": "Test Post",
-                        "content": {"html": "<p>content</p>"},
-                        "ownerProfile": {
-                            "id": 10,
-                            "profileId": 20,
-                            "name": "Author",
-                        },
-                    }
-                },
-            )
+    async def test_happy_path(self, client, http):
+        http.aula(
+            POST,
+            ok(
+                {
+                    "id": 1,
+                    "title": "Test Post",
+                    "content": {"html": "<p>content</p>"},
+                    "ownerProfile": {
+                        "id": 10,
+                        "profileId": 20,
+                        "name": "Værge Et",
+                    },
+                }
+            ),
         )
         result = await client.get_post(1)
         assert result is not None
         assert result.id == 1
+        assert http.calls(POST)[0].query["id"] == 1
 
     @pytest.mark.asyncio
-    async def test_null_data(self, client):
-        client._request_with_version_retry = AsyncMock(
-            return_value=HttpResponse(status_code=200, data={"data": None})
-        )
+    async def test_null_data(self, client, http):
+        http.aula(POST, ok(None))
         result = await client.get_post(1)
         assert result is None
 
@@ -3452,52 +3341,43 @@ class TestGetComments:
     """Tests for AulaApiClient.get_comments method."""
 
     @pytest.fixture
-    def client(self):
-        http_client = AsyncMock()
-        return AulaApiClient(http_client=http_client, access_token="test_token")
+    def http(self):
+        return FakeHttpClient()
+
+    @pytest.fixture
+    def client(self, http):
+        return AulaApiClient(http)
 
     @pytest.mark.asyncio
-    async def test_happy_path(self, client):
-        client._request_with_version_retry = AsyncMock(
-            return_value=HttpResponse(
-                status_code=200,
-                data={
-                    "data": [
-                        {
-                            "id": 1,
-                            "text": "Nice!",
-                            "owner": {"name": "Bob", "institutionProfileId": 10},
-                            "createdAt": "2026-03-16",
-                        }
-                    ]
-                },
-            )
+    async def test_happy_path(self, client, http):
+        http.aula(
+            COMMENTS,
+            ok(
+                [
+                    {
+                        "id": 1,
+                        "text": "Nice!",
+                        "owner": {"name": "Værge Et", "institutionProfileId": 10},
+                        "createdAt": "2026-03-16",
+                    }
+                ]
+            ),
         )
         result = await client.get_comments("post", 1)
         assert len(result) == 1
         assert result[0].id == 1
+        query = http.calls(COMMENTS)[0].query
+        assert (query["ParentType"], query["ParentId"], query["Limit"]) == ("post", 1, 100)
 
     @pytest.mark.asyncio
-    async def test_empty_data(self, client):
-        client._request_with_version_retry = AsyncMock(
-            return_value=HttpResponse(status_code=200, data={"data": []})
-        )
+    async def test_empty_data(self, client, http):
+        http.aula(COMMENTS, ok([]))
         result = await client.get_comments("post", 1)
         assert result == []
 
     @pytest.mark.asyncio
-    async def test_malformed_item_skipped(self, client):
-        client._request_with_version_retry = AsyncMock(
-            return_value=HttpResponse(
-                status_code=200,
-                data={
-                    "data": [
-                        {"id": 1, "text": "Good", "owner": {"name": "A"}},
-                        "bad-item",
-                    ]
-                },
-            )
-        )
+    async def test_malformed_item_skipped(self, client, http):
+        http.aula(COMMENTS, ok([{"id": 1, "text": "Good", "owner": {"name": "A"}}, "bad-item"]))
         result = await client.get_comments("post", 1)
         assert len(result) == 1
 
@@ -3564,28 +3444,25 @@ class TestGetMessageFolders:
     """Tests for AulaApiClient.get_message_folders method."""
 
     @pytest.fixture
-    def client(self):
-        http_client = AsyncMock()
-        return AulaApiClient(http_client=http_client, access_token="test_token")
+    def http(self):
+        return FakeHttpClient()
+
+    @pytest.fixture
+    def client(self, http):
+        return AulaApiClient(http)
 
     @pytest.mark.asyncio
-    async def test_happy_path(self, client):
-        client._request_with_version_retry = AsyncMock(
-            return_value=HttpResponse(
-                status_code=200,
-                data={"data": [{"id": 1, "name": "Inbox"}, {"id": 2, "name": "Sent"}]},
-            )
-        )
+    async def test_happy_path(self, client, http):
+        http.aula(FOLDERS, ok([{"id": 1, "name": "Inbox"}, {"id": 2, "name": "Sent"}]))
         result = await client.get_message_folders()
         assert len(result) == 2
         assert result[0].id == 1
         assert result[0].name == "Inbox"
+        assert http.calls(FOLDERS)[0].query["IncludeDeletedFolders"] is False
 
     @pytest.mark.asyncio
-    async def test_empty_data(self, client):
-        client._request_with_version_retry = AsyncMock(
-            return_value=HttpResponse(status_code=200, data={"data": []})
-        )
+    async def test_empty_data(self, client, http):
+        http.aula(FOLDERS, ok([]))
         result = await client.get_message_folders()
         assert result == []
 
@@ -3594,25 +3471,25 @@ class TestGetCommonInboxes:
     """Tests for AulaApiClient.get_common_inboxes method."""
 
     @pytest.fixture
-    def client(self):
-        http_client = AsyncMock()
-        return AulaApiClient(http_client=http_client, access_token="test_token")
+    def http(self):
+        return FakeHttpClient()
+
+    @pytest.fixture
+    def client(self, http):
+        return AulaApiClient(http)
 
     @pytest.mark.asyncio
-    async def test_happy_path(self, client):
+    async def test_happy_path(self, client, http):
         inboxes = [{"id": 1, "name": "School Inbox"}]
-        client._request_with_version_retry = AsyncMock(
-            return_value=HttpResponse(status_code=200, data={"data": inboxes})
-        )
+        http.aula(COMMON_INBOXES, ok(inboxes))
         result = await client.get_common_inboxes()
         assert len(result) == 1
         assert result[0]["name"] == "School Inbox"
+        assert len(http.calls(COMMON_INBOXES)) == 1
 
     @pytest.mark.asyncio
-    async def test_empty_data(self, client):
-        client._request_with_version_retry = AsyncMock(
-            return_value=HttpResponse(status_code=200, data={"data": []})
-        )
+    async def test_empty_data(self, client, http):
+        http.aula(COMMON_INBOXES, ok([]))
         result = await client.get_common_inboxes()
         assert result == []
 
@@ -3621,28 +3498,25 @@ class TestGetThreadsInBundle:
     """Tests for AulaApiClient.get_threads_in_bundle method."""
 
     @pytest.fixture
-    def client(self):
-        http_client = AsyncMock()
-        return AulaApiClient(http_client=http_client, access_token="test_token")
+    def http(self):
+        return FakeHttpClient()
+
+    @pytest.fixture
+    def client(self, http):
+        return AulaApiClient(http)
 
     @pytest.mark.asyncio
-    async def test_happy_path(self, client):
-        client._request_with_version_retry = AsyncMock(
-            return_value=HttpResponse(
-                status_code=200,
-                data={"data": [{"id": "t1", "subject": "Hello"}]},
-            )
-        )
+    async def test_happy_path(self, client, http):
+        http.aula(THREADS_IN_BUNDLE, ok([{"id": "t1", "subject": "Hello"}]))
         result = await client.get_threads_in_bundle(42)
         assert len(result) == 1
         assert result[0].thread_id == "t1"
         assert result[0].subject == "Hello"
+        assert http.calls(THREADS_IN_BUNDLE)[0].query["BundleId"] == 42
 
     @pytest.mark.asyncio
-    async def test_empty_data(self, client):
-        client._request_with_version_retry = AsyncMock(
-            return_value=HttpResponse(status_code=200, data={"data": []})
-        )
+    async def test_empty_data(self, client, http):
+        http.aula(THREADS_IN_BUNDLE, ok([]))
         result = await client.get_threads_in_bundle(42)
         assert result == []
 
@@ -3651,21 +3525,21 @@ class TestGetMessageInfo:
     """Tests for AulaApiClient.get_message_info method."""
 
     @pytest.fixture
-    def client(self):
-        http_client = AsyncMock()
-        return AulaApiClient(http_client=http_client, access_token="test_token")
+    def http(self):
+        return FakeHttpClient()
+
+    @pytest.fixture
+    def client(self, http):
+        return AulaApiClient(http)
 
     @pytest.mark.asyncio
-    async def test_happy_path(self, client):
-        client._request_with_version_retry = AsyncMock(
-            return_value=HttpResponse(
-                status_code=200,
-                data={"data": {"threadId": "t1", "messageId": "m1", "text": "Hi"}},
-            )
-        )
+    async def test_happy_path(self, client, http):
+        http.aula(MESSAGE_INFO, ok({"threadId": "t1", "messageId": "m1", "text": "Hi"}))
         result = await client.get_message_info("t1", "m1")
         assert result is not None
         assert result["messageId"] == "m1"
+        query = http.calls(MESSAGE_INFO)[0].query
+        assert (query["ThreadId"], query["MessageId"]) == ("t1", "m1")
 
 
 # ── Section 6: Search ─────────────────────────────────────────────
@@ -3673,30 +3547,24 @@ class TestFindRecipients:
     """Tests for AulaApiClient.find_recipients method."""
 
     @pytest.fixture
-    def client(self):
-        http_client = AsyncMock()
-        return AulaApiClient(http_client=http_client, access_token="test_token")
+    def http(self):
+        return FakeHttpClient()
+
+    @pytest.fixture
+    def client(self, http):
+        return AulaApiClient(http)
 
     @pytest.mark.asyncio
-    async def test_happy_path(self, client):
-        client._request_with_version_retry = AsyncMock(
-            return_value=HttpResponse(
-                status_code=200,
-                data={"data": {"results": [{"name": "Alice", "id": 1}]}},
-            )
-        )
-        result = await client.find_recipients("Alice")
+    async def test_happy_path(self, client, http):
+        http.aula(FIND_RECIPIENTS, ok({"results": [{"name": "Værge Et", "id": 1}]}))
+        result = await client.find_recipients("Værge")
         assert len(result) == 1
-        assert result[0]["name"] == "Alice"
+        assert result[0]["name"] == "Værge Et"
+        assert http.calls(FIND_RECIPIENTS)[0].query["Text"] == "Værge"
 
     @pytest.mark.asyncio
-    async def test_empty_results(self, client):
-        client._request_with_version_retry = AsyncMock(
-            return_value=HttpResponse(
-                status_code=200,
-                data={"data": {"results": []}},
-            )
-        )
+    async def test_empty_results(self, client, http):
+        http.aula(FIND_RECIPIENTS, ok({"results": []}))
         result = await client.find_recipients("Nobody")
         assert result == []
 
@@ -3772,37 +3640,33 @@ class TestGetContactList:
     """Tests for AulaApiClient.get_contact_list method."""
 
     @pytest.fixture
-    def client(self):
-        http_client = AsyncMock()
-        return AulaApiClient(http_client=http_client, access_token="test_token")
+    def http(self):
+        return FakeHttpClient()
+
+    @pytest.fixture
+    def client(self, http):
+        return AulaApiClient(http)
 
     @pytest.mark.asyncio
-    async def test_happy_path(self, client):
-        contacts = [{"name": "Alice", "role": "guardian"}]
-        client._request_with_version_retry = AsyncMock(
-            return_value=HttpResponse(status_code=200, data={"data": contacts})
-        )
+    async def test_happy_path(self, client, http):
+        contacts = [{"name": "Værge Et", "role": "guardian"}]
+        http.aula(CONTACT_LIST, ok(contacts))
         result = await client.get_contact_list(42)
         assert len(result) == 1
-        assert result[0]["name"] == "Alice"
+        assert result[0]["name"] == "Værge Et"
 
     @pytest.mark.asyncio
-    async def test_empty_data(self, client):
-        client._request_with_version_retry = AsyncMock(
-            return_value=HttpResponse(status_code=200, data={"data": []})
-        )
+    async def test_empty_data(self, client, http):
+        http.aula(CONTACT_LIST, ok([]))
         result = await client.get_contact_list(42)
         assert result == []
 
     @pytest.mark.asyncio
-    async def test_sends_all_required_params(self, client):
+    async def test_sends_all_required_params(self, client, http):
         """The API 400s unless method casing and every param are exactly right."""
-        client._request_with_version_retry = AsyncMock(
-            return_value=HttpResponse(status_code=200, data={"data": []})
-        )
+        http.aula(CONTACT_LIST, ok([]))
         await client.get_contact_list(42)
-        params = client._request_with_version_retry.call_args.kwargs["params"]
-        assert params == {
+        assert http.calls(CONTACT_LIST)[0].query == {
             "method": "profiles.getContactlist",
             "groupId": 42,
             "filter": "guardian",
@@ -3812,52 +3676,46 @@ class TestGetContactList:
         }
 
     @pytest.mark.asyncio
-    async def test_profile_type_and_page_forwarded(self, client):
-        client._request_with_version_retry = AsyncMock(
-            return_value=HttpResponse(status_code=200, data={"data": []})
-        )
+    async def test_profile_type_and_page_forwarded(self, client, http):
+        http.aula(CONTACT_LIST, ok([]))
         await client.get_contact_list(42, page=3, order="desc", profile_type="child")
-        params = client._request_with_version_retry.call_args.kwargs["params"]
-        assert params["filter"] == "child"
-        assert params["page"] == 3
-        assert params["order"] == "desc"
+        query = http.calls(CONTACT_LIST)[0].query
+        assert query["filter"] == "child"
+        assert query["page"] == 3
+        assert query["order"] == "desc"
 
 
 class TestGetContactParents:
     """Tests for AulaApiClient.get_contact_parents method."""
 
     @pytest.fixture
-    def client(self):
-        http_client = AsyncMock()
-        return AulaApiClient(http_client=http_client, access_token="test_token")
+    def http(self):
+        return FakeHttpClient()
+
+    @pytest.fixture
+    def client(self, http):
+        return AulaApiClient(http)
 
     @pytest.mark.asyncio
-    async def test_happy_path(self, client):
-        parents = [{"name": "Bob", "role": "parent"}]
-        client._request_with_version_retry = AsyncMock(
-            return_value=HttpResponse(status_code=200, data={"data": parents})
-        )
+    async def test_happy_path(self, client, http):
+        parents = [{"name": "Værge To", "role": "parent"}]
+        http.aula(CONTACT_PARENTS, ok(parents))
         result = await client.get_contact_parents()
         assert len(result) == 1
-        assert result[0]["name"] == "Bob"
+        assert result[0]["name"] == "Værge To"
 
     @pytest.mark.asyncio
-    async def test_empty_data(self, client):
-        client._request_with_version_retry = AsyncMock(
-            return_value=HttpResponse(status_code=200, data={"data": []})
-        )
+    async def test_empty_data(self, client, http):
+        http.aula(CONTACT_PARENTS, ok([]))
         result = await client.get_contact_parents()
         assert result == []
 
     @pytest.mark.asyncio
-    async def test_sends_required_params(self, client):
+    async def test_sends_required_params(self, client, http):
         """page and order are required; omitting them answers HTTP 400."""
-        client._request_with_version_retry = AsyncMock(
-            return_value=HttpResponse(status_code=200, data={"data": []})
-        )
+        http.aula(CONTACT_PARENTS, ok([]))
         await client.get_contact_parents()
-        params = client._request_with_version_retry.call_args.kwargs["params"]
-        assert params == {
+        assert http.calls(CONTACT_PARENTS)[0].query == {
             "method": "profiles.getContactParents",
             "page": 1,
             "order": "asc",
@@ -4239,6 +4097,17 @@ class TestAddVacation:
             await client.add_vacation([201], self.TODAY, self.TODAY)
 
 
+class _UnreachableForMethod(FakeHttpClient):
+    def __init__(self, unreachable: str) -> None:
+        super().__init__()
+        self.unreachable = unreachable
+
+    async def request(self, method, url, **kwargs):
+        if f"method={self.unreachable}" in url:
+            raise AulaConnectionError("down", status_code=0)
+        return await super().request(method, url, **kwargs)
+
+
 class TestMarkThreadRead:
     """Tests for AulaApiClient.mark_thread_read method.
 
@@ -4251,7 +4120,7 @@ class TestMarkThreadRead:
     MISSING = object()
 
     @classmethod
-    def _page(cls, messages, *, more=False, last_read=None, owner=OWNER, code=0, http=200):
+    def _page(cls, messages, *, more=False, last_read=None, owner=OWNER):
         data = {
             "messages": messages,
             "moreMessagesExist": more,
@@ -4259,130 +4128,125 @@ class TestMarkThreadRead:
         }
         if owner is not cls.MISSING:
             data["mailBoxOwner"] = owner
-        return HttpResponse(status_code=http, data={"status": {"code": code}, "data": data})
+        return ok(data)
 
-    @staticmethod
-    def _ok():
-        return HttpResponse(status_code=200, data={"status": {"code": 0}, "data": None})
+    @pytest.fixture
+    def http(self):
+        return FakeHttpClient()
 
-    @staticmethod
-    def _client(*responses):
-        client = AulaApiClient(http_client=AsyncMock(), access_token="test_token")
-        client._request_with_version_retry = AsyncMock(side_effect=list(responses))
-        return client
+    @pytest.fixture
+    def client(self, http):
+        return AulaApiClient(http)
 
     @staticmethod
     def _msg(msg_id, message_type="Message"):
         return {"id": msg_id, "messageType": message_type}
 
     @staticmethod
-    def _calls(client):
-        return [
-            (c.args[0], c.args[1], c.kwargs)
-            for c in client._request_with_version_retry.await_args_list
-        ]
+    def _written_message_id(http):
+        [write] = http.calls(SET_LAST_READ)
+        return write.json["messageId"]
 
     @pytest.mark.asyncio
-    async def test_sets_the_marker_on_the_newest_message_and_checks_it(self):
+    async def test_sets_the_marker_on_the_newest_message_and_checks_it(self, client, http):
         """Aula lists the newest message first, and that is where the marker goes."""
-        client = self._client(
+        http.aula(
+            THREAD_MESSAGES,
             self._page([self._msg("new"), self._msg("old")]),
-            self._ok(),
             self._page([self._msg("new")], last_read="new"),
         )
+        http.aula(SET_LAST_READ, ok())
 
         assert await client.mark_thread_read("42") is True
 
-        get_call, post_call, check_call = self._calls(client)
-        assert get_call[0] == "get"
-        assert "method=messaging.getMessagesForThread&threadId=42&page=0" in get_call[1]
-        assert post_call[0] == "post"
-        assert post_call[1].endswith("?method=messaging.setLastReadMessage")
-        assert post_call[2]["json"] == {
+        get_call, post_call, check_call = http.requests
+        assert (get_call.method, get_call.aula_method) == ("get", THREAD_MESSAGES)
+        assert (get_call.query["threadId"], get_call.query["page"]) == ("42", "0")
+        assert (post_call.method, post_call.aula_method) == ("post", SET_LAST_READ)
+        assert post_call.json == {
             "threadId": "42",
             "messageId": "new",
             "commonInboxId": None,
             "otpInboxId": None,
         }
-        assert check_call[0] == "get"
+        assert (check_call.method, check_call.aula_method) == ("get", THREAD_MESSAGES)
 
     @pytest.mark.asyncio
-    async def test_skips_entries_that_are_not_messages(self):
+    async def test_skips_entries_that_are_not_messages(self, client, http):
         """A thread event such as a recipient change is not a message to mark."""
-        client = self._client(
+        http.aula(
+            THREAD_MESSAGES,
             self._page(
                 [self._msg("event", "RecipientsRemoved"), self._msg("msg", "MessageEdited")]
             ),
-            self._ok(),
             self._page([], last_read="msg"),
         )
+        http.aula(SET_LAST_READ, ok())
 
         assert await client.mark_thread_read("42") is True
 
-        assert self._calls(client)[1][2]["json"]["messageId"] == "msg"
+        assert self._written_message_id(http) == "msg"
 
     @pytest.mark.asyncio
-    async def test_keeps_paging_when_the_first_page_holds_only_events(self):
+    async def test_keeps_paging_when_the_first_page_holds_only_events(self, client, http):
         """Events on page 0 do not mean the thread has no message."""
-        client = self._client(
+        http.aula(
+            THREAD_MESSAGES,
             self._page([self._msg("event", "RecipientsAdded")], more=True),
             self._page([self._msg("msg")]),
-            self._ok(),
             self._page([], last_read="msg"),
         )
+        http.aula(SET_LAST_READ, ok())
 
         assert await client.mark_thread_read("42") is True
 
-        calls = self._calls(client)
-        assert "page=0" in calls[0][1]
-        assert "page=1" in calls[1][1]
-        assert calls[2][2]["json"]["messageId"] == "msg"
+        reads = http.calls(THREAD_MESSAGES)
+        assert [read.query["page"] for read in reads[:2]] == ["0", "1"]
+        assert self._written_message_id(http) == "msg"
 
     @pytest.mark.asyncio
-    async def test_thread_without_messages_is_not_written(self):
+    async def test_thread_without_messages_is_not_written(self, client, http):
         """With nothing to mark once every page is read, no write is sent."""
-        client = self._client(self._page([self._msg("event", "RecipientsAdded")]))
+        http.aula(THREAD_MESSAGES, self._page([self._msg("event", "RecipientsAdded")]))
 
         assert await client.mark_thread_read("42") is False
 
-        assert len(self._calls(client)) == 1
+        assert len(http.requests) == 1
 
     @pytest.mark.asyncio
-    async def test_api_error_in_a_200_answer_is_not_success(self):
+    async def test_api_error_in_a_200_answer_is_not_success(self, client, http):
         """Aula reports its own errors inside an HTTP 200."""
-        rejected = HttpResponse(status_code=200, data={"status": {"code": 5}, "data": None})
-        client = self._client(self._page([self._msg("new")]), rejected)
+        http.aula(THREAD_MESSAGES, self._page([self._msg("new")]))
+        http.aula(SET_LAST_READ, rejected(5))
 
         with pytest.raises(HttpRequestError, match="rejected messaging.setLastReadMessage"):
             await client.mark_thread_read("42")
 
     @pytest.mark.asyncio
     @pytest.mark.parametrize("body", [None, "", "<html>", [], {}, {"status": "ok"}, {"data": {}}])
-    async def test_malformed_answer_is_not_success(self, body):
+    async def test_malformed_answer_is_not_success(self, client, http, body):
         """An empty or unexpected body is not read as a success."""
-        client = self._client(
-            self._page([self._msg("new")]), HttpResponse(status_code=200, data=body)
-        )
+        http.aula(THREAD_MESSAGES, self._page([self._msg("new")]))
+        http.aula(SET_LAST_READ, http_status(200, body))
 
         with pytest.raises(HttpRequestError):
             await client.mark_thread_read("42")
 
     @pytest.mark.asyncio
-    async def test_api_error_while_reading_the_thread_writes_nothing(self):
+    async def test_api_error_while_reading_the_thread_writes_nothing(self, client, http):
         """A rejected read stops before any write."""
-        client = self._client(self._page([self._msg("new")], code=1))
+        http.aula(THREAD_MESSAGES, rejected(1))
 
         with pytest.raises(HttpRequestError):
             await client.mark_thread_read("42")
 
-        assert len(self._calls(client)) == 1
+        assert len(http.requests) == 1
 
     @pytest.mark.asyncio
-    async def test_http_error_raises(self):
+    async def test_http_error_raises(self, client, http):
         """An HTTP error status raises through the response's own check."""
-        client = self._client(
-            self._page([self._msg("new")]), HttpResponse(status_code=500, data=None)
-        )
+        http.aula(THREAD_MESSAGES, self._page([self._msg("new")]))
+        http.aula(SET_LAST_READ, http_status(500))
 
         with pytest.raises(AulaServerError):
             await client.mark_thread_read("42")
@@ -4390,21 +4254,22 @@ class TestMarkThreadRead:
     @pytest.mark.asyncio
     async def test_network_error_propagates(self):
         """A failed connection is not swallowed."""
-        client = self._client(
-            self._page([self._msg("new")]), AulaConnectionError("down", status_code=0)
-        )
+        http = _UnreachableForMethod(SET_LAST_READ)
+        http.aula(THREAD_MESSAGES, self._page([self._msg("new")]))
+        client = AulaApiClient(http)
 
         with pytest.raises(AulaConnectionError):
             await client.mark_thread_read("42")
 
     @pytest.mark.asyncio
-    async def test_unconfirmed_marker_is_not_success(self):
+    async def test_unconfirmed_marker_is_not_success(self, client, http):
         """The write counts only when Aula reports the marker on that message."""
-        client = self._client(
+        http.aula(
+            THREAD_MESSAGES,
             self._page([self._msg("new")]),
-            self._ok(),
             self._page([], last_read="old"),
         )
+        http.aula(SET_LAST_READ, ok())
 
         with pytest.raises(HttpRequestError, match="did not confirm"):
             await client.mark_thread_read("42")
@@ -4424,89 +4289,86 @@ class TestMarkThreadRead:
             MISSING,
         ],
     )
-    async def test_mailbox_not_shown_to_be_the_guardians_own_is_refused(self, owner):
+    async def test_mailbox_not_shown_to_be_the_guardians_own_is_refused(self, client, http, owner):
         """The inbox IDs are sent as null, so a mailbox not shown to be the own one is refused."""
-        client = self._client(self._page([self._msg("new")], owner=owner))
+        http.aula(THREAD_MESSAGES, self._page([self._msg("new")], owner=owner))
 
         with pytest.raises(ValueError, match="not shown to be in your own mailbox"):
             await client.mark_thread_read("42")
 
-        assert len(self._calls(client)) == 1
+        assert len(http.requests) == 1
 
     @pytest.mark.asyncio
-    async def test_urls_follow_an_api_version_bump_between_calls(self):
+    async def test_urls_follow_an_api_version_bump_between_calls(self, client, http):
         """A version negotiated by the first request is used by paging and the check."""
-        client = AulaApiClient(http_client=AsyncMock(), access_token="test_token")
         old_url = client.api_url
-        new_url = old_url.replace(old_url.split("/v")[-1], str(int(old_url.split("/v")[-1]) + 1))
-        answers = iter(
-            [
-                self._page([self._msg("event", "RecipientsAdded")], more=True),
-                self._page([self._msg("msg")]),
-                self._ok(),
-                self._page([], last_read="msg"),
-            ]
+        new_url = f"{API_URL}{int(API_VERSION) + 1}"
+        http.aula(
+            THREAD_MESSAGES,
+            http_status(410),
+            self._page([self._msg("event", "RecipientsAdded")], more=True),
+            self._page([self._msg("msg")]),
+            self._page([], last_read="msg"),
         )
-        seen: list[str] = []
-
-        async def request(method, url, **kwargs):
-            seen.append(url)
-            if len(seen) == 1:
-                client.api_url = new_url  # what a 410 answer does inside the real request
-            return next(answers)
-
-        client._request_with_version_retry = request
+        http.aula(SET_LAST_READ, ok())
 
         assert await client.mark_thread_read("42") is True
 
+        seen = [request.url for request in http.requests]
         assert seen[0].startswith(old_url + "?")
+        assert len(seen) == 5
         assert all(url.startswith(new_url + "?") for url in seen[1:])
 
     @pytest.mark.asyncio
     async def test_marks_deleted_and_auto_reply_messages(self):
         """The web client accepts these types as the newest message too."""
         for message_type in ("MessageDeleted", "AutoReply"):
-            client = self._client(
+            http = FakeHttpClient()
+            http.aula(
+                THREAD_MESSAGES,
                 self._page([self._msg("last", message_type)]),
-                self._ok(),
                 self._page([], last_read="last"),
             )
+            http.aula(SET_LAST_READ, ok())
 
-            assert await client.mark_thread_read("42") is True
-            assert self._calls(client)[1][2]["json"]["messageId"] == "last"
+            assert await AulaApiClient(http).mark_thread_read("42") is True
+            assert self._written_message_id(http) == "last"
 
     @pytest.mark.asyncio
-    async def test_page_limit_is_an_error_not_no_messages(self, monkeypatch):
+    async def test_page_limit_is_an_error_not_no_messages(self, client, http, monkeypatch):
         """Events on every permitted page, with more to come, are not 'nothing to mark'."""
         monkeypatch.setattr("aula.api_client._MAX_THREAD_PAGES", 3)
-        client = self._client(
-            *[self._page([self._msg(f"e{i}", "RecipientsAdded")], more=True) for i in range(3)]
+        http.aula(
+            THREAD_MESSAGES,
+            *[self._page([self._msg(f"e{i}", "RecipientsAdded")], more=True) for i in range(3)],
         )
 
         with pytest.raises(ThreadScanLimitError, match="first 3 pages"):
             await client.mark_thread_read("42")
 
-        assert len(self._calls(client)) == 3
+        assert [read.query["page"] for read in http.calls(THREAD_MESSAGES)] == ["0", "1", "2"]
 
     @pytest.mark.asyncio
-    async def test_message_on_the_last_permitted_page_is_found(self, monkeypatch):
+    async def test_message_on_the_last_permitted_page_is_found(self, client, http, monkeypatch):
         """The cap is inclusive: the last page allowed is still read."""
         monkeypatch.setattr("aula.api_client._MAX_THREAD_PAGES", 3)
-        client = self._client(
+        http.aula(
+            THREAD_MESSAGES,
             self._page([self._msg("e0", "RecipientsAdded")], more=True),
             self._page([self._msg("e1", "RecipientsAdded")], more=True),
             self._page([self._msg("msg")], more=True),
-            self._ok(),
             self._page([], last_read="msg"),
         )
+        http.aula(SET_LAST_READ, ok())
 
         assert await client.mark_thread_read("42") is True
 
     @pytest.mark.asyncio
-    async def test_exhausted_event_only_thread_is_false(self, monkeypatch):
+    async def test_exhausted_event_only_thread_is_false(self, client, http, monkeypatch):
         """Only events, and Aula says there are no more pages: nothing to mark."""
         monkeypatch.setattr("aula.api_client._MAX_THREAD_PAGES", 3)
-        client = self._client(
+        http.aula(
+            THREAD_MESSAGES,
             self._page([self._msg("e0", "RecipientsAdded")], more=True),
             self._page([self._msg("e1", "RecipientsAdded")], more=False),
         )
