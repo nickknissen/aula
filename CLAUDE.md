@@ -58,7 +58,11 @@ src/aula/
   __main__.py               # python -m aula entry point
   api_client.py             # async API client
   auth_flow.py              # high-level auth orchestration
-  cli.py                    # Click CLI commands
+  cli/                      # Click CLI, one module per command group
+    _app.py                 # `cli` group, async_cmd, MitID login, _get_client
+    _helpers.py             # helpers shared by several command modules
+    account.py, messages.py, calendar.py, presence.py, absence.py, school.py,
+    widgets.py, downloads.py, weekly_summary.py, daily_summary.py, agent.py
   config.py                 # CLI config (~/.config/aula/config.json)
   const.py                  # API base URLs, user agent
   http.py                   # HTTP abstraction protocol
@@ -78,7 +82,7 @@ tests/                      # mirrors src/aula/ structure
 ### Module Dependency Flow
 
 ```
-cli.py → api_client.py → auth/mitid_client.py → auth/browser_client.py → auth/srp.py
+cli/ → api_client.py → auth/mitid_client.py → auth/browser_client.py → auth/srp.py
   │            │
   │            ├→ models/ → utils/html.py
   │            ├→ const.py
@@ -95,7 +99,7 @@ cli.py → api_client.py → auth/mitid_client.py → auth/browser_client.py →
 - **`auth/srp.py`** — `CustomSRP`: Secure Remote Password protocol with AES-GCM via cryptography.
 - **`models/`** — Dataclasses inheriting `AulaDataClass` (one file per model). Every model carries an optional `_raw: dict` preserving original API response. Uses `from_dict()` classmethods for parsing.
 - **`token_storage.py`** — `TokenStorage` ABC with `load()`/`save()` async methods; `FileTokenStorage` is the JSON file implementation.
-- **`cli.py`** — Click command group. Uses `@async_cmd` decorator to bridge sync Click to async via `asyncio.run()`. Sets `WindowsSelectorEventLoopPolicy` on Windows.
+- **`cli/`** — Click command group in `cli/_app.py`; each command module registers its commands on it, and `cli/__init__.py` imports them all. Uses `@async_cmd` to bridge sync Click to async via `asyncio.run()`, with a `SelectorEventLoop` on Windows. Tests replace the login with `tests/cli_support.py:patch_get_client`.
 - **`config.py`** — CLI config at `~/.config/aula/config.json`.
 - **`const.py`** — API base URLs (current base version: v25) and user agent.
 - **`utils/table.py`** — Calendar table rendering (rich or plain text fallback).

@@ -182,9 +182,9 @@ def test_describe_payload_names_keys_and_not_values():
 
 
 def test_every_aula_logger_redacts_credentials():
-    # __main__ runs the CLI on import.
+    # A __main__ module runs the CLI on import.
     for module in pkgutil.walk_packages(aula.__path__, "aula."):
-        if module.name != "aula.__main__":
+        if not module.name.endswith(".__main__"):
             importlib.import_module(module.name)
 
     loggers = {

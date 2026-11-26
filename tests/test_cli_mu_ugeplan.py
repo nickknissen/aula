@@ -6,9 +6,12 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 from click.testing import CliRunner
 
-from aula.cli import _WIDGET_ID_CACHE, mu_ugeplan, weekly_summary
+from aula.cli._helpers import _WIDGET_ID_CACHE
+from aula.cli.weekly_summary import weekly_summary
+from aula.cli.widgets import mu_ugeplan
 from aula.models import Child, Profile
 from aula.models.mu_weekly_letter import MUWeeklyPerson
+from tests.cli_support import patch_get_client
 
 
 @pytest.fixture
@@ -52,7 +55,7 @@ def client(monkeypatch):
     fake.widgets.get_ugeplan = AsyncMock(return_value=[person])
     fake.__aenter__ = AsyncMock(return_value=fake)
     fake.__aexit__ = AsyncMock(return_value=False)
-    monkeypatch.setattr("aula.cli._get_client", AsyncMock(return_value=fake))
+    patch_get_client(monkeypatch, AsyncMock(return_value=fake))
     yield fake
     _WIDGET_ID_CACHE.clear()
 

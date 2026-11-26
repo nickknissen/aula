@@ -12,31 +12,35 @@ from click.testing import CliRunner
 
 from aula import __version__, cli
 from aula.api_client import AulaApiClient
-from aula.cli import (
+from aula.cli._app import _password_provider, _print_otp_code, _token_digits_provider
+from aula.cli._helpers import (
     _WIDGET_ID_CACHE,
-    CONTACTS_PAGE_SIZE,
-    MAX_CONTACT_PAGES,
     _child_institution_filter,
-    _fetch_contact_pages,
     _first_available_widget,
     _has_widget,
-    _mu_task_classes,
-    _mu_task_rows,
-    _password_provider,
-    _print_otp_code,
     _require_any_widget,
     _require_widget,
     _resolve_week,
-    _token_digits_provider,
     _with_child,
+)
+from aula.cli.absence import register_absence, report_sick
+from aula.cli.account import logout, profile
+from aula.cli.calendar import vacations
+from aula.cli.messages import mark_read, messages
+from aula.cli.school import (
+    CONTACTS_PAGE_SIZE,
+    MAX_CONTACT_PAGES,
+    _fetch_contact_pages,
+    documents,
+    posts,
+)
+from aula.cli.weekly_summary import weekly_summary
+from aula.cli.widgets import (
+    _mu_task_classes,
+    _mu_task_rows,
     easyiq_homework,
     easyiq_ugeplan,
-    logout,
     print_mu_task_tables,
-    register_absence,
-    report_sick,
-    vacations,
-    weekly_summary,
 )
 from aula.const import (
     EASYIQ_WEEKPLAN_WIDGETS,
@@ -58,6 +62,7 @@ from aula.models import (
 )
 from aula.models.mu_task import MUTask, MUTaskClass, MUTaskCourse
 from aula.widgets import EasyIQChildNotInPortal
+from tests.cli_support import patch_get_client
 
 
 def _pager(total: int):
@@ -345,7 +350,7 @@ class TestResolveWeek:
         ids=["mid-year", "new-year-in-last-week", "december-in-first-week", "bare-number", "full"],
     )
     def test_uses_the_iso_week_year(self, monkeypatch, today, week, expected):
-        monkeypatch.setattr("aula.cli.aula_today", lambda: today)
+        monkeypatch.setattr("aula.cli._helpers.aula_today", lambda: today)
         assert _resolve_week(week) == expected
 
 
@@ -459,7 +464,7 @@ class TestLogout:
         """A cached session skips MitID entirely, so it has to go."""
         token_file = tmp_path / "tokens.json"
         token_file.write_text('{"tokens": {"access_token": "abc123"}}')
-        monkeypatch.setattr(cli, "DEFAULT_TOKEN_FILE", token_file)
+        monkeypatch.setattr(cli._app, "DEFAULT_TOKEN_FILE", token_file)
 
         result = CliRunner().invoke(logout, [], obj={"OUTPUT_FORMAT": "text"})
 
@@ -468,7 +473,7 @@ class TestLogout:
 
     def test_says_so_when_there_was_no_session(self, tmp_path, monkeypatch):
         """Silence would read as a session removed, and send the user hunting."""
-        monkeypatch.setattr(cli, "DEFAULT_TOKEN_FILE", tmp_path / "tokens.json")
+        monkeypatch.setattr(cli._app, "DEFAULT_TOKEN_FILE", tmp_path / "tokens.json")
 
         result = CliRunner().invoke(logout, [], obj={"OUTPUT_FORMAT": "text"})
 
@@ -479,8 +484,8 @@ class TestLogout:
         """Retyping the MitID username on every test login is the thing being avoided."""
         config_file = tmp_path / "config.json"
         config_file.write_text('{"mitid_username": "tester"}')
-        monkeypatch.setattr(cli, "DEFAULT_TOKEN_FILE", tmp_path / "tokens.json")
-        monkeypatch.setattr(cli, "CONFIG_FILE", config_file)
+        monkeypatch.setattr(cli._app, "DEFAULT_TOKEN_FILE", tmp_path / "tokens.json")
+        monkeypatch.setattr(cli._app, "CONFIG_FILE", config_file)
 
         CliRunner().invoke(logout, [], obj={"OUTPUT_FORMAT": "text"})
 
@@ -537,7 +542,7 @@ class TestLoginDrivenByAnotherProgram:
     @pytest.fixture
     def default_token_file(self, tmp_path, monkeypatch):
         path = tmp_path / "default" / "tokens.json"
-        monkeypatch.setattr(cli, "DEFAULT_TOKEN_FILE", path)
+        monkeypatch.setattr(cli._app, "DEFAULT_TOKEN_FILE", path)
         return path
 
     @pytest.fixture
@@ -807,7 +812,7 @@ class TestReportSick:
     @pytest.fixture
     def run(self, fake_client, monkeypatch):
         """Invoke report-sick against the fake client."""
-        monkeypatch.setattr("aula.cli._get_client", AsyncMock(return_value=fake_client))
+        patch_get_client(monkeypatch, AsyncMock(return_value=fake_client))
 
         def invoke(*args, output_format="text"):
             return CliRunner().invoke(report_sick, list(args), obj={"OUTPUT_FORMAT": output_format})
@@ -985,8 +990,8 @@ class TestRegisterAbsence:
     @pytest.fixture
     def run(self, fake_client, monkeypatch):
         """Invoke register-absence against the fake client, on a fixed today."""
-        monkeypatch.setattr("aula.cli._get_client", AsyncMock(return_value=fake_client))
-        monkeypatch.setattr("aula.cli.aula_today", lambda: self.TODAY)
+        patch_get_client(monkeypatch, AsyncMock(return_value=fake_client))
+        monkeypatch.setattr("aula.cli.absence.aula_today", lambda: self.TODAY)
 
         def invoke(*args, output_format="text", input=None):
             return CliRunner().invoke(
@@ -1052,7 +1057,7 @@ class TestRegisterAbsence:
     ):
         """Nothing about a refused absence should reach Aula, not even the login."""
         get_client = AsyncMock(return_value=fake_client)
-        monkeypatch.setattr("aula.cli._get_client", get_client)
+        patch_get_client(monkeypatch, get_client)
 
         result = run(*args, "-y")
 
@@ -1151,7 +1156,7 @@ class TestRegisterAbsence:
         """Not being able to check permission is not the same as being denied."""
         fake_client.get_presence_configuration = AsyncMock(side_effect=RuntimeError("boom"))
 
-        with caplog.at_level(logging.WARNING, logger="aula.cli"):
+        with caplog.at_level(logging.WARNING, logger="aula.cli.absence"):
             result = run(*self.DATES, "-y")
 
         fake_client.add_vacation.assert_awaited_once()
@@ -1166,7 +1171,7 @@ class TestRegisterAbsence:
             return_value=[self._config(201, "editable")]
         )
 
-        with caplog.at_level(logging.WARNING, logger="aula.cli"):
+        with caplog.at_level(logging.WARNING, logger="aula.cli.absence"):
             result = run(*self.DATES, "-y")
 
         assert fake_client.add_vacation.await_args.args[0] == [201, 202]
@@ -1249,7 +1254,7 @@ class TestRegisterAbsence:
     def test_vacations_reader_does_not_write(self, fake_client, monkeypatch):
         """The existing reader keeps reading institution registrations only."""
         fake_client.get_vacation_registrations = AsyncMock(return_value=[])
-        monkeypatch.setattr("aula.cli._get_client", AsyncMock(return_value=fake_client))
+        patch_get_client(monkeypatch, AsyncMock(return_value=fake_client))
 
         result = CliRunner().invoke(vacations, [], obj={"OUTPUT_FORMAT": "text"})
 
@@ -1319,7 +1324,7 @@ class TestEasyiqPerChildInstitutionScoping:
         return client
 
     def _run(self, command, client, monkeypatch, *args, output_format="text"):
-        monkeypatch.setattr("aula.cli._get_client", AsyncMock(return_value=client))
+        patch_get_client(monkeypatch, AsyncMock(return_value=client))
         return CliRunner().invoke(command, list(args), obj={"OUTPUT_FORMAT": output_format})
 
     def test_ugeplan_scopes_institution_filter_per_child(self, monkeypatch):
@@ -1635,12 +1640,10 @@ class TestMarkRead:
 
     @pytest.fixture
     def run(self, fake_client, monkeypatch):
-        monkeypatch.setattr("aula.cli._get_client", AsyncMock(return_value=fake_client))
+        patch_get_client(monkeypatch, AsyncMock(return_value=fake_client))
 
         def invoke(*args, output_format="text"):
-            return CliRunner().invoke(
-                cli.mark_read, list(args), obj={"OUTPUT_FORMAT": output_format}
-            )
+            return CliRunner().invoke(mark_read, list(args), obj={"OUTPUT_FORMAT": output_format})
 
         return invoke
 
@@ -1744,7 +1747,7 @@ class TestWebLinks:
 
     @pytest.fixture
     def run(self, fake_client, monkeypatch):
-        monkeypatch.setattr("aula.cli._get_client", AsyncMock(return_value=fake_client))
+        patch_get_client(monkeypatch, AsyncMock(return_value=fake_client))
 
         def invoke(command, output_format="text"):
             return CliRunner().invoke(command, [], obj={"OUTPUT_FORMAT": output_format})
@@ -1752,12 +1755,12 @@ class TestWebLinks:
         return invoke
 
     def test_messages_show_the_thread_link(self, run):
-        result = run(cli.messages)
+        result = run(messages)
 
         assert f"  Link: {self.THREAD_URL}" in result.output
 
     def test_messages_json_carries_the_thread_link(self, run):
-        result = run(cli.messages, output_format="json")
+        result = run(messages, output_format="json")
 
         assert json.loads(result.stdout)[0]["web_url"] == self.THREAD_URL
 
@@ -1775,17 +1778,17 @@ class TestWebLinks:
             ]
         )
 
-        result = run(cli.messages)
+        result = run(messages)
 
         assert "  Værge Et, Lærer Et | 2026-11-03 14:30" in result.output
 
     def test_posts_show_the_post_link(self, run):
-        result = run(cli.posts)
+        result = run(posts)
 
         assert f"  Link: {self.POST_URL}" in result.output
 
     def test_posts_json_carries_the_post_link(self, run):
-        result = run(cli.posts, output_format="json")
+        result = run(posts, output_format="json")
 
         assert json.loads(result.stdout)[0]["web_url"] == self.POST_URL
 
@@ -1834,12 +1837,10 @@ class TestCommonFiles:
 
     @pytest.fixture
     def run(self, fake_client, monkeypatch):
-        monkeypatch.setattr("aula.cli._get_client", AsyncMock(return_value=fake_client))
+        patch_get_client(monkeypatch, AsyncMock(return_value=fake_client))
 
         def invoke(output_format="text"):
-            return CliRunner().invoke(
-                cli.documents, ["--common"], obj={"OUTPUT_FORMAT": output_format}
-            )
+            return CliRunner().invoke(documents, ["--common"], obj={"OUTPUT_FORMAT": output_format})
 
         return invoke
 
@@ -1877,9 +1878,9 @@ class TestSecureDocuments:
         client.get_secure_documents = AsyncMock(return_value=[])
         client.__aenter__ = AsyncMock(return_value=client)
         client.__aexit__ = AsyncMock(return_value=False)
-        monkeypatch.setattr("aula.cli._get_client", AsyncMock(return_value=client))
+        patch_get_client(monkeypatch, AsyncMock(return_value=client))
 
-        result = CliRunner().invoke(cli.documents, [], obj={"OUTPUT_FORMAT": "text"})
+        result = CliRunner().invoke(documents, [], obj={"OUTPUT_FORMAT": "text"})
 
         assert result.exit_code == 0
         client.get_secure_documents.assert_awaited_once_with([10])
@@ -1900,9 +1901,9 @@ class TestServerTextIsStripped:
         )
         client.__aenter__ = AsyncMock(return_value=client)
         client.__aexit__ = AsyncMock(return_value=None)
-        monkeypatch.setattr("aula.cli._get_client", AsyncMock(return_value=client))
+        patch_get_client(monkeypatch, AsyncMock(return_value=client))
 
-        result = CliRunner().invoke(cli.profile, [], obj={"OUTPUT_FORMAT": "text"})
+        result = CliRunner().invoke(profile, [], obj={"OUTPUT_FORMAT": "text"})
 
         assert result.exit_code == 0
         assert "\x1b" not in result.output
